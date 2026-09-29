@@ -1,0 +1,56 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MiColl",
+  "version": "0.1.0",
+  "identifier": "com.araxos.micoll",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "MiColl",
+        "width": 1280,
+        "height": 832,
+        "minWidth": 940,
+        "minHeight": 640,
+        "decorations": false,
+        "backgroundColor": "#080506"
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "publisher": "araxos",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVEMTAyN0NGMDRBQjFCMjEKUldRaEc2c0V6eWNRN2N2Zm95TmF0c0YzMjRTSE0yWnNXSlRzZUhJNnlmTEZta3lxT0d4U2NtcUYK",
+      "endpoints": [
+        "https://github.com/araxos/MiColl/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

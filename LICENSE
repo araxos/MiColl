@@ -1,0 +1,15 @@
+Copyright (c) 2026 araxos. All rights reserved.
+
+The MiColl application, as distributed through the official releases, may be
+installed and used free of charge.
+
+The source code in this repository is published for transparency only. You may
+view it. You may not copy, modify, distribute, or create derivative works from
+it without prior written permission.
+
+The MiColl name and logo are not licensed.
+
+Third-party components keep their own licenses, see THIRD-PARTY.md.
+
+The fonts in src/assets/fonts/iri/ are a modified version of Unbounded and stay
+under the SIL Open Font License 1.1 (see src/assets/fonts/iri/OFL.txt).

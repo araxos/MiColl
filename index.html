@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/micoll-splash.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MiColl</title>
+    <style>
+      /* Splash screen. It's here and not in React so it shows in the very first
+         frame (React only draws after its bundle loaded). backgroundColor in
+         tauri.conf.json covers the time before the webview paints.
+
+         The logo is split in two files so the star can move on its own:
+         micoll-mark.svg = the M (used as a mask over a moving gradient),
+         micoll-spark.svg = the star. micoll-splash.svg has both, it's the window icon. */
+      html,
+      body {
+        margin: 0;
+        background: #080506;
+      }
+      #micoll-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        background: radial-gradient(120% 90% at 50% 0%, #170d12 0%, #080506 62%);
+        transition: opacity 0.35s ease;
+        /* no text selection or image dragging on the splash */
+        -webkit-user-select: none;
+        user-select: none;
+        cursor: default;
+      }
+      #micoll-splash img {
+        -webkit-user-drag: none;
+      }
+      /* set by lib/splash.ts when the library is shown, the element is removed after
+         the fade so it can't block clicks */
+      #micoll-splash[data-done] {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      /* two soft glows in the corners so the background isn't flat */
+      .mcs-haze {
+        position: absolute;
+        border-radius: 999px;
+        filter: blur(20px);
+      }
+      .mcs-haze-a {
+        top: -160px;
+        left: -120px;
+        width: 720px;
+        height: 620px;
+        background: radial-gradient(
+          circle,
+          rgba(255, 78, 126, 0.14) 0%,
+          rgba(255, 78, 126, 0) 68%
+        );
+      }
+      .mcs-haze-b {
+        right: -140px;
+        bottom: -220px;
+        width: 760px;
+        height: 680px;
+        background: radial-gradient(
+          circle,
+          rgba(255, 159, 69, 0.11) 0%,
+          rgba(255, 159, 69, 0) 66%
+        );
+      }
+
+      /* logo in the middle, the loading bar a fixed distance below it */
+      .mcs-stage {
+        position: relative;
+        width: 168px;
+        height: 168px;
+      }
+
+      .mcs-bloom {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 460px;
+        height: 460px;
+        margin: -230px 0 0 -230px;
+        border-radius: 999px;
+        opacity: 0.55;
+        background: radial-gradient(
+          circle,
+          rgba(255, 78, 126, 0.42) 0%,
+          rgba(255, 159, 69, 0.15) 40%,
+          rgba(255, 78, 126, 0) 70%
+        );
+        filter: blur(8px);
+        animation:
+          micoll-splash-bloom-in 1400ms cubic-bezier(0.16, 1, 0.3, 1) both,
+          micoll-splash-bloom-pulse 5200ms ease-in-out 1400ms infinite;
+      }
+
+      /* outer layer = the entry animation, inner layer = the endless one.
+         Separate so the logo keeps moving after it landed. */
+      .mcs-mark {
+        position: absolute;
+        inset: 0;
+        animation: micoll-splash-mark-in 1150ms cubic-bezier(0.16, 1, 0.3, 1) 140ms both;
+      }
+      .mcs-live {
+        position: absolute;
+        inset: 0;
+        animation: micoll-splash-breathe 5200ms ease-in-out 1200ms infinite;
+      }
+
+      /* the M: a moving gradient cut to the letter shape */
+      .mcs-fill {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(125deg, #ff4e7e 0%, #ff7a5c 45%, #ff9f45 75%, #ff4e7e 100%);
+        background-size: 260% 260%;
+        -webkit-mask: url("/micoll-mark.svg") center / contain no-repeat;
+        mask: url("/micoll-mark.svg") center / contain no-repeat;
+        animation: micoll-splash-drift 6400ms ease-in-out infinite;
+      }
+      /* shine moving across the letter */
+      .mcs-sheen {
+        position: absolute;
+        inset: 0;
+        mix-blend-mode: screen;
+        background: linear-gradient(
+          102deg,
+          rgba(255, 255, 255, 0) 41%,
+          rgba(255, 236, 225, 0.92) 50%,
+          rgba(255, 255, 255, 0) 59%
+        );
+        background-size: 240% 100%;
+        background-repeat: no-repeat;
+        -webkit-mask: url("/micoll-mark.svg") center / contain no-repeat;
+        mask: url("/micoll-mark.svg") center / contain no-repeat;
+        animation: micoll-splash-sheen 2600ms linear 1300ms infinite;
+      }
+
+      /* The star sits on the M, shoots away, and a second one flies in from the
+         bottom left (drawn under the M, so it passes behind it). They swap at the
+         frame where both are in the same spot. */
+      .mcs-star {
+        position: absolute;
+        inset: 0;
+        transform-origin: 89% 23%;
+      }
+      .mcs-star img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        /* Tailwind sets img max-width: 100%, which is 0 in this absolute box */
+        max-width: none;
+      }
+      .mcs-star-in-move {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        animation: micoll-splash-star-in-move 5200ms linear 1700ms infinite backwards;
+      }
+      .mcs-star-in-scale {
+        animation: micoll-splash-star-in-scale 5200ms linear 1700ms infinite backwards;
+      }
+      .mcs-star-out {
+        animation: micoll-splash-star-out 5200ms linear 1700ms infinite backwards;
+      }
+      .mcs-spark-pop {
+        position: absolute;
+        inset: 0;
+        transform-origin: 89% 23%;
+        animation: micoll-splash-spark-pop 800ms cubic-bezier(0.34, 1.56, 0.64, 1) 880ms both;
+      }
+
+      /* trails. opacity 0 by default so a frozen trail doesn't show up with
+         reduced motion */
+      .mcs-trail {
+        position: absolute;
+        top: 23%;
+        left: 89%;
+        height: 3px;
+        margin-top: -1.5px;
+        border-radius: 3px;
+        transform-origin: left center;
+        opacity: 0;
+      }
+      .mcs-trail-out {
+        width: 158px;
+        background: linear-gradient(
+          90deg,
+          rgba(255, 216, 77, 0) 0%,
+          rgba(255, 216, 77, 0.28) 42%,
+          rgba(255, 233, 150, 0.95) 88%,
+          rgba(255, 255, 255, 0.9) 100%
+        );
+        box-shadow:
+          0 0 10px rgba(255, 200, 60, 0.85),
+          0 0 26px rgba(255, 176, 40, 0.55),
+          0 0 54px rgba(255, 150, 30, 0.3);
+        animation: micoll-splash-trail-out 5200ms cubic-bezier(0.22, 1, 0.28, 1) 1700ms infinite
+          backwards;
+      }
+      .mcs-trail-out-glow {
+        width: 158px;
+        height: 12px;
+        margin-top: -6px;
+        border-radius: 12px;
+        background: linear-gradient(
+          90deg,
+          rgba(255, 190, 40, 0) 0%,
+          rgba(255, 190, 40, 0.12) 50%,
+          rgba(255, 214, 90, 0.45) 95%
+        );
+        filter: blur(6px);
+        animation: micoll-splash-trail-out 5200ms cubic-bezier(0.22, 1, 0.28, 1) 1700ms infinite
+          backwards;
+      }
+      .mcs-trail-in {
+        width: 150px;
+        background: linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0.9) 0%,
+          rgba(255, 233, 150, 0.8) 10%,
+          rgba(255, 216, 77, 0.24) 58%,
+          rgba(255, 216, 77, 0) 100%
+        );
+        box-shadow:
+          0 0 9px rgba(255, 200, 60, 0.7),
+          0 0 22px rgba(255, 176, 40, 0.4);
+        animation: micoll-splash-trail-in 5200ms linear 1700ms infinite backwards;
+      }
+      .mcs-glint {
+        position: absolute;
+        top: 23%;
+        left: 89%;
+        width: 110px;
+        height: 110px;
+        margin: -55px 0 0 -55px;
+        border-radius: 999px;
+        opacity: 0;
+        background: radial-gradient(
+          circle,
+          rgba(255, 196, 90, 0.65) 0%,
+          rgba(255, 182, 61, 0) 62%
+        );
+        animation: micoll-splash-glint 5200ms ease-out 1700ms infinite backwards;
+      }
+
+      /* no percentage, loading has no real progress to show */
+      .mcs-bar {
+        position: absolute;
+        top: calc(100% + 44px);
+        left: 0;
+        width: 168px;
+        height: 3px;
+        border-radius: 3px;
+        background: rgba(255, 255, 255, 0.08);
+        overflow: hidden;
+      }
+      .mcs-bar span {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border-radius: 3px;
+        transform-origin: left center;
+        background: linear-gradient(
+          90deg,
+          rgba(255, 78, 126, 0) 0%,
+          #ff4e7e 30%,
+          #ff9f45 70%,
+          rgba(255, 159, 69, 0) 100%
+        );
+        animation: micoll-splash-shuttle 1900ms cubic-bezier(0.65, 0, 0.35, 1) 700ms infinite;
+      }
+
+      /* ---- entry ---- */
+      @keyframes micoll-splash-mark-in {
+        0% {
+          opacity: 0;
+          transform: scale(0.5) translateY(18px);
+          filter: blur(10px);
+        }
+        55% {
+          opacity: 1;
+          transform: scale(1.05) translateY(0);
+          filter: blur(0);
+        }
+        78% {
+          transform: scale(0.98);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1);
+          filter: blur(0);
+        }
+      }
+      @keyframes micoll-splash-bloom-in {
+        0% {
+          opacity: 0;
+          transform: scale(0.3);
+        }
+        100% {
+          opacity: 0.75;
+          transform: scale(1);
+        }
+      }
+      @keyframes micoll-splash-spark-pop {
+        0% {
+          opacity: 0;
+          transform: scale(0) rotate(-80deg);
+        }
+        60% {
+          opacity: 1;
+          transform: scale(1.3) rotate(8deg);
+        }
+        82% {
+          transform: scale(0.93) rotate(-3deg);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1) rotate(0deg);
+        }
+      }
+
+      /* ---- loops while loading ---- */
+      @keyframes micoll-splash-breathe {
+        0%,
+        100% {
+          transform: scale(1) rotate(0deg);
+        }
+        35% {
+          transform: scale(1.045) rotate(-1.1deg);
+        }
+        70% {
+          transform: scale(0.985) rotate(0.8deg);
+        }
+      }
+      @keyframes micoll-splash-drift {
+        0%,
+        100% {
+          background-position: 0% 50%;
+        }
+        50% {
+          background-position: 100% 50%;
+        }
+      }
+      @keyframes micoll-splash-sheen {
+        0% {
+          background-position: -70% 0;
+          opacity: 0;
+        }
+        12% {
+          opacity: 1;
+        }
+        70% {
+          opacity: 1;
+        }
+        100% {
+          background-position: 170% 0;
+          opacity: 0;
+        }
+      }
+      @keyframes micoll-splash-bloom-pulse {
+        0%,
+        100% {
+          opacity: 0.4;
+          transform: scale(0.94);
+        }
+        50% {
+          opacity: 0.82;
+          transform: scale(1.1);
+        }
+      }
+      /* Front star: shoots away and only comes back when the incoming one passed
+         behind the M. Both are in the same spot at 54.4% / 54.5%, so the swap
+         can't be seen. */
+      @keyframes micoll-splash-star-out {
+        0%,
+        24% {
+          opacity: 1;
+          transform: translate(0, 0) scale(1) rotate(0deg);
+          animation-timing-function: cubic-bezier(0.4, 0, 0.7, 0);
+        }
+        28% {
+          opacity: 1;
+          transform: translate(24px, -19px) scale(1.08) rotate(18deg);
+        }
+        31% {
+          opacity: 0.85;
+          transform: translate(78px, -61px) scale(0.66) rotate(44deg);
+        }
+        33.4% {
+          opacity: 0;
+          transform: translate(128px, -100px) scale(0.38) rotate(64deg);
+        }
+        33.5%,
+        54.4% {
+          opacity: 0;
+          transform: translate(-16px, 13px) scale(0.9) rotate(-5deg);
+        }
+        54.5% {
+          opacity: 1;
+          transform: translate(-16px, 13px) scale(0.9) rotate(-5deg);
+          animation-timing-function: cubic-bezier(0.18, 0.9, 0.3, 1);
+        }
+        60% {
+          opacity: 1;
+          transform: translate(7px, -6px) scale(1.15) rotate(4deg);
+        }
+        66% {
+          opacity: 1;
+          transform: translate(0, 0) scale(0.99) rotate(0deg);
+        }
+        100% {
+          opacity: 1;
+          transform: translate(0, 0) scale(1) rotate(0deg);
+        }
+      }
+      /* the trail behind it, starts when the star moves, then fades */
+      @keyframes micoll-splash-trail-out {
+        0%,
+        26.5% {
+          opacity: 0;
+          transform: rotate(-38deg) scaleX(0.04);
+        }
+        29% {
+          opacity: 1;
+          transform: rotate(-38deg) scaleX(0.2);
+          animation-timing-function: cubic-bezier(0.35, 0.55, 0.5, 1);
+        }
+        36.5% {
+          opacity: 1;
+          transform: rotate(-38deg) scaleX(1);
+        }
+        44% {
+          opacity: 0.75;
+          transform: rotate(-38deg) scaleX(1);
+        }
+        100% {
+          opacity: 0;
+          transform: rotate(-38deg) scaleX(1);
+        }
+      }
+      @keyframes micoll-splash-star-in-move {
+        0%,
+        33.5% {
+          opacity: 0;
+          transform: translate(-182px, 143px);
+        }
+        34% {
+          opacity: 0;
+          transform: translate(-176px, 138px);
+          animation-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
+        }
+        37% {
+          opacity: 1;
+          transform: translate(-136px, 107px);
+        }
+        50% {
+          opacity: 1;
+          transform: translate(-44px, 35px);
+        }
+        54.4% {
+          opacity: 1;
+          transform: translate(-16px, 13px);
+        }
+        54.5%,
+        100% {
+          opacity: 0;
+          transform: translate(-16px, 13px);
+        }
+      }
+      @keyframes micoll-splash-star-in-scale {
+        0%,
+        34% {
+          transform: scale(0.24) rotate(-44deg);
+        }
+        47% {
+          transform: scale(0.62) rotate(-17deg);
+        }
+        54.4%,
+        100% {
+          transform: scale(0.9) rotate(-5deg);
+        }
+      }
+      @keyframes micoll-splash-trail-in {
+        0%,
+        34% {
+          opacity: 0;
+          transform: rotate(142deg) scaleX(0.08);
+        }
+        39% {
+          opacity: 0.9;
+          transform: rotate(142deg) scaleX(0.5);
+        }
+        47% {
+          opacity: 0.6;
+          transform: rotate(142deg) scaleX(1);
+        }
+        54.4%,
+        100% {
+          opacity: 0;
+          transform: rotate(142deg) scaleX(1);
+        }
+      }
+      @keyframes micoll-splash-glint {
+        0%,
+        22%,
+        36%,
+        52%,
+        100% {
+          opacity: 0;
+          transform: scale(0.7);
+        }
+        27% {
+          opacity: 0.55;
+          transform: scale(1.05);
+        }
+        60% {
+          opacity: 0.9;
+          transform: scale(1.2);
+        }
+      }
+      @keyframes micoll-splash-shuttle {
+        0% {
+          transform: translateX(-100%) scaleX(0.45);
+        }
+        50% {
+          transform: translateX(40%) scaleX(1);
+        }
+        100% {
+          transform: translateX(210%) scaleX(0.45);
+        }
+      }
+
+      /* Reduced motion: nothing moves. Trails and the incoming star are opacity 0
+         by default, so only the logo with its star stays. */
+      @media (prefers-reduced-motion: reduce) {
+        #micoll-splash *,
+        #micoll-splash *::before,
+        #micoll-splash *::after {
+          animation: none !important;
+        }
+        /* a stopped bar would look full ("done"), so show the empty track */
+        .mcs-bar span {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="micoll-splash">
+      <div class="mcs-haze mcs-haze-a"></div>
+      <div class="mcs-haze mcs-haze-b"></div>
+      <div class="mcs-stage">
+        <div class="mcs-bloom"></div>
+        <div class="mcs-mark">
+          <div class="mcs-live">
+            <!-- incoming star + trail, under the M -->
+            <div class="mcs-star-in-move">
+              <div class="mcs-trail mcs-trail-in"></div>
+              <div class="mcs-star mcs-star-in-scale">
+                <img src="/micoll-spark.svg" alt="" draggable="false" />
+              </div>
+            </div>
+
+            <div class="mcs-fill"></div>
+            <div class="mcs-sheen"></div>
+
+            <!-- outgoing trail + star -->
+            <div class="mcs-trail mcs-trail-out"></div>
+            <div class="mcs-trail mcs-trail-out-glow"></div>
+            <div class="mcs-spark-pop">
+              <div class="mcs-star mcs-star-out">
+                <img src="/micoll-spark.svg" alt="" draggable="false" />
+              </div>
+            </div>
+            <div class="mcs-glint"></div>
+          </div>
+        </div>
+        <div class="mcs-bar"><span></span></div>
+      </div>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

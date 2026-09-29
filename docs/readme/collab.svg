@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="230" viewBox="0 0 800 230" font-family="Segoe UI, system-ui, -apple-system, sans-serif">
+  <defs>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9d8bf7"/>
+      <stop offset="1" stop-color="#5eead4"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="230" rx="18" fill="#15121c"/>
+
+  <!-- the two creators -->
+  <circle cx="130" cy="110" r="46" fill="#211d2b" stroke="#9d8bf7" stroke-width="3"/>
+  <text x="130" y="116" fill="#e9e6f2" font-size="16" font-weight="600" text-anchor="middle">Bonnie</text>
+  <circle cx="670" cy="110" r="46" fill="#211d2b" stroke="#5eead4" stroke-width="3"/>
+  <text x="670" y="116" fill="#e9e6f2" font-size="16" font-weight="600" text-anchor="middle">Clyde</text>
+
+  <!-- links to the one reward -->
+  <path d="M176,110 C250,110 270,110 330,110" stroke="#9d8bf7" stroke-width="3" fill="none"/>
+  <path d="M624,110 C550,110 530,110 470,110" stroke="#5eead4" stroke-width="3" fill="none" stroke-dasharray="7 6"/>
+  <rect x="222" y="82" width="74" height="22" rx="11" fill="#2a2440"/>
+  <text x="259" y="97" fill="#c9bffd" font-size="12" text-anchor="middle">owner</text>
+  <rect x="496" y="82" width="98" height="22" rx="11" fill="#173330"/>
+  <text x="545" y="97" fill="#99f6e4" font-size="12" text-anchor="middle">with Bonnie</text>
+
+  <!-- the reward -->
+  <rect x="330" y="50" width="140" height="120" rx="14" fill="url(#card)" opacity="0.92"/>
+  <rect x="346" y="66" width="108" height="64" rx="8" fill="#15121c" opacity="0.35"/>
+  <text x="400" y="154" fill="#15121c" font-size="15" font-weight="700" text-anchor="middle">Reward X</text>
+
+  <text x="400" y="204" fill="#8b85a0" font-size="13" text-anchor="middle">One folder on disk, shown at both creators. No copies.</text>
+</svg>

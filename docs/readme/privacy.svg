@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="150" viewBox="0 0 800 150" font-family="Segoe UI, system-ui, -apple-system, sans-serif">
+  <rect width="800" height="150" rx="18" fill="#15121c"/>
+  <g text-anchor="middle">
+    <!-- no account -->
+    <circle cx="133" cy="58" r="28" fill="#211d2b" stroke="#9d8bf7" stroke-width="2.5"/>
+    <circle cx="133" cy="52" r="8" fill="none" stroke="#c9bffd" stroke-width="2.5"/>
+    <path d="M119,72 C121,62 145,62 147,72" fill="none" stroke="#c9bffd" stroke-width="2.5"/>
+    <line x1="113" y1="38" x2="153" y2="78" stroke="#ff4e7e" stroke-width="3"/>
+    <text x="133" y="118" fill="#e9e6f2" font-size="14">No account</text>
+
+    <!-- offline -->
+    <circle cx="333" cy="58" r="28" fill="#211d2b" stroke="#9d8bf7" stroke-width="2.5"/>
+    <path d="M318,64 a10,10 0 0 1 4,-19 a13,13 0 0 1 24,4 a8,8 0 0 1 2,15 z" fill="none" stroke="#c9bffd" stroke-width="2.5"/>
+    <line x1="313" y1="38" x2="353" y2="78" stroke="#ff4e7e" stroke-width="3"/>
+    <text x="333" y="118" fill="#e9e6f2" font-size="14">No cloud</text>
+
+    <!-- no tracking -->
+    <circle cx="533" cy="58" r="28" fill="#211d2b" stroke="#9d8bf7" stroke-width="2.5"/>
+    <path d="M515,58 C522,46 544,46 551,58 C544,70 522,70 515,58 Z" fill="none" stroke="#c9bffd" stroke-width="2.5"/>
+    <circle cx="533" cy="58" r="4" fill="#c9bffd"/>
+    <line x1="513" y1="38" x2="553" y2="78" stroke="#ff4e7e" stroke-width="3"/>
+    <text x="533" y="118" fill="#e9e6f2" font-size="14">No tracking</text>
+
+    <!-- your disk -->
+    <circle cx="700" cy="58" r="28" fill="#211d2b" stroke="#5eead4" stroke-width="2.5"/>
+    <rect x="685" y="48" width="30" height="20" rx="4" fill="none" stroke="#99f6e4" stroke-width="2.5"/>
+    <circle cx="708" cy="58" r="2.5" fill="#99f6e4"/>
+    <text x="700" y="118" fill="#e9e6f2" font-size="14">Stays on your PC</text>
+  </g>
+</svg>

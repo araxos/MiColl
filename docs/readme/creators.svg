@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="300" viewBox="0 0 800 300" font-family="Segoe UI, system-ui, -apple-system, sans-serif">
+  <defs>
+    <linearGradient id="c1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff4e7e"/><stop offset="1" stop-color="#ff9f45"/></linearGradient>
+    <linearGradient id="c2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9d8bf7"/><stop offset="1" stop-color="#5eead4"/></linearGradient>
+    <linearGradient id="c3" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f472b6"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <linearGradient id="c4" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#a7f3d0"/></linearGradient>
+    <linearGradient id="c5" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fcee0a"/><stop offset="1" stop-color="#ff9f45"/></linearGradient>
+    <linearGradient id="c6" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c4b5fd"/><stop offset="1" stop-color="#f5c2ff"/></linearGradient>
+  </defs>
+  <rect width="800" height="300" rx="18" fill="#15121c"/>
+
+  <g>
+    <!-- six creator cards: abstract cover + name bar + progress -->
+    <rect x="36" y="32" width="112" height="190" rx="14" fill="#211d2b"/>
+    <rect x="44" y="40" width="96" height="124" rx="10" fill="url(#c1)"/>
+    <circle cx="112" cy="78" r="18" fill="#ffffff" opacity="0.35"/>
+    <rect x="44" y="176" width="70" height="10" rx="5" fill="#e9e6f2"/>
+    <rect x="44" y="198" width="96" height="6" rx="3" fill="#35304a"/><rect x="44" y="198" width="80" height="6" rx="3" fill="#ff4e7e"/>
+
+    <rect x="162" y="32" width="112" height="190" rx="14" fill="#211d2b"/>
+    <rect x="170" y="40" width="96" height="124" rx="10" fill="url(#c2)"/>
+    <path d="M170,140 L210,96 L240,124 L266,100 L266,164 L170,164 Z" fill="#15121c" opacity="0.35"/>
+    <rect x="170" y="176" width="54" height="10" rx="5" fill="#e9e6f2"/>
+    <rect x="170" y="198" width="96" height="6" rx="3" fill="#35304a"/><rect x="170" y="198" width="96" height="6" rx="3" fill="#5eead4"/>
+
+    <rect x="288" y="32" width="112" height="190" rx="14" fill="#211d2b"/>
+    <rect x="296" y="40" width="96" height="124" rx="10" fill="url(#c3)"/>
+    <rect x="316" y="70" width="40" height="40" rx="20" fill="#ffffff" opacity="0.3"/>
+    <rect x="296" y="176" width="80" height="10" rx="5" fill="#e9e6f2"/>
+    <rect x="296" y="198" width="96" height="6" rx="3" fill="#35304a"/><rect x="296" y="198" width="44" height="6" rx="3" fill="#f472b6"/>
+
+    <rect x="414" y="32" width="112" height="190" rx="14" fill="#211d2b"/>
+    <rect x="422" y="40" width="96" height="124" rx="10" fill="url(#c4)"/>
+    <path d="M422,120 C450,100 490,140 518,112 L518,164 L422,164 Z" fill="#15121c" opacity="0.3"/>
+    <rect x="422" y="176" width="62" height="10" rx="5" fill="#e9e6f2"/>
+    <rect x="422" y="198" width="96" height="6" rx="3" fill="#35304a"/><rect x="422" y="198" width="70" height="6" rx="3" fill="#0ea5e9"/>
+
+    <rect x="540" y="32" width="112" height="190" rx="14" fill="#211d2b"/>
+    <rect x="548" y="40" width="96" height="124" rx="10" fill="url(#c5)"/>
+    <path d="M548,64 L644,120 L644,164 L548,164 Z" fill="#15121c" opacity="0.25"/>
+    <rect x="548" y="176" width="74" height="10" rx="5" fill="#e9e6f2"/>
+    <rect x="548" y="198" width="96" height="6" rx="3" fill="#35304a"/><rect x="548" y="198" width="30" height="6" rx="3" fill="#fcee0a"/>
+
+    <rect x="666" y="32" width="112" height="190" rx="14" fill="#211d2b"/>
+    <rect x="674" y="40" width="96" height="124" rx="10" fill="url(#c6)"/>
+    <circle cx="700" cy="136" r="22" fill="#ffffff" opacity="0.3"/>
+    <rect x="674" y="176" width="58" height="10" rx="5" fill="#e9e6f2"/>
+    <rect x="674" y="198" width="96" height="6" rx="3" fill="#35304a"/><rect x="674" y="198" width="88" height="6" rx="3" fill="#c4b5fd"/>
+  </g>
+
+  <text x="400" y="266" fill="#8b85a0" font-size="13" text-anchor="middle">Every creator on one dashboard, with their cover and how complete you are.</text>
+</svg>

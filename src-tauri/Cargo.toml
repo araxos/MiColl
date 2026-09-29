@@ -1,0 +1,103 @@
+[package]
+name = "micoll"
+version = "0.1.0"
+description = "MiColl — organize content-creator collections"
+authors = ["araxos"]
+publish = false
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "micoll_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# `tray-icon` + `image-png`: the "keep running in the tray" option (see
+# `set_close_to_tray` in lib.rs). The tray is only ever created while that option
+# is on, so an untouched install shows no icon.
+tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+walkdir = "2"
+base64 = "0.22"
+trash = "5"
+image = { version = "0.25", default-features = false, features = [
+    "jpeg",
+    "png",
+    "webp",
+    "gif",
+    "bmp",
+] }
+sha2 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate", "bzip2", "deflate64", "lzma"] }
+unrar = "0.5"
+sevenz-rust = "0.6"
+# At-rest encryption: XChaCha20-Poly1305 AEAD + Argon2id KDF.
+chacha20poly1305 = "0.10"
+# Verified-template / theme-license signatures. Only files signed with the
+# owner's private key (never shipped) show the verified checkmark.
+ed25519-dalek = "2"
+argon2 = "0.5"
+rand = "0.8"
+zeroize = { version = "1", features = ["derive"] }
+urlencoding = "2"
+# Fast PC→phone "Share": tiny LAN HTTP server + QR code (rendered to SVG).
+tiny_http = "0.12"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+# AI object remover: local LaMa inpainting via ONNX Runtime (CPU, no cloud).
+ort = { version = "2.0.0-rc.10", features = ["download-binaries"] }
+# Streaming download of the LaMa model file (one-time, ~200 MB).
+ureq = "2"
+tauri-plugin-updater = "~2.12"
+tauri-plugin-process = "~2.3"
+
+# Windows file properties (Title/Subject/Rating/Tags/Comments) via the Shell
+# Property System — the same fields Explorer shows under Properties → Details.
+# Plus the two native share destinations (see wshare.rs): the clipboard
+# (DataExchange/Memory/Ole for CF_HDROP + CF_DIB) and the system Share sheet
+# (the WinRT ApplicationModel_DataTransfer + Storage APIs, reached through
+# IDataTransferManagerInterop, which lives in the Win32_UI_Shell feature).
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+    "ApplicationModel_DataTransfer",
+    "Foundation_Collections",
+    "Storage",
+    "Storage_Streams",
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_System_Variant",
+    # Drive-letter heal: GetLogicalDrives / GetDriveTypeW (see sd::mounted_letters).
+    "Win32_Storage_FileSystem",
+    # Volume-mixer name: WASAPI session enumeration + the process tree it is
+    # matched against (see audio.rs).
+    "Win32_Media_Audio",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_Shell_PropertiesSystem",
+] }
+# WinRT collections. `DataPackage::SetStorageItemsReadOnly` wants an `IIterable`, and
+# the `windows` crate re-exports only `windows_core` — so this one is named directly.
+windows-collections = "0.2"
+
+# The PatchMatch fill and image decoding are hot loops — give the dev profile a
+# little optimization so `tauri dev` stays responsive (release is unaffected).
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2

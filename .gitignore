@@ -1,0 +1,35 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Local backup folders from optimization passes
+.backup-*/
+
+# Theme screenshots taken while checking the accents — throwaway, and megabytes of them
+theme-shots/
+
+# Signing keys (template + updater) live in ~/.micoll — never here
+*.key
+*.key.pub
+*.pem

@@ -1,0 +1,4345 @@
+@import "tailwindcss";
+
+/* KDA - display font only for template creator cards (.cc-template-type).
+   Missing letters fall back to the theme font. Font by Bryan Torres
+   (CC BY-SA 4.0, https://ko-fi.com/brylark), see licenses/KDA-Font-CC-BY-SA-4.0.txt. */
+@font-face {
+  font-family: "KDA";
+  src:
+    url("./assets/fonts/KDA.otf") format("opentype"),
+    url("./assets/fonts/KDA.ttf") format("truetype");
+  font-weight: 100 900;
+  font-display: swap;
+}
+/* Template creator card names use KDA (iridescent only). The card makes the name
+   a bit smaller because KDA is big (see ArtistCard). */
+[data-accent="iridescent"] .cc-template-type {
+  font-family: "KDA", var(--font-sans);
+}
+
+/* MiColl Cut - our own rough display font for template creator cards on cyberpunk
+   (made with scripts/make-cut-font.py). Only capitals, digits and a few signs,
+   lowercase shows the capitals, anything else falls back to the theme font. */
+@font-face {
+  font-family: "MiColl Cut";
+  /* ?v= forces a reload after the font was rebuilt, bump it with every change */
+  src: url("./assets/fonts/MiCollCut.ttf?v=7") format("truetype");
+  /* one weight for all, so the browser never fakes a bold (that made it look thick) */
+  font-weight: 100 900;
+  font-display: swap;
+}
+[data-accent="cyberpunk"] .cc-template-type {
+  font-family: "MiColl Cut", var(--font-sans);
+}
+/* Both display fonts off (right-click the Iridescent or Cyberpunk swatch).
+   Set on <html>, see lib/templateFont.ts. */
+[data-template-font="off"] .cc-template-type {
+  font-family: var(--font-sans);
+}
+
+/* Iridescent UI font: a narrow Unbounded (scripts/make-iri-font.py), and every weight
+   one step lighter (400 uses the 300 file and so on), so the app looks slimmer
+   without touching any class. */
+@font-face {
+  font-family: "Iri Unbounded";
+  src: url("./assets/fonts/iri/iri-unbounded-narrow-200.woff2?v=1") format("woff2");
+  font-weight: 300;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Iri Unbounded";
+  src: url("./assets/fonts/iri/iri-unbounded-narrow-300.woff2?v=1") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Iri Unbounded";
+  src: url("./assets/fonts/iri/iri-unbounded-narrow-400.woff2?v=1") format("woff2");
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Iri Unbounded";
+  src: url("./assets/fonts/iri/iri-unbounded-narrow-500.woff2?v=1") format("woff2");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Iri Unbounded";
+  src: url("./assets/fonts/iri/iri-unbounded-narrow-600.woff2?v=1") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Iri Unbounded";
+  src: url("./assets/fonts/iri/iri-unbounded-narrow-700.woff2?v=1") format("woff2");
+  font-weight: 800;
+  font-display: swap;
+}
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+
+  /* Default accent: MiColl's own orange and pink from the app icon (#FF9F45 -> #FF4E7E).
+     This block IS the "Original" accent. */
+  --color-brand-50: #fff7ed;
+  --color-brand-100: #ffedd5;
+  --color-brand-200: #fed7aa;
+  --color-brand-300: #ffc48a;
+  --color-brand-400: #ffb063;
+  --color-brand-500: #ff9f45;
+  --color-brand-600: #f97316;
+  --color-brand-700: #ea580c;
+  --color-brand-800: #c2410c;
+  --color-brand-900: #9a3412;
+
+  /* Second accent color for the brand gradients (the icon's pink). */
+  --color-accent2-400: #ff7396;
+  --color-accent2-500: #ff4e7e;
+  --color-accent2-600: #e63368;
+}
+
+:root {
+  color-scheme: dark;
+  /* Hover fill for every plain button, made from the accent color (used to be flat grey).
+     .micoll-hover (below) uses it, premium accents override it. */
+  --micoll-hover: color-mix(in srgb, var(--color-brand-500) 22%, transparent);
+  --micoll-hover-ink: var(--color-brand-100);
+}
+
+/* ---- Setup screens' backdrop ------------------------------------------- */
+/* Background for the two setup screens (portable question + first-run wizard).
+   A glow in the brand color that gets darker in the corners.
+   Uses the accent variables so it follows a chosen accent. */
+.setup-bg {
+  background-color: #0f0a07;
+  background-image:
+    /* grain: tiled noise (soft-light) so the gradients don't look flat.
+       generated from this data URI, tiles seamlessly */
+    /* make it grey + opaque and shift it to mid-grey (raw noise is too bright,
+       soft-light would then lighten the dark corners) */
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0 0 0 0 1'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='1' intercept='-0.23'/%3E%3CfeFuncG type='linear' slope='1' intercept='-0.23'/%3E%3CfeFuncB type='linear' slope='1' intercept='-0.23'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E"),
+    /* the glow: high up and faint, the panel must stay the brightest thing */
+    radial-gradient(
+      105% 68% at 50% 15%,
+      color-mix(in srgb, var(--color-brand-500) 20%, transparent) 0%,
+      color-mix(in srgb, var(--color-brand-700) 11%, transparent) 46%,
+      transparent 76%
+    ),
+    /* a warmer center so the light has a source */
+    radial-gradient(
+      42% 30% at 48% 10%,
+      color-mix(in srgb, var(--color-brand-400) 14%, transparent) 0%,
+      transparent 70%
+    ),
+    /* and the vignette */
+    radial-gradient(125% 115% at 50% 40%, transparent 22%, rgba(0, 0, 0, 0.88) 100%);
+  background-size:
+    180px 180px,
+    auto,
+    auto,
+    auto;
+  background-repeat: repeat, no-repeat, no-repeat, no-repeat;
+  background-blend-mode: soft-light, normal, normal, normal;
+}
+
+/* The panel on those screens: plain glass (no theme yet), lit from the top left.
+   saturate keeps the orange behind it from going muddy. */
+.setup-panel {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background-image: linear-gradient(
+    157deg,
+    rgba(255, 255, 255, 0.09) 0%,
+    rgba(255, 255, 255, 0.035) 38%,
+    rgba(0, 0, 0, 0.22) 100%
+  );
+  box-shadow:
+    0 34px 90px -34px rgba(0, 0, 0, 0.95),
+    0 2px 10px -4px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(26px) saturate(1.25);
+}
+
+/* A section inside the glass: a bit lighter, thin border. */
+.setup-card {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+/* The buttons on those screens: primary = brand gradient with a glow,
+   both lift a bit on hover and press down on click. */
+.setup-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 999px;
+  padding: 0.55rem 1.15rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    opacity 0.2s ease;
+}
+.setup-btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.setup-btn:hover {
+  transform: translateY(-1px);
+}
+.setup-btn:active {
+  transform: translateY(0);
+}
+.setup-btn--primary {
+  color: #1c0d04;
+  background-image: linear-gradient(
+    135deg,
+    var(--color-brand-400),
+    var(--color-brand-500) 45%,
+    var(--color-accent2-500)
+  );
+  box-shadow:
+    0 12px 34px -12px color-mix(in srgb, var(--color-brand-500) 75%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+.setup-btn--primary:hover {
+  box-shadow:
+    0 16px 40px -12px color-mix(in srgb, var(--color-brand-500) 85%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.setup-btn--ghost {
+  color: #e7e5e4;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+.setup-btn--ghost:hover {
+  border-color: color-mix(in srgb, var(--color-brand-400) 55%, transparent);
+  background-color: rgba(255, 255, 255, 0.09);
+}
+
+/* A pickable chip (a platform in step 2). */
+.setup-chip {
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background-color: rgba(255, 255, 255, 0.04);
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.setup-chip:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+.setup-chip[data-on="1"] {
+  color: #fff;
+  border-color: color-mix(in srgb, var(--color-brand-400) 70%, transparent);
+  background-color: color-mix(in srgb, var(--color-brand-500) 22%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* ---- Accent themes ---------------------------------------------------- */
+/* Each one overrides the brand colors + the gradient's second color.
+   "original" needs no block (it's the default above). */
+
+[data-accent="purple"] {
+  /* Violet -> fuchsia (the old default). */
+  --color-brand-50: #f5f3ff;
+  --color-brand-100: #ede9fe;
+  --color-brand-200: #ddd6fe;
+  --color-brand-300: #c4b5fd;
+  --color-brand-400: #a78bfa;
+  --color-brand-500: #8b5cf6;
+  --color-brand-600: #7c3aed;
+  --color-brand-700: #6d28d9;
+  --color-brand-800: #5b21b6;
+  --color-brand-900: #4c1d95;
+  --color-accent2-400: #e879f9;
+  --color-accent2-500: #d946ef;
+  --color-accent2-600: #c026d3;
+}
+
+[data-accent="rose"] {
+  /* Pastel pink. */
+  --color-brand-50: #fdf2f8;
+  --color-brand-100: #fce7f3;
+  --color-brand-200: #fbcfe8;
+  --color-brand-300: #f9a8d4;
+  --color-brand-400: #f9a8d4;
+  --color-brand-500: #f472b6;
+  --color-brand-600: #ec4899;
+  --color-brand-700: #db2777;
+  --color-brand-800: #be185d;
+  --color-brand-900: #9d174d;
+  --color-accent2-400: #f0abfc;
+  --color-accent2-500: #e879f9;
+  --color-accent2-600: #d946ef;
+}
+
+[data-accent="blue"] {
+  /* Sky blue -> cyan. */
+  --color-brand-50: #f0f9ff;
+  --color-brand-100: #e0f2fe;
+  --color-brand-200: #bae6fd;
+  --color-brand-300: #7dd3fc;
+  --color-brand-400: #38bdf8;
+  --color-brand-500: #0ea5e9;
+  --color-brand-600: #0284c7;
+  --color-brand-700: #0369a1;
+  --color-brand-800: #075985;
+  --color-brand-900: #0c4a6e;
+  --color-accent2-400: #67e8f9;
+  --color-accent2-500: #22d3ee;
+  --color-accent2-600: #06b6d4;
+}
+
+[data-accent="green"] {
+  /* Green -> teal. */
+  --color-brand-50: #f0fdf4;
+  --color-brand-100: #dcfce7;
+  --color-brand-200: #bbf7d0;
+  --color-brand-300: #86efac;
+  --color-brand-400: #4ade80;
+  --color-brand-500: #22c55e;
+  --color-brand-600: #16a34a;
+  --color-brand-700: #15803d;
+  --color-brand-800: #166534;
+  --color-brand-900: #14532d;
+  --color-accent2-400: #5eead4;
+  --color-accent2-500: #2dd4bf;
+  --color-accent2-600: #14b8a6;
+}
+
+[data-accent="yellow"] {
+  /* Yellow -> warm gold (no orange). */
+  --color-brand-50: #fefce8;
+  --color-brand-100: #fef9c3;
+  --color-brand-200: #fef08a;
+  --color-brand-300: #fde047;
+  --color-brand-400: #facc15;
+  --color-brand-500: #eab308;
+  --color-brand-600: #ca8a04;
+  --color-brand-700: #a16207;
+  --color-brand-800: #854d0e;
+  --color-brand-900: #713f12;
+  --color-accent2-400: #fde047;
+  --color-accent2-500: #fcd34d;
+  --color-accent2-600: #fbbf24;
+}
+
+[data-accent="iridescent"] {
+  /* The rainbow foil every iridescent edge uses (card borders, month aura, crop frame).
+     Seven hues around the wheel, no two neighbours alike (blurred they'd turn white). */
+  --iri-spectrum:
+    #c4b5fd, #f5c2ff, #fed7aa, #fde68a, #a7f3d0, #99f6e4, #bae6fd, #c4b5fd;
+  /* The creator frame's own palette (IriCardFrame STOPS + a pale green-white).
+     The template month card uses this instead of the full spectrum above,
+     so it matches the creator frames. Kept separate from --iri-spectrum. */
+  --iri-frame-spectrum:
+    #9ccbf0, #c4b5fd, #f5c2ff, #b9dde9, #a9edd9, #eaf7cf, #b5b0e8, #9ccbf0;
+  /* Pearl: soft lavender + aqua/mint. */
+  --color-brand-50: #f6f4ff;
+  --color-brand-100: #eeeaff;
+  --color-brand-200: #e1d9ff;
+  --color-brand-300: #cabfff;
+  --color-brand-400: #b3a4fc;
+  --color-brand-500: #9d8bf7;
+  --color-brand-600: #8b5cf6;
+  --color-brand-700: #7c3aed;
+  --color-brand-800: #6d28d9;
+  --color-brand-900: #5b21b6;
+  --color-accent2-400: #99f6e4;
+  --color-accent2-500: #5eead4;
+  --color-accent2-600: #2dd4bf;
+  /* Unbounded (one step lighter, see above) for the whole app on iridescent */
+  --font-sans: "Iri Unbounded", "Exo 2", "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+/* Unbounded is wide, so the letters sit a bit closer together */
+[data-accent="iridescent"] {
+  letter-spacing: -0.02em;
+}
+[data-accent="iridescent"] body,
+[data-accent="iridescent"] button,
+[data-accent="iridescent"] input,
+[data-accent="iridescent"] select,
+[data-accent="iridescent"] textarea {
+  font-weight: 500;
+}
+
+/* the foil waves carry the color, so remove the corner blobs */
+[data-accent="iridescent"] .app-blobs {
+  display: none;
+}
+/* extra pastel rainbow wash on the iridescent wallpaper, behind the waves and the veil */
+[data-accent="iridescent"] .app-wallpaper {
+  background-image:
+    radial-gradient(42vh 42vh at 12% 8%, rgba(196, 181, 253, 0.32), transparent 70%),
+    radial-gradient(44vh 44vh at 88% 12%, rgba(245, 194, 255, 0.28), transparent 70%),
+    radial-gradient(50vh 50vh at 28% 100%, rgba(167, 243, 208, 0.26), transparent 70%),
+    radial-gradient(42vh 42vh at 82% 92%, rgba(186, 230, 253, 0.26), transparent 70%),
+    radial-gradient(36vh 36vh at 55% 48%, rgba(254, 215, 170, 0.18), transparent 70%);
+}
+
+[data-accent="sakura"] {
+  /* Soft cherry blossom pink. */
+  --color-brand-50: #fff5fa;
+  --color-brand-100: #ffe8f3;
+  --color-brand-200: #ffd1e6;
+  --color-brand-300: #fbb6d4;
+  --color-brand-400: #f99dc6;
+  --color-brand-500: #f472b6;
+  --color-brand-600: #ea5ba6;
+  --color-brand-700: #d6418f;
+  --color-brand-800: #b03473;
+  --color-brand-900: #8a285a;
+  --color-accent2-400: #ffe1ee;
+  --color-accent2-500: #ffd0e3;
+  --color-accent2-600: #ffc1da;
+  /* Zen Maru Gothic for the whole app on sakura (soft rounded font).
+     Exo 2 / Inter as fallback. */
+  --font-sans: "Zen Maru Gothic", "Exo 2", "Inter", ui-sans-serif, system-ui, sans-serif;
+  /* The blossom icon as a mask so its color comes from CSS. */
+  --sak-blossom: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Cg%20fill='%23000'%3E%3Cpath%20d='M12%2010.2%20L8.7%205.8%20L9.4%202.4%20L12%204.9%20L14.6%202.4%20L15.3%205.8%20Z'/%3E%3Cpath%20transform='rotate(72%2012%2012)'%20d='M12%2010.2%20L8.7%205.8%20L9.4%202.4%20L12%204.9%20L14.6%202.4%20L15.3%205.8%20Z'/%3E%3Cpath%20transform='rotate(144%2012%2012)'%20d='M12%2010.2%20L8.7%205.8%20L9.4%202.4%20L12%204.9%20L14.6%202.4%20L15.3%205.8%20Z'/%3E%3Cpath%20transform='rotate(216%2012%2012)'%20d='M12%2010.2%20L8.7%205.8%20L9.4%202.4%20L12%204.9%20L14.6%202.4%20L15.3%205.8%20Z'/%3E%3Cpath%20transform='rotate(288%2012%2012)'%20d='M12%2010.2%20L8.7%205.8%20L9.4%202.4%20L12%204.9%20L14.6%202.4%20L15.3%205.8%20Z'/%3E%3C/g%3E%3C/svg%3E");
+  /* Same blossom already colored, for places that use it as a background image (slider
+     thumb). */
+  --sak-blossom-ink: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Cg%20fill='%23d6418f'%3E%3Cpath%20d='M12%2010.2%20L8.7%205.8%20L9.4%202.4%20L12%204.9%20L14.6%202.4%20L15.3%205.8%20Z'/%3E%3Cpath%20transform='rotate(72%2012%2012)'%20d='M12%2010.2%20L8.7%205.8%20L9.4%202.4%20L12%204.9%20L14.6%202.4%20L15.3%205.8%20Z'/%3E%3Cpath%20transform='rotate(144%2012%2012)'%20d='M12%2010.2%20L8.7%205.8%20L9.4%202.4%20L12%204.9%20L14.6%202.4%20L15.3%205.8%20Z'/%3E%3Cpath%20transform='rotate(216%2012%2012)'%20d='M12%2010.2%20L8.7%205.8%20L9.4%202.4%20L12%204.9%20L14.6%202.4%20L15.3%205.8%20Z'/%3E%3Cpath%20transform='rotate(288%2012%2012)'%20d='M12%2010.2%20L8.7%205.8%20L9.4%202.4%20L12%204.9%20L14.6%202.4%20L15.3%205.8%20Z'/%3E%3C/g%3E%3C/svg%3E");
+}
+/* Zen Maru Gothic is a bit tight, add some letter spacing */
+[data-accent="sakura"] {
+  letter-spacing: 0.008em;
+}
+
+/* sakura wallpaper: a soft pink wash, the blossoms come from SakuraFx */
+[data-accent="sakura"] .app-blobs {
+  display: none; /* the corner brand blobs would muddy the crisp blossoms */
+}
+[data-accent="sakura"] .app-wallpaper {
+  background-image:
+    linear-gradient(180deg, rgba(255, 193, 218, 0.08), transparent 38%),
+    radial-gradient(120vh 80vh at 85% -10%, rgba(255, 184, 214, 0.14), transparent 60%);
+  background-repeat: no-repeat;
+}
+/* lighter veil so the blossoms stay bright */
+[data-accent="sakura"] .app-veil {
+  background-color: rgba(29, 18, 26, 0.2);
+}
+
+[data-accent="cyberpunk"] {
+  /* Edgerunners: acid yellow + neon cyan. */
+  --color-brand-50: #fefce8;
+  --color-brand-100: #fdf9c4;
+  --color-brand-200: #fcf486;
+  --color-brand-300: #fdf25c;
+  --color-brand-400: #fcee0a;
+  --color-brand-500: #f0e000;
+  --color-brand-600: #d4c500;
+  --color-brand-700: #a89c00;
+  --color-brand-800: #7d7400;
+  --color-brand-900: #524c00;
+  --color-accent2-400: #67e8f9;
+  --color-accent2-500: #22d3ee;
+  --color-accent2-600: #00e5ff;
+  /* Cyberpunk font for the whole app. */
+  --font-sans: "Orbitron", "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* cyberpunk wallpaper: near black with yellow/green/cyan glows, the glitch stuff
+   comes from CyberpunkFx */
+[data-accent="cyberpunk"] .app-blobs {
+  display: none;
+}
+[data-accent="cyberpunk"] .app-wallpaper {
+  background-image:
+    radial-gradient(circle 45vh at 8% 0%, rgba(252, 238, 10, 0.16), transparent 62%),
+    radial-gradient(circle 38vh at 92% 92%, rgba(57, 255, 20, 0.1), transparent 62%),
+    radial-gradient(circle 30vh at 90% 8%, rgba(0, 229, 255, 0.1), transparent 62%);
+  background-repeat: no-repeat;
+}
+[data-accent="cyberpunk"] .app-veil {
+  background-color: rgba(7, 6, 15, 0.28);
+}
+
+/* ---- shared button hover ----
+   .micoll-hover replaces the old hover:bg-zinc-800. Unlayered so it wins,
+   per accent through --micoll-hover. Premium: cyberpunk yellow, sakura pink,
+   iridescent just brightens with white. */
+[data-accent="cyberpunk"] {
+  --micoll-hover: rgba(252, 238, 10, 0.13);
+  --micoll-hover-ink: #fcee0a;
+}
+[data-accent="sakura"] {
+  --micoll-hover: rgba(249, 168, 212, 0.16);
+  --micoll-hover-ink: #ffe1ee;
+}
+[data-accent="iridescent"] {
+  --micoll-hover: rgba(255, 255, 255, 0.15);
+  --micoll-hover-ink: #ffffff;
+}
+.micoll-hover:hover:not(:disabled) {
+  background-color: var(--micoll-hover);
+}
+/* Optional: also brighten the text (separate, some buttons keep their own color). */
+.micoll-hover-ink:hover:not(:disabled) {
+  color: var(--micoll-hover-ink);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: #09090b; /* zinc-950 */
+  color: #e4e4e7; /* zinc-200 */
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden; /* app shell manages its own scroll regions */
+  /* Desktop app: no text selection when dragging over the UI.
+     Inputs and .select-text are allowed again below. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea,
+[contenteditable],
+[contenteditable] *,
+.select-text,
+.select-text * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Custom scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f46 transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: #3f3f46;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #52525b;
+}
+
+/* Cyberpunk: neon cyan hard-edged scrollbar. */
+[data-accent="cyberpunk"] * {
+  scrollbar-color: #00e5ff rgba(0, 229, 255, 0.06);
+}
+[data-accent="cyberpunk"] *::-webkit-scrollbar-track {
+  background: rgba(0, 229, 255, 0.06);
+  box-shadow: inset 1px 0 0 rgba(0, 229, 255, 0.25);
+}
+[data-accent="cyberpunk"] *::-webkit-scrollbar-thumb {
+  background-color: #00e5ff;
+  border-radius: 0; /* sharp, cyberpunk */
+  border: 2px solid transparent;
+  background-clip: content-box;
+  box-shadow: inset 0 0 6px rgba(4, 6, 12, 0.55), 0 0 8px rgba(0, 229, 255, 0.6);
+}
+[data-accent="cyberpunk"] *::-webkit-scrollbar-thumb:hover {
+  background-color: #5ff4ff;
+}
+
+/* Sakura: pink thumb on a faint rose track, fully round. */
+[data-accent="sakura"] * {
+  scrollbar-color: #f9a8d4 rgba(249, 168, 212, 0.08);
+}
+[data-accent="sakura"] *::-webkit-scrollbar-track {
+  background: rgba(249, 168, 212, 0.07);
+}
+[data-accent="sakura"] *::-webkit-scrollbar-thumb {
+  background-color: #f9a8d4;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  box-shadow: inset 0 0 4px rgba(255, 255, 255, 0.35);
+}
+[data-accent="sakura"] *::-webkit-scrollbar-thumb:hover {
+  background-color: #ffc1da;
+}
+
+/* No image drag ghost in the viewer */
+img {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+/* Card hover particles: small tag icons rise from the card edges and fade.
+   --fx-sway = sideways sway per particle.
+   Distances are in container units of the card (TagParticles is the container),
+   so they scale with the card size. Only TagParticles uses these. */
+@keyframes micoll-tag-float {
+  0% {
+    transform: translate(0, 0) scale(0.5);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate(var(--fx-sway, 0px), -40.74cqh) scale(1);
+    opacity: 0;
+  }
+}
+/* Sakura: petals fall instead of rise, with a little tumble. */
+@keyframes micoll-tag-fall {
+  0% {
+    transform: translate(0, 0) scale(0.5) rotate(0deg);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate(var(--fx-sway, 0px), 40.74cqh) scale(1) rotate(45deg);
+    opacity: 0;
+  }
+}
+
+/* Iridescent: the mark streaks down and to the left (like the theme's gradients).
+   Less sideways than 45 degrees so it stays near the edge. --fx-sway varies it. */
+@keyframes micoll-tag-shoot {
+  0% {
+    transform: translate(0, 0) scale(0.45) rotate(-14deg);
+    opacity: 0;
+  }
+  16% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate(calc(-25.56cqw + var(--fx-sway, 0px)), 41.48cqh) scale(1) rotate(16deg);
+    opacity: 0;
+  }
+}
+
+/* Sakura: very slow blossom rotation and petals falling the full screen height
+   (sway is on a nested element so both transforms work). */
+@keyframes micoll-sakura-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes micoll-petal-fall {
+  0% {
+    transform: translate3d(0, -6vh, 0) rotate(0deg);
+    opacity: 0;
+  }
+  6% {
+    opacity: var(--petal-opacity, 0.5);
+  }
+  88% {
+    opacity: var(--petal-opacity, 0.5);
+  }
+  100% {
+    transform: translate3d(var(--petal-drift, 6vw), 106vh, 0) rotate(var(--petal-rot, 300deg));
+    opacity: 0;
+  }
+}
+@keyframes micoll-petal-sway {
+  from {
+    transform: translateX(-9px) rotate(-14deg);
+  }
+  to {
+    transform: translateX(9px) rotate(14deg);
+  }
+}
+/* Cyberpunk: jumps for the big glyph, flicker for the slivers (--fx-o = resting
+   opacity) and a full height scanline. */
+@keyframes micoll-glitch-shift {
+  0%,
+  82% {
+    transform: translate(0, 0);
+    opacity: 0.1;
+  }
+  84% {
+    transform: translate(-7px, 3px);
+    opacity: 0.16;
+  }
+  87% {
+    transform: translate(6px, -2px);
+    opacity: 0.07;
+  }
+  90% {
+    transform: translate(-3px, 0);
+    opacity: 0.14;
+  }
+  93%,
+  100% {
+    transform: translate(0, 0);
+    opacity: 0.1;
+  }
+}
+@keyframes micoll-flicker {
+  0%,
+  6% {
+    opacity: 0;
+  }
+  7%,
+  38% {
+    opacity: var(--fx-o, 0.3);
+  }
+  39%,
+  41% {
+    opacity: 0;
+  }
+  42%,
+  74% {
+    opacity: var(--fx-o, 0.3);
+  }
+  75%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes micoll-scan {
+  0% {
+    transform: translateY(-2vh);
+  }
+  100% {
+    transform: translateY(102vh);
+  }
+}
+/* Glitch ghosts for the cyberpunk card frame (CyberCardFrame.tsx): two offset copies
+   that jump for a few frames and are invisible otherwise (resting opacity 0,
+   otherwise the border looks orange). */
+@keyframes micoll-cp-ghost-a {
+  0%,
+  72%,
+  100% {
+    transform: translate(-3px, 2px);
+    opacity: 0;
+  }
+  74% {
+    transform: translate(-9px, 3px);
+    opacity: 0.6;
+  }
+  76% {
+    transform: translate(4px, -2px);
+    opacity: 0.6;
+  }
+  78% {
+    transform: translate(-3px, 2px);
+    opacity: 0;
+  }
+  91% {
+    transform: translate(-7px, -3px);
+    opacity: 0.5;
+  }
+  93% {
+    transform: translate(-3px, 2px);
+    opacity: 0;
+  }
+}
+@keyframes micoll-cp-ghost-b {
+  0%,
+  72%,
+  100% {
+    transform: translate(3px, -2px);
+    opacity: 0;
+  }
+  74% {
+    transform: translate(8px, -4px);
+    opacity: 0.6;
+  }
+  76% {
+    transform: translate(-5px, 2px);
+    opacity: 0.6;
+  }
+  78% {
+    transform: translate(3px, -2px);
+    opacity: 0;
+  }
+  91% {
+    transform: translate(6px, 3px);
+    opacity: 0.5;
+  }
+  93% {
+    transform: translate(3px, -2px);
+    opacity: 0;
+  }
+}
+/* Effects inside a framed card: scanlines, shine and tape tears, in percent. */
+@keyframes micoll-cp-crawl {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 0 -160px;
+  }
+}
+@keyframes micoll-cp-sweep {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(714%);
+  }
+}
+@keyframes micoll-cp-tear {
+  0%,
+  64%,
+  100% {
+    opacity: 0;
+    top: 12%;
+  }
+  66% {
+    opacity: 1;
+    top: 29%;
+  }
+  68% {
+    opacity: 1;
+    top: 58%;
+  }
+  70% {
+    opacity: 0;
+    top: 71%;
+  }
+  88% {
+    opacity: 1;
+    top: 15%;
+  }
+  90% {
+    opacity: 0;
+    top: 46%;
+  }
+}
+/* Holo overlay on artist cards (cyberpunk only): faint scanlines + a sweeping sheen,
+   stronger on hover. The div is always there, only this accent shows it. */
+.micoll-holo {
+  opacity: 0;
+}
+[data-accent="cyberpunk"] .micoll-holo {
+  opacity: 0.4;
+  transition: opacity 0.3s;
+  mix-blend-mode: screen;
+  /* all settings are CSS variables so each card has its own pattern (see ArtistCard) */
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      var(--holo-scan, rgba(103, 232, 249, 0.05)) 0 2px,
+      transparent 2px var(--holo-scan-gap, 5px)
+    ),
+    linear-gradient(
+      var(--holo-angle, 115deg),
+      transparent 28%,
+      var(--holo-c1, rgba(0, 229, 255, 0.16)) 40%,
+      var(--holo-c2, rgba(252, 238, 10, 0.1)) 50%,
+      var(--holo-c3, rgba(255, 43, 214, 0.14)) 60%,
+      transparent 72%
+    );
+  background-size:
+    100% 100%,
+    240% 240%;
+  background-repeat: repeat, no-repeat;
+  animation: micoll-holo-sweep var(--holo-dur, 6.5s) ease-in-out var(--holo-delay, 0s) infinite;
+}
+[data-accent="cyberpunk"] .group:hover .micoll-holo {
+  opacity: 0.85;
+}
+@keyframes micoll-holo-sweep {
+  0% {
+    background-position:
+      0 0,
+      130% 0;
+  }
+  55%,
+  100% {
+    background-position:
+      0 0,
+      -130% 0;
+  }
+}
+
+/* Premium holo for template artists (cyberpunk): one wide soft sheen (no scanlines),
+   a glint and a slow hue shift.
+   Smooth because: the band is transparent at both ends, it drifts fully off the
+   card at start and end, and a radial mask fades the edges. */
+[data-accent="cyberpunk"] .micoll-holo--premium {
+  opacity: 0.6;
+  background-image: linear-gradient(
+    135deg,
+    transparent 0%,
+    var(--holo-c1, rgba(0, 229, 255, 0.18)) 30%,
+    var(--holo-c2, rgba(252, 238, 10, 0.14)) 44%,
+    rgba(255, 255, 255, 0.16) 50%,
+    var(--holo-c3, rgba(255, 43, 214, 0.16)) 56%,
+    hsla(168, 100%, 62%, 0.13) 70%,
+    transparent 100%
+  );
+  background-size: 250% 250%;
+  background-repeat: no-repeat;
+  /* fade out before the card border */
+  -webkit-mask-image: radial-gradient(130% 130% at 50% 50%, #000 46%, transparent 100%);
+  mask-image: radial-gradient(130% 130% at 50% 50%, #000 46%, transparent 100%);
+  animation:
+    micoll-holo-premium-sweep var(--holo-dur, 5.5s) ease-in-out var(--holo-delay, 0s) infinite,
+    micoll-holo-prism var(--holo-prism, 8s) linear infinite;
+}
+[data-accent="cyberpunk"] .group:hover .micoll-holo--premium {
+  opacity: 0.9;
+}
+/* diagonal drift from off the top left to off the bottom right */
+@keyframes micoll-holo-premium-sweep {
+  from {
+    background-position: -45% -45%;
+  }
+  to {
+    background-position: 145% 145%;
+  }
+}
+@keyframes micoll-holo-prism {
+  to {
+    filter: hue-rotate(360deg);
+  }
+}
+/* small glitch for the cyberpunk home icon */
+/* slow light sweep over the premium badge */
+@keyframes micoll-sheen {
+  0% {
+    transform: translateX(-140%) skewX(-12deg);
+  }
+  55%,
+  100% {
+    transform: translateX(140%) skewX(-12deg);
+  }
+}
+@keyframes micoll-icon-glitch {
+  0%,
+  86% {
+    transform: translate(0, 0);
+  }
+  88% {
+    transform: translate(-1.5px, 1px);
+  }
+  90% {
+    transform: translate(1.5px, -1px);
+  }
+  92% {
+    transform: translate(-1px, 0);
+  }
+  94%,
+  100% {
+    transform: translate(0, 0);
+  }
+}
+/* glitch for the cyberpunk logo: short bursts of RGB split + slice shifts,
+   hard keyframes so it looks digital */
+@keyframes micoll-mark-glitch {
+  0%, 68%, 100% {
+    clip-path: none;
+    transform: translate(0, 0);
+    filter: none;
+  }
+  70% {
+    clip-path: inset(14% 0 58% 0);
+    transform: translateX(-2.5px);
+    filter: drop-shadow(2px 0 #00e5ff) drop-shadow(-2px 0 #ff2bd6);
+  }
+  72.5% {
+    clip-path: inset(62% 0 8% 0);
+    transform: translateX(2.5px);
+    filter: drop-shadow(-2px 0 #00e5ff) drop-shadow(2px 0 #ff2bd6);
+  }
+  75% {
+    clip-path: inset(36% 0 40% 0);
+    transform: translateX(-1.5px);
+    filter: drop-shadow(1.5px 0 #ff2bd6);
+  }
+  77% {
+    clip-path: none;
+    transform: translate(0, 0);
+    filter: none;
+  }
+  90% {
+    clip-path: inset(8% 0 74% 0);
+    transform: translateX(2px);
+    filter: drop-shadow(-1.5px 0 #00e5ff);
+    opacity: 0.8;
+  }
+  92% {
+    clip-path: none;
+    transform: translate(0, 0);
+    filter: none;
+    opacity: 1;
+  }
+}
+/* cyberpunk particles: falling in steps */
+@keyframes micoll-tag-glitch {
+  0% {
+    transform: translate(0, 0);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate(var(--fx-sway, 0px), 40.74cqh);
+    opacity: 0;
+  }
+}
+/* === Cyberpunk "data chip" month cards (template months) ===
+   The glow is a drop-shadow on an unclipped wrapper so it follows the cut corners.
+   Strength + speed grow with completion, color comes from --cp-glow. */
+[data-accent="cyberpunk"] .cp-aura {
+  transition: filter 0.35s ease;
+}
+/* a steady thin edge glow, the moving part is the flame cloud (.cp-flames) */
+[data-accent="cyberpunk"] .cp-aura {
+  position: relative;
+  /* lets the chip shrink in small grid cells, and inline-size containment makes
+     the @container rule below work */
+  min-width: 0;
+  container-type: inline-size;
+}
+/* narrow chips: smaller %. The bars stay now (the % only shows on hover over them). */
+@container (max-width: 148px) {
+  [data-accent="cyberpunk"] .cp-pct {
+    font-size: 0.8125rem;
+  }
+}
+[data-accent="cyberpunk"] .cp-aura.cp-low { filter: drop-shadow(0 0 3px var(--cp-glow)); }
+/* purple and orange glow too bright, so their shadow color is dimmed (not the radius) */
+[data-accent="cyberpunk"] .cp-aura.cp-mid {
+  --cp-halo: color-mix(in srgb, var(--cp-glow) 55%, transparent);
+  filter: drop-shadow(0 0 4px var(--cp-halo)) drop-shadow(0 0 9px var(--cp-halo));
+}
+[data-accent="cyberpunk"] .cp-aura.cp-max {
+  --cp-halo: color-mix(in srgb, var(--cp-glow) 52%, transparent);
+  filter: drop-shadow(0 0 6px var(--cp-halo)) drop-shadow(0 0 13px var(--cp-halo));
+}
+
+/* a bright spark running around the chip's edge (the angle is animated) */
+@property --cp-ang {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+[data-accent="cyberpunk"] .cp-ring {
+  position: absolute;
+  inset: -2px;
+  z-index: -1;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  clip-path: polygon(0 0, calc(100% - 13px) 0, 100% 13px, 100% 100%, 13px 100%, 0 calc(100% - 13px));
+  background: conic-gradient(
+    from var(--cp-ang),
+    transparent 0% 60%,
+    rgba(0, 229, 255, 0.85) 72%,
+    var(--cp-glow) 80%,
+    rgba(0, 229, 255, 0.85) 88%,
+    transparent 96% 100%
+  );
+  filter: blur(7px);
+  opacity: 0.6;
+  animation: cp-ring-spin var(--cp-spin, 6s) linear infinite;
+}
+[data-accent="cyberpunk"] .cp-aura.cp-low .cp-ring { opacity: 0.45; }
+/* same dimming for purple/orange */
+[data-accent="cyberpunk"] .cp-aura.cp-mid .cp-ring { opacity: 0.48; }
+[data-accent="cyberpunk"] .cp-aura.cp-max .cp-ring { opacity: 0.55; filter: blur(8px); }
+@keyframes cp-ring-spin {
+  to {
+    --cp-ang: 360deg;
+  }
+}
+
+/* flame cloud: three blurred layers rising at different speeds, behind the chip */
+[data-accent="cyberpunk"] .cp-flames {
+  position: absolute;
+  left: -12%;
+  right: -12%;
+  bottom: -4%;
+  top: -32%;
+  z-index: -1;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  filter: blur(13px);
+}
+[data-accent="cyberpunk"] .cp-flames,
+[data-accent="cyberpunk"] .cp-flames > span {
+  /* tier color flames with a thin cyan core */
+  background:
+    linear-gradient(0deg, transparent 0%, rgba(0, 229, 255, 0.55) 12%, transparent 60%) 50% 100% / 4% 100% no-repeat,
+    radial-gradient(38% 58% at 28% 100%, var(--cp-glow) 0%, transparent 68%),
+    radial-gradient(28% 72% at 52% 100%, rgba(0, 229, 255, 0.5) 0%, transparent 70%),
+    radial-gradient(32% 66% at 52% 100%, var(--cp-glow) 0%, transparent 70%),
+    radial-gradient(40% 54% at 76% 100%, var(--cp-glow) 0%, transparent 68%);
+  background-repeat: no-repeat;
+}
+[data-accent="cyberpunk"] .cp-flames > span {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+[data-accent="cyberpunk"] .cp-flames {
+  opacity: 0.5;
+  animation: cp-flames-a 5.5s ease-in-out infinite;
+}
+[data-accent="cyberpunk"] .cp-flames > span:first-child {
+  opacity: 0.55;
+  animation: cp-flames-b 4.2s ease-in-out infinite;
+}
+[data-accent="cyberpunk"] .cp-flames > span:last-child {
+  opacity: 0.4;
+  animation: cp-flames-c 6.7s ease-in-out infinite;
+}
+/* higher completion = taller, brighter, sharper */
+/* mid and max are dimmer now (they glared), low stays. The height still grows per tier. */
+[data-accent="cyberpunk"] .cp-aura.cp-low .cp-flames { top: -22%; opacity: 0.4; filter: blur(15px); }
+[data-accent="cyberpunk"] .cp-aura.cp-mid .cp-flames { top: -32%; opacity: 0.38; filter: blur(13px); }
+[data-accent="cyberpunk"] .cp-aura.cp-max .cp-flames { top: -44%; opacity: 0.44; filter: blur(12px); }
+
+@keyframes cp-flames-a {
+  0%, 100% { transform: translateY(5%) scaleY(0.95) scaleX(1); }
+  50% { transform: translateY(-4%) scaleY(1.1) scaleX(0.96); }
+}
+@keyframes cp-flames-b {
+  0%, 100% { transform: translateY(3%) translateX(-4%) scaleY(1) skewX(4deg); }
+  50% { transform: translateY(-6%) translateX(3%) scaleY(1.14) skewX(-3deg); }
+}
+@keyframes cp-flames-c {
+  0%, 100% { transform: translateY(6%) translateX(3%) scaleY(0.92) skewX(-3deg); }
+  50% { transform: translateY(-3%) translateX(-3%) scaleY(1.08) skewX(3deg); }
+}
+/* the chip: cut corners top right + bottom left */
+[data-accent="cyberpunk"] .cp-chip {
+  clip-path: polygon(0 0, calc(100% - 13px) 0, 100% 13px, 100% 100%, 13px 100%, 0 calc(100% - 13px));
+  border: 1px solid var(--cp-line, rgba(0, 229, 255, 0.4));
+  background: linear-gradient(160deg, rgba(12, 14, 22, 0.92), rgba(6, 8, 13, 0.97));
+}
+/* faint scanlines */
+[data-accent="cyberpunk"] .cp-scan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  opacity: 0.45;
+  background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.06) 0 1px, transparent 1px 3px);
+}
+/* glitch slices in the level color (timing per card via --cp-gdur) */
+[data-accent="cyberpunk"] .cp-glitch {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  opacity: 0;
+  background: linear-gradient(90deg, transparent, var(--cp-glow), transparent);
+  animation: cp-glitch-slice var(--cp-gdur, 5s) steps(1, end) infinite;
+}
+@keyframes cp-glitch-slice {
+  0%, 86%, 100% { opacity: 0; clip-path: inset(0 0 100% 0); transform: translateX(0); }
+  88% { opacity: 0.5; clip-path: inset(16% 0 66% 0); transform: translateX(-3px); }
+  90% { opacity: 0.32; clip-path: inset(56% 0 30% 0); transform: translateX(3px); }
+  92% { opacity: 0.5; clip-path: inset(38% 0 48% 0); transform: translateX(-2px); }
+  94% { opacity: 0; }
+}
+/* verified check on cyber chips: cyan and purple copies that jitter apart */
+[data-accent="cyberpunk"] .cp-check .cp-check-base {
+  color: #00e5ff;
+  filter: drop-shadow(0 0 4px #00e5ff) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.9));
+  animation: cp-check-jit 3.2s steps(1, end) infinite;
+}
+[data-accent="cyberpunk"] .cp-check .cp-check-ghost {
+  color: #c026ff;
+  mix-blend-mode: screen;
+  opacity: 0.85;
+  filter: drop-shadow(0 0 4px #c026ff);
+  animation: cp-check-jit-ghost 3.2s steps(1, end) infinite;
+}
+@keyframes cp-check-jit {
+  0%, 90%, 100% { transform: translate(0, 0); }
+  92% { transform: translate(-1.5px, 1px); }
+  94% { transform: translate(1px, -1px); }
+  96% { transform: translate(-1px, 0); }
+}
+@keyframes cp-check-jit-ghost {
+  0%, 90%, 100% { transform: translate(1px, 0); }
+  92% { transform: translate(2.5px, -1px); }
+  94% { transform: translate(-1px, 1.5px); }
+  96% { transform: translate(1.5px, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sakura-fx,
+  .sakura-fx *,
+  .cyber-fx,
+  .cyber-fx *,
+  .iri-fx,
+  .iri-fx * {
+    animation: none !important;
+  }
+}
+
+/* ---- "Fav. Wallpaper" virtual-folder title --------------------------- */
+/* Title style of the Fav. Wallpaper card per accent (cyberpunk yellow hologram,
+   sakura blossom gradient). Base themes get warm amber. */
+.fav-title {
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, #fff7ed, #fcd34d);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.65));
+}
+/* Cyberpunk: yellow mono with cyan/magenta split + flicker. */
+[data-accent="cyberpunk"] .fav-title {
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+  background: none;
+  -webkit-text-fill-color: #fcee0a;
+  color: #fcee0a;
+  letter-spacing: 0.22em;
+  filter: none;
+  text-shadow:
+    0 0 5px rgba(252, 238, 10, 0.85),
+    1.5px 0 0 rgba(0, 229, 255, 0.75),
+    -1.5px 0 0 rgba(255, 43, 214, 0.65);
+  animation: micoll-holo-text 6s linear infinite;
+}
+/* Sakura: pink gradient, italic, glow. */
+[data-accent="sakura"] .fav-title {
+  background: linear-gradient(90deg, #ffe1ef, #ff8fc7 50%, #ffd1e8);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  font-style: italic;
+  letter-spacing: 0.1em;
+  filter: drop-shadow(0 0 6px rgba(255, 143, 199, 0.55));
+}
+/* Iridescent: slow pearl shimmer through the letters (bright stops, the tab is frosted
+   glass). A pearl glow instead of the flat black shadow. */
+[data-accent="iridescent"] .fav-title {
+  background: linear-gradient(
+    90deg,
+    #ecfeff,
+    #a7f3d0 16%,
+    #bae6fd 32%,
+    #f5c2ff 50%,
+    #fef3c7 68%,
+    #d8b4fe 84%,
+    #ecfeff
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  font-style: italic;
+  letter-spacing: 0.12em;
+  filter: drop-shadow(0 0 6px rgba(245, 194, 255, 0.5)) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+  animation: micoll-iri-bar-flow 7s steps(140) infinite;
+}
+/* tab icons use an SVG gradient (CollectionTabs mounts it). Unlayered so it
+   beats fill-amber / fill-rose. */
+[data-accent="iridescent"] .iri-foil {
+  fill: url(#micoll-iri-foil);
+  stroke: url(#micoll-iri-foil);
+  filter: drop-shadow(0 0 5px rgba(245, 194, 255, 0.8));
+}
+/* moving stops so the icon colors travel too */
+@keyframes micoll-iri-star-ink {
+  0%,
+  100% {
+    stop-color: #f5c2ff;
+  }
+  25% {
+    stop-color: #a7f3d0;
+  }
+  50% {
+    stop-color: #bae6fd;
+  }
+  75% {
+    stop-color: #fef3c7;
+  }
+}
+/* the fixed stops keep the colors when animations are off (otherwise black) */
+.iri-star-ink {
+  stop-color: #f5c2ff;
+}
+.iri-star-ink-2 {
+  stop-color: #a7f3d0;
+}
+[data-accent="iridescent"] .iri-star-ink {
+  animation: micoll-iri-star-ink 6s linear infinite;
+}
+[data-accent="iridescent"] .iri-star-ink-2 {
+  animation-delay: -3s;
+}
+@keyframes micoll-holo-text {
+  0%,
+  92%,
+  100% {
+    opacity: 1;
+  }
+  93% {
+    opacity: 0.55;
+  }
+  95% {
+    opacity: 0.95;
+  }
+  96% {
+    opacity: 0.6;
+  }
+  97% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fav-title,
+  .iri-star-ink {
+    animation: none !important;
+  }
+}
+
+/* ---- Crop & set: the framing box -------------------------------------- */
+/* The crop box edge uses the accent. The dark outside is a box-shadow on the element,
+   the edge is a masked ::after for the gradient themes. */
+.crop-frame {
+  border-color: var(--color-brand-500);
+}
+[data-accent="cyberpunk"] .crop-frame {
+  border-color: #fcee0a;
+}
+[data-accent="sakura"] .crop-frame,
+[data-accent="iridescent"] .crop-frame {
+  border-color: transparent;
+}
+[data-accent="sakura"] .crop-frame::after,
+[data-accent="iridescent"] .crop-frame::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  padding: 2px;
+  pointer-events: none;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+[data-accent="sakura"] .crop-frame::after {
+  background: linear-gradient(135deg, #ffe1ef, #f472b6 50%, #c98cff);
+}
+/* same foil as the iridescent card borders */
+[data-accent="iridescent"] .crop-frame::after {
+  background: conic-gradient(
+    from var(--iri-ang2),
+    var(--iri-spectrum)
+  );
+  animation: micoll-iri-edge 7s steps(140) infinite;
+}
+
+/* ---- The lead action, iridescent: spectrum on the rim ------------------ */
+/* Used by "Create Card" and "Add rewards" on top of the primary button.
+   The gradient moves from the fill onto a thicker rim, the face is mostly see-through.
+   Unlayered so it beats the variant's background-image. */
+[data-accent="iridescent"] .iri-lead {
+  position: relative;
+  border: 0;
+  /* just a hint of the gradient */
+  background-image: linear-gradient(
+    90deg,
+    rgba(196, 181, 253, 0.17),
+    rgba(245, 194, 255, 0.17),
+    rgba(167, 243, 208, 0.15),
+    rgba(186, 230, 253, 0.17)
+  );
+  background-size: 200% 100%;
+  background-position: left center;
+  /* white text with a shadow so it works on any wallpaper */
+  color: #fff;
+  text-shadow:
+    0 1px 2px rgba(18, 14, 44, 0.85),
+    0 0 8px rgba(18, 14, 44, 0.55);
+  box-shadow: none;
+}
+/* the rim is a masked ::after (the face is transparent, a background gradient would fill
+   it) */
+[data-accent="iridescent"] .iri-lead::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  /* rim thickness */
+  padding: 2.5px;
+  pointer-events: none;
+  background: linear-gradient(90deg, #c4b5fd, #f5c2ff, #a7f3d0, #bae6fd);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+[data-accent="iridescent"] .iri-lead:hover {
+  background-position: right center;
+}
+[data-accent="iridescent"] .iri-lead:hover::after {
+  filter: brightness(1.15);
+}
+
+/* ---- "This one is picked": the selected tile / tab --------------------- */
+/* The color goes on the EDGE, never the fill (a fill covers what it marks).
+   Used by the app icon picker and the active platform tab. */
+.pick-on {
+  border: 2px solid var(--color-brand-500);
+  background-color: color-mix(in srgb, var(--color-brand-500) 12%, transparent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--color-brand-500) 30%, transparent);
+}
+[data-accent="cyberpunk"] .pick-on {
+  border: 2px solid #fcee0a;
+  background-color: rgba(252, 238, 10, 0.1);
+  box-shadow:
+    0 0 0 1px rgba(0, 229, 255, 0.25),
+    0 0 16px rgba(252, 238, 10, 0.3);
+}
+/* the gradient themes use a masked ::after, the tiles are see-through so a
+   background gradient would fill the whole tile */
+[data-accent="sakura"] .pick-on,
+[data-accent="iridescent"] .pick-on {
+  position: relative;
+  border-color: transparent;
+}
+[data-accent="sakura"] .pick-on::after,
+[data-accent="iridescent"] .pick-on::after {
+  content: "";
+  position: absolute;
+  /* cover the 2px transparent border so the rim is on the outer edge */
+  inset: -2px;
+  border-radius: inherit;
+  padding: 2px;
+  pointer-events: none;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+[data-accent="sakura"] .pick-on {
+  background-color: rgba(249, 168, 212, 0.12);
+  box-shadow: 0 0 16px rgba(244, 114, 182, 0.35);
+}
+[data-accent="sakura"] .pick-on::after {
+  background: linear-gradient(135deg, #ffe1ef, #f472b6 50%, #c98cff);
+}
+[data-accent="iridescent"] .pick-on {
+  background-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 0 16px rgba(245, 194, 255, 0.3);
+}
+[data-accent="iridescent"] .pick-on::after {
+  background: linear-gradient(135deg, #c4b5fd, #f5c2ff 35%, #a7f3d0 65%, #bae6fd);
+}
+
+/* ======================================================================== */
+/* === IRIDESCENT premium theme ========================================== */
+/* Soft holo counterpart to cyberpunk: pastel waves, foil on cards and crystal
+   template cards. Everything blurred / screen-blended so it looks like light. */
+
+/* lighter veil so the waves stay bright */
+[data-accent="iridescent"] .app-veil {
+  /* lighter dimming (0.46 was too dark), still enough for light text */
+  background-color: rgba(14, 12, 24, 0.3);
+}
+
+/* ---- Background fluid FX (IridescentFx) ------------------------------- */
+/* the color shift comes from the rotating conic swirls (cheaper than hue-rotate) */
+/* counter-rotating swirls, the element rotates and breathes */
+@keyframes micoll-iri-swirl {
+  0% { transform: rotate(0deg) scale(1); }
+  50% { transform: rotate(180deg) scale(1.08); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+@keyframes micoll-iri-swirl-rev {
+  0% { transform: rotate(360deg) scale(1.05); }
+  50% { transform: rotate(180deg) scale(0.96); }
+  100% { transform: rotate(0deg) scale(1.05); }
+}
+/* slime blob: changes its border-radius while drifting and rotating */
+@keyframes micoll-iri-morph-a {
+  0%, 100% { border-radius: 60% 40% 55% 45% / 55% 45% 55% 45%; transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
+  33% { border-radius: 45% 55% 35% 65% / 60% 40% 60% 40%; transform: translate3d(7vw, 5vh, 0) rotate(60deg) scale(1.12); }
+  66% { border-radius: 50% 50% 65% 35% / 40% 60% 45% 55%; transform: translate3d(-5vw, 8vh, 0) rotate(140deg) scale(0.94); }
+}
+@keyframes micoll-iri-morph-b {
+  0%, 100% { border-radius: 50% 50% 40% 60% / 50% 55% 45% 50%; transform: translate3d(0, 0, 0) rotate(0deg) scale(1.05); }
+  33% { border-radius: 65% 35% 55% 45% / 45% 50% 50% 55%; transform: translate3d(-8vw, 6vh, 0) rotate(-70deg) scale(0.9); }
+  66% { border-radius: 35% 65% 45% 55% / 60% 45% 55% 40%; transform: translate3d(6vw, -5vh, 0) rotate(-150deg) scale(1.18); }
+}
+@keyframes micoll-iri-morph-c {
+  0%, 100% { border-radius: 55% 45% 50% 50% / 45% 55% 45% 55%; transform: translate3d(0, 0, 0) rotate(0deg) scale(0.95); }
+  33% { border-radius: 40% 60% 60% 40% / 55% 40% 60% 45%; transform: translate3d(6vw, -7vh, 0) rotate(80deg) scale(1.2); }
+  66% { border-radius: 60% 40% 45% 55% / 50% 60% 40% 50%; transform: translate3d(-7vw, -4vh, 0) rotate(170deg) scale(1); }
+}
+/* film grain: a big noise layer that jumps in steps */
+[data-accent="iridescent"] .iri-grain {
+  position: absolute;
+  inset: -140px;
+  background-repeat: repeat;
+  opacity: 0.1;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+  animation: micoll-iri-grain 0.8s steps(5) infinite;
+}
+@keyframes micoll-iri-grain {
+  0% { transform: translate(0, 0); }
+  20% { transform: translate(-32px, 20px); }
+  40% { transform: translate(26px, -30px); }
+  60% { transform: translate(-20px, 26px); }
+  80% { transform: translate(30px, 16px); }
+  100% { transform: translate(0, 0); }
+}
+
+/* ---- Artist-card neon border ----------------------------------------- */
+/* flowing iridescent border around artist cards (rotating conic gradient, seamless),
+   uses the micoll-iri-edge keyframe */
+[data-accent="iridescent"] .iri-edge {
+  border: 2px solid transparent;
+  background:
+    linear-gradient(#0e0c18, #0e0c18) padding-box,
+    conic-gradient(
+      from var(--iri-ang2),
+      var(--iri-spectrum)
+    ) border-box;
+  animation: micoll-iri-edge 7s steps(140) infinite;
+}
+
+/* The card holo on this theme is WebGL (IriHoloCard.tsx), blended over the cover.
+   Template cards use the band holo below (IriTemplateHolo). */
+
+/* ---- template card holo: iridescent bands ----
+   Two band layers drift slowly. On hover IriTemplateHolo.tsx pauses the drift
+   and moves them with the mouse. Iridescent + template artists only. */
+[data-accent="iridescent"] .iri-tpl-band1 {
+  mix-blend-mode: screen;
+  /* much weaker than the 0.55 prototype (it washed out real covers) */
+  opacity: 0.22;
+  background-image: linear-gradient(
+    115deg,
+    rgba(126, 150, 236, 0) 8%,
+    rgba(148, 201, 247, 0.85) 24%,
+    rgba(203, 238, 250, 0.95) 34%,
+    rgba(238, 250, 222, 0.9) 42%,
+    rgba(199, 244, 224, 0.85) 50%,
+    rgba(196, 190, 244, 0.9) 60%,
+    rgba(160, 140, 226, 0.75) 70%,
+    rgba(126, 150, 236, 0) 88%
+  );
+  background-size: 320% 320%;
+  background-position: 30% 40%;
+  animation: iri-tpl-drift-a 26s ease-in-out infinite;
+  will-change: background-position, opacity;
+}
+[data-accent="iridescent"] .iri-tpl-band2 {
+  mix-blend-mode: color-dodge;
+  opacity: 0.12;
+  background-image: linear-gradient(
+    65deg,
+    rgba(0, 0, 0, 0) 10%,
+    rgba(137, 178, 240, 0.5) 28%,
+    rgba(230, 248, 255, 0.7) 40%,
+    rgba(244, 252, 214, 0.55) 48%,
+    rgba(180, 166, 238, 0.5) 62%,
+    rgba(0, 0, 0, 0) 85%
+  );
+  background-size: 380% 380%;
+  background-position: 60% 55%;
+  animation: iri-tpl-drift-b 34s ease-in-out infinite;
+  will-change: background-position, opacity;
+}
+[data-accent="iridescent"] .iri-tpl-glare {
+  mix-blend-mode: overlay;
+  opacity: 0;
+  will-change: background, opacity;
+}
+[data-accent="iridescent"] .iri-tpl-inner {
+  inset: 8px;
+  border: 1px solid rgba(220, 235, 250, 0.13);
+}
+/* idle drift */
+@keyframes iri-tpl-drift-a {
+  0%, 100% { background-position: 28% 42%; }
+  25% { background-position: 66% 38%; }
+  50% { background-position: 72% 62%; }
+  75% { background-position: 34% 66%; }
+}
+@keyframes iri-tpl-drift-b {
+  0%, 100% { background-position: 68% 58%; }
+  25% { background-position: 36% 64%; }
+  50% { background-position: 30% 38%; }
+  75% { background-position: 64% 34%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="iridescent"] .iri-tpl-band1,
+  [data-accent="iridescent"] .iri-tpl-band2 {
+    animation: none;
+  }
+}
+
+/* ---- Crystal "template card" (templated months) ---------------------- */
+/* the artist card / cover holo isn't styled for iridescent (.micoll-holo stays hidden),
+   this theme uses the flowing outline around template cards */
+
+/* the card sits above its outline (.iri-aura pseudo elements), its own border shimmers too */
+@property --iri-ang {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+/* registered angle for the border so the conic gradient rotates seamlessly */
+@property --iri-ang2 {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+/* the holo layers on the cover were lowered by 15%, the sparkles aren't.
+   the aura was retuned separately, tune it on its own */
+[data-accent="iridescent"] .iri-aura {
+  position: relative;
+  isolation: isolate;
+}
+/* two counter-rotating blurred conic rings around the card (the card face hides
+   the middle). Stronger with completion, only with progress (0% = no aura). */
+/* no inset here, each pseudo element has its own */
+[data-accent="iridescent"] .iri-aura:is(.iri-low, .iri-mid, .iri-max)::before,
+[data-accent="iridescent"] .iri-aura:is(.iri-low, .iri-mid, .iri-max)::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  border-radius: 1.25rem;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  background: conic-gradient(
+    from var(--iri-ang),
+    var(--iri-frame-spectrum)
+  );
+}
+/* soft outer halo, kept narrow and transparent (overlapping screen colors turn white) */
+[data-accent="iridescent"] .iri-aura::before {
+  inset: -5px;
+  filter: blur(10px) saturate(1.7);
+  opacity: 0.4;
+  animation: micoll-iri-ring 9s steps(180) infinite;
+}
+/* bright sharp edge right on the card (the one the colors are read from) */
+[data-accent="iridescent"] .iri-aura::after {
+  inset: -2px;
+  filter: blur(1.5px) saturate(1.8);
+  opacity: 0.62;
+  animation: micoll-iri-ring-rev 6s steps(120) infinite;
+}
+/* ---- why the drifting gradients below use steps() ----
+   They animate things the compositor can't (background-position, conic angle,
+   drop-shadow), so every frame is a real repaint. With ~80 elements at 60fps that
+   was a lot. steps() only changes the value at each step, 20 per second is plenty
+   for gradients this slow. step count = duration x 20 (halved for there-and-back).
+   Change a duration -> change the count. */
+
+@keyframes micoll-iri-ring {
+  to { --iri-ang: 360deg; }
+}
+@keyframes micoll-iri-ring-rev {
+  to { --iri-ang: -360deg; }
+}
+/* tier strength, lowered overall (the top glow lit the neighbour cards).
+   The difference is more saturation and speed than size. */
+[data-accent="iridescent"] .iri-aura.iri-low {
+  filter: drop-shadow(0 0 5px rgba(196, 181, 253, 0.28));
+}
+[data-accent="iridescent"] .iri-aura.iri-low::before { opacity: 0.28; filter: blur(8px) saturate(1.6); inset: -4px; }
+[data-accent="iridescent"] .iri-aura.iri-low::after { opacity: 0.5; }
+
+[data-accent="iridescent"] .iri-aura.iri-mid {
+  filter: drop-shadow(0 0 6px rgba(186, 230, 253, 0.32)) drop-shadow(0 0 13px rgba(181, 176, 232, 0.22));
+}
+[data-accent="iridescent"] .iri-aura.iri-mid::before { opacity: 0.4; filter: blur(10px) saturate(1.7); inset: -6px; animation-duration: 6.5s; }
+[data-accent="iridescent"] .iri-aura.iri-mid::after { opacity: 0.58; animation-duration: 4s; }
+
+[data-accent="iridescent"] .iri-aura.iri-max::before { opacity: 0.5; filter: blur(12px) saturate(1.85); inset: -8px; animation-duration: 4.5s; }
+[data-accent="iridescent"] .iri-aura.iri-max::after { opacity: 0.68; filter: blur(1.5px) saturate(2); animation-duration: 2.6s; }
+/* 100%: a breathing rainbow rim, much smaller than before */
+[data-accent="iridescent"] .iri-aura.iri-max {
+  animation: micoll-iri-aura-pulse 2.8s steps(28) infinite;
+}
+@keyframes micoll-iri-aura-pulse {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(167, 243, 208, 0.3)) drop-shadow(0 0 13px rgba(181, 176, 232, 0.24)); }
+  50% { filter: drop-shadow(0 0 10px rgba(186, 230, 253, 0.42)) drop-shadow(0 0 22px rgba(181, 176, 232, 0.34)); }
+}
+
+[data-accent="iridescent"] .iri-card {
+  position: relative;
+  z-index: 0;
+  border-radius: 1rem;
+  /* flowing border: conic gradient on the border box with a rotating angle.
+     The face is a violet -> indigo -> teal glass */
+  border: 2px solid transparent;
+  background:
+    linear-gradient(150deg, rgba(58, 42, 96, 0.92), rgba(30, 26, 60, 0.95) 45%, rgba(22, 34, 52, 0.95)) padding-box,
+    conic-gradient(
+      from var(--iri-ang2),
+      color-mix(in srgb, #9ccbf0 85%, #1e1a3c),
+      color-mix(in srgb, #c4b5fd 85%, #1e1a3c),
+      color-mix(in srgb, #f5c2ff 85%, #1e1a3c),
+      color-mix(in srgb, #b9dde9 85%, #1e1a3c),
+      color-mix(in srgb, #a9edd9 85%, #1e1a3c),
+      color-mix(in srgb, #eaf7cf 85%, #1e1a3c),
+      color-mix(in srgb, #b5b0e8 85%, #1e1a3c),
+      color-mix(in srgb, #9ccbf0 85%, #1e1a3c)
+    ) border-box;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.119);
+  animation: micoll-iri-edge 7s steps(140) infinite;
+}
+/* the caption strip: a brighter foil band */
+[data-accent="iridescent"] .iri-foot {
+  background:
+    linear-gradient(120deg, rgba(196, 181, 253, 0.22), rgba(245, 194, 255, 0.16) 38%, rgba(167, 243, 208, 0.16) 70%, rgba(186, 230, 253, 0.2));
+  background-size: 220% 100%;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  animation: micoll-iri-foot 9s steps(90) infinite;
+}
+@keyframes micoll-iri-foot {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* === holo foil over the template card cover ===
+   Pastel bands + mouse grain & glare + pearl sheen + top gloss.
+   V1 (50-99%) light, V2 (100%) strong with a prism band and sparkles.
+   Below 50% nothing (JSX). The card tilts toward the mouse (MonthCard). */
+[data-accent="iridescent"] .iri-holo-scene {
+  perspective: 1100px;
+}
+[data-accent="iridescent"] .iri-holo-card {
+  transform-style: preserve-3d;
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+[data-accent="iridescent"] .iri-holo-card.iri-holo-tilt {
+  transform:
+    rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg))
+    scale(calc(1 + var(--active, 0) * 0.02));
+  will-change: transform;
+}
+[data-accent="iridescent"] .iri-holo {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+}
+[data-accent="iridescent"] .iri-holo > div {
+  position: absolute;
+  inset: 0;
+}
+/* pastel bands, screen instead of the prototype's multiply (our covers are dark) */
+[data-accent="iridescent"] .iri-holo-bands {
+  mix-blend-mode: screen;
+  opacity: 0.27;
+  background: linear-gradient(110deg, transparent 20%, #b5b0e8 34%, #9ccbf0 45%, #a9edd9 55%, #eaf7cf 64%, transparent 84%);
+  background-size: 240% 100%;
+  animation: micoll-holo-sheen 9s steps(90) infinite;
+}
+/* V2: a second prism band the other way */
+[data-accent="iridescent"] .iri-holo-prism {
+  mix-blend-mode: screen;
+  opacity: 0.27;
+  background: linear-gradient(-72deg, transparent 26%, #9fdcef 44%, #c9c3f2 54%, #a9edd9 62%, transparent 82%);
+  background-size: 260% 100%;
+  animation: micoll-holo-sheen2 7.5s steps(75) infinite;
+}
+/* rainbow grain following the mouse, small hover boost */
+[data-accent="iridescent"] .iri-holo-grain {
+  mix-blend-mode: screen;
+  opacity: calc(0.119 + var(--active, 0) * 0.102);
+  background: repeating-linear-gradient(98deg, #c9c3f2 0%, #9ccbf0 8%, #a9edd9 16%, #eaf7cf 24%, #b5b0e8 32%, #c9c3f2 40%);
+  background-size: 300% 300%;
+  background-position: calc(var(--px, 50%) * 0.7) calc(var(--py, 50%) * 0.7);
+}
+/* pearl sheen */
+[data-accent="iridescent"] .iri-holo-pearl {
+  mix-blend-mode: screen;
+  opacity: 0.19;
+  background: linear-gradient(110deg, transparent 34%, rgba(255, 255, 255, 0.7) 50%, transparent 66%);
+  background-size: 240% 100%;
+  animation: micoll-holo-sheen 9s steps(90) infinite;
+}
+/* glare following the mouse, subtle */
+[data-accent="iridescent"] .iri-holo-glare {
+  mix-blend-mode: screen;
+  opacity: calc(0.043 + var(--active, 0) * 0.119);
+  background: radial-gradient(circle at var(--px, 50%) var(--py, 50%), rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0) 50%);
+}
+/* top gloss + thin inner edge */
+[data-accent="iridescent"] .iri-holo-gloss {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.34), transparent 22%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38), inset 0 0 0 1.5px rgba(170, 160, 205, 0.136);
+}
+/* V2 sparkle layer (the dots/stars are elements made in MonthCard), just the container */
+[data-accent="iridescent"] .iri-holo-spark {
+  mix-blend-mode: screen;
+  overflow: hidden;
+  /* the same 15% lower as the rest of the card */
+  opacity: 0.85;
+}
+/* V1 light (base above), V2 a bit stronger */
+[data-accent="iridescent"] .iri-holo--v2 .iri-holo-bands { opacity: 0.39; }
+[data-accent="iridescent"] .iri-holo--v2 .iri-holo-grain { opacity: calc(0.187 + var(--active, 0) * 0.119); }
+[data-accent="iridescent"] .iri-holo--v2 .iri-holo-pearl { opacity: 0.27; }
+[data-accent="iridescent"] .iri-holo--v2 .iri-holo-glare { opacity: calc(0.068 + var(--active, 0) * 0.17); }
+/* sheens go back and forth so there's no hard reset */
+@keyframes micoll-holo-sheen {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+@keyframes micoll-holo-sheen2 {
+  0% { background-position: 100% 50%; }
+  50% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
+}
+/* dot: fade + scale, star: fade + scale + rotate.
+   Each speck is dark most of the time and flares at the end of its cycle,
+   so only 3-4 of ~27 are lit at once. */
+@keyframes micoll-holo-twinkle {
+  0%, 88% { opacity: 0; transform: scale(0.3); }
+  94% { opacity: 1; transform: scale(1.05); }
+  97% { opacity: 0.35; transform: scale(0.7); }
+  100% { opacity: 0; transform: scale(0.3); }
+}
+@keyframes micoll-holo-star {
+  0%, 86% { opacity: 0; transform: scale(0.15) rotate(0deg); }
+  93% { opacity: 1; transform: scale(1) rotate(35deg); }
+  100% { opacity: 0; transform: scale(0.15) rotate(70deg); }
+}
+/* used by the template card border and the artist card border (.iri-edge) */
+@keyframes micoll-iri-edge {
+  to { --iri-ang2: 360deg; }
+}
+/* verified mark: flowing pearl disc with a violet tick */
+[data-accent="iridescent"] .iri-check {
+  /* only the check in holo color, with a glow for bright covers */
+  color: #f5c2ff;
+  filter: drop-shadow(0 0 5px rgba(245, 194, 255, 0.9)) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+}
+@keyframes micoll-iri-flow {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+[data-accent="iridescent"] .iri-pill {
+  color: #ece7ff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+/* the "% obtained" bar: flowing foil, the width eases in */
+[data-accent="iridescent"] .iri-bar {
+  background: rgba(255, 255, 255, 0.1);
+}
+[data-accent="iridescent"] .iri-fill {
+  background-image: linear-gradient(90deg, #c4b5fd, #f5c2ff, #bae6fd, #a7f3d0, #c4b5fd);
+  background-size: 200% 100%;
+  box-shadow: 0 0 8px rgba(245, 194, 255, 0.6);
+  transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: micoll-iri-bar-flow 3s steps(60) infinite;
+}
+/* year divider without template progress: the spectrum instead of a black line */
+[data-accent="iridescent"] .iri-rule {
+  /* symmetric, no transparent stop (the fade moved onto the line when sliding) */
+  background-image: linear-gradient(
+    90deg,
+    #c4b5fd,
+    #f5c2ff 20%,
+    #bae6fd 40%,
+    #a7f3d0 60%,
+    #f5c2ff 80%,
+    #c4b5fd
+  );
+  background-size: 200% 100%;
+  opacity: 0.8;
+  /* back and forth, a thin line can't hide a reset */
+  animation: micoll-iri-rule-flow 14s ease-in-out infinite;
+}
+@keyframes micoll-iri-rule-flow {
+  0% { background-position: 0% 0; }
+  50% { background-position: 100% 0; }
+  100% { background-position: 0% 0; }
+}
+@keyframes micoll-iri-bar-flow {
+  to { background-position: -200% 0; }
+}
+/* year bar for sakura (soft petal track with a flowing gradient) and cyberpunk
+   (squared charge slot with stripes and a cyan edge) */
+[data-accent="sakura"] .sak-yearbar {
+  background: rgba(249, 168, 212, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(249, 168, 212, 0.25);
+}
+[data-accent="sakura"] .sak-yearfill {
+  background-image: linear-gradient(90deg, #ffd0e3, #f472b6 45%, #c98cff 85%, #ffd0e3);
+  background-size: 200% 100%;
+  box-shadow: 0 0 8px rgba(244, 114, 182, 0.55);
+  transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: micoll-iri-bar-flow 5s steps(100) infinite;
+}
+/* sakura also shows it as a blooming tree (SakuraTree.tsx). The glow is on the group,
+   not on each flower. */
+[data-accent="sakura"] .sak-tree-branch {
+  stroke: #9c7a85;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+}
+[data-accent="sakura"] .sak-tree-blooms {
+  filter: drop-shadow(0 0 3px rgba(255, 150, 210, 0.7));
+}
+/* Sakura card frame (SakuraCardFrame.tsx): one pass of the silk band + falling petals.
+   The travel is one full tile so it starts and ends on the same picture.
+   For a tile S times the container the step is S / (S - 1), here S = 2.6 -> 162.5%
+   (the year bar uses S = 2 -> 200%).
+   Fading in over the first fifth and out over the last fifth hides both ends. */
+@keyframes micoll-sak-silk {
+  0% {
+    background-position: 0% 0;
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    background-position: 162.5% 0;
+    opacity: 0;
+  }
+}
+/* the three drifting light pools were removed (they looked like smudges on the cover) */
+
+/* ---- iridescent template card: brackets -> inner border on hover ----
+   On hover the two brackets grow into one closed border. d is animated as a CSS
+   property, so each bracket grows point by point. Works because all paths are M + 3 L
+   (see BORDER_LEFT_D / BORDER_RIGHT_D in IriCardFrame.tsx). Keep the same commands
+   if you change them, otherwise it jumps. */
+[data-accent="iridescent"] .iri-bracket-l,
+[data-accent="iridescent"] .iri-bracket-r,
+[data-accent="iridescent"] .iri-bracket-tick {
+  transition:
+    d 560ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 240ms ease-out;
+}
+[data-accent="iridescent"] .iri-bracket-l {
+  d: path("M1,330 L22,309 L22,171 M22,171 L1,150");
+}
+[data-accent="iridescent"] .iri-bracket-r {
+  d: path("M339,150 L318,171 L318,309 M318,309 L339,330");
+}
+[data-accent="iridescent"] .group:hover .iri-bracket-l {
+  d: path("M178,456 L22,456 L22,46 M44,24 L178,24");
+}
+[data-accent="iridescent"] .group:hover .iri-bracket-r {
+  d: path("M162,24 L318,24 L318,434 M296,456 L162,456");
+}
+/* Why 24 and 456: the cut corners run along x+y=46 and x+y=774, so at x=22 and
+   x=318 those are the heights where the cuts are.
+   Those two corners stay open (the border stops before them).
+   The two halves overlap by 16 units at the top and bottom middle, otherwise the
+   anti-aliasing leaves a thin notch.
+   A gap needs a second subpath and d only animates between the same command list,
+   so each resting bracket has an extra M too ("... L22,171 M22,171 L1,150").
+   Keep both sides' commands the same if you change these four paths. */
+/* the ticks leave with the brackets (faster, so they're gone before the border gets there) */
+[data-accent="iridescent"] .group:hover .iri-bracket-tick {
+  opacity: 0;
+}
+/* reduced motion: no growing, the card keeps its brackets */
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="iridescent"] .iri-bracket-l,
+  [data-accent="iridescent"] .iri-bracket-r,
+  [data-accent="iridescent"] .iri-bracket-tick {
+    transition: none;
+  }
+  [data-accent="iridescent"] .group:hover .iri-bracket-l {
+    d: path("M1,330 L22,309 L22,171 M22,171 L1,150");
+  }
+  [data-accent="iridescent"] .group:hover .iri-bracket-r {
+    d: path("M339,150 L318,171 L318,309 M318,309 L339,330");
+  }
+  [data-accent="iridescent"] .group:hover .iri-bracket-tick {
+    opacity: 1;
+  }
+}
+
+/* Glitter on template iridescent cards. Each speck is dark most of the time and
+   flares shortly, so only one or two light up at once. screen adds light. */
+[data-accent="iridescent"] .iri-card-spark {
+  position: absolute;
+  mix-blend-mode: screen;
+  opacity: 0;
+  animation: micoll-iri-spark 6s ease-in-out infinite;
+}
+/* two rays, a cross looks like a glint (a dot looks like dust) */
+[data-accent="iridescent"] .iri-card-spark::before,
+[data-accent="iridescent"] .iri-card-spark::after {
+  content: "";
+  position: absolute;
+  /* a thin bar through the middle (inset 0 made a blob). The box is square,
+     so the second bar rotated 90 degrees makes a cross */
+  left: 0;
+  right: 0;
+  top: 45%;
+  bottom: 45%;
+  /* soft ends from the gradient (a blur filter cost a pass per ray per frame) */
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.95) 45%,
+    rgba(226, 220, 255, 0.9) 55%,
+    transparent
+  );
+}
+[data-accent="iridescent"] .iri-card-spark::after {
+  transform: rotate(90deg);
+}
+/* upright when brightest, turning as it fades */
+@keyframes micoll-iri-spark {
+  0%,
+  60% {
+    opacity: 0;
+    transform: scale(0.2) rotate(-22deg);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+  80% {
+    opacity: 0.32;
+    transform: scale(0.7) rotate(14deg);
+  }
+  90%,
+  100% {
+    opacity: 0;
+    transform: scale(0.2) rotate(30deg);
+  }
+}
+
+[data-accent="sakura"] .sak-card-petal {
+  position: absolute;
+  /* petal shape: round on one diagonal, pointed on the other */
+  border-radius: 100% 0 100% 0;
+  background: linear-gradient(135deg, rgba(255, 224, 238, 0.85), rgba(244, 114, 182, 0.5));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  animation: micoll-sak-petal-fall 13s linear infinite;
+}
+/* the petal fades in and out so the jump back to the top is invisible */
+@keyframes micoll-sak-petal-fall {
+  0% {
+    transform: translate3d(0, -20%, 0) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.85;
+  }
+  78% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate3d(-22%, 340%, 0) rotate(240deg);
+    opacity: 0;
+  }
+}
+
+/* no fade-in here, the tree has to be right in a still frame */
+[data-accent="sakura"] .sak-tree-bloom {
+  fill: #ffc1da;
+}
+[data-accent="cyberpunk"] .cp-yearbar {
+  background: rgba(0, 0, 0, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(252, 238, 10, 0.35), inset 0 0 6px rgba(0, 229, 255, 0.14);
+  /* cut corner like every cyberpunk plate */
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 5px 100%, 0 calc(100% - 5px));
+}
+[data-accent="cyberpunk"] .cp-yearfill {
+  background-image: repeating-linear-gradient(90deg, #fcee0a 0 3px, #d8c800 3px 6px);
+  box-shadow: 0 0 9px rgba(252, 238, 10, 0.5), inset -2px 0 0 rgba(0, 240, 255, 0.9);
+  transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* ---- The licence plate's glint ----------------------------------------- */
+/* License plate glint in Settings (iridescent only): a white band crosses now and then.
+   Only ~0.9s of the 8s cycle, a sweep that never stops looks like a loading bar.
+   ::after so it crosses over the text. The plate background is set inline (SettingsPage). */
+[data-accent="iridescent"] .iri-licence {
+  position: relative;
+  overflow: hidden;
+}
+[data-accent="iridescent"] .iri-licence::after {
+  content: "";
+  position: absolute;
+  top: -60%;
+  bottom: -60%;
+  left: 0;
+  width: 38%;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.14) 34%,
+    rgba(255, 255, 255, 0.62) 50%,
+    rgba(255, 255, 255, 0.14) 66%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: translateX(-160%) skewX(-16deg);
+  animation: micoll-licence-glint 8s ease-in-out infinite;
+}
+@keyframes micoll-licence-glint {
+  0%,
+  84% {
+    transform: translateX(-160%) skewX(-16deg);
+    opacity: 0;
+  }
+  86% {
+    opacity: 1;
+  }
+  97% {
+    transform: translateX(420%) skewX(-16deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(420%) skewX(-16deg);
+    opacity: 0;
+  }
+}
+
+/* Sakura plate: same glint, blossom tinted and slower. */
+[data-accent="sakura"] .sak-licence {
+  position: relative;
+  overflow: hidden;
+}
+[data-accent="sakura"] .sak-licence::after {
+  content: "";
+  position: absolute;
+  top: -60%;
+  bottom: -60%;
+  left: 0;
+  width: 40%;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    rgba(255, 236, 245, 0) 0%,
+    rgba(255, 236, 245, 0.16) 34%,
+    rgba(255, 255, 255, 0.55) 50%,
+    rgba(255, 214, 233, 0.16) 66%,
+    rgba(255, 214, 233, 0) 100%
+  );
+  transform: translateX(-160%) skewX(-16deg);
+  animation: micoll-licence-glint 10s ease-in-out infinite;
+}
+
+/* Cyberpunk plate: a scan instead of a glint. Cut corner, cyan band, steps() so it jumps,
+   two passes at the end of the cycle. */
+[data-accent="cyberpunk"] .cp-licence {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%);
+}
+[data-accent="cyberpunk"] .cp-licence::after {
+  content: "";
+  position: absolute;
+  top: -60%;
+  bottom: -60%;
+  left: 0;
+  width: 26%;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    rgba(0, 240, 255, 0) 0%,
+    rgba(0, 240, 255, 0.3) 40%,
+    rgba(234, 255, 255, 0.7) 50%,
+    rgba(252, 238, 10, 0.28) 60%,
+    rgba(252, 238, 10, 0) 100%
+  );
+  transform: translateX(-160%) skewX(-16deg);
+  animation: micoll-licence-scan 7s steps(9, end) infinite;
+}
+@keyframes micoll-licence-scan {
+  0%,
+  80% {
+    transform: translateX(-160%) skewX(-16deg);
+    opacity: 0;
+  }
+  81% {
+    opacity: 1;
+  }
+  88% {
+    transform: translateX(420%) skewX(-16deg);
+    opacity: 1;
+  }
+  89% {
+    transform: translateX(-160%) skewX(-16deg);
+    opacity: 0.85;
+  }
+  97% {
+    transform: translateX(420%) skewX(-16deg);
+    opacity: 0.85;
+  }
+  100% {
+    transform: translateX(420%) skewX(-16deg);
+    opacity: 0;
+  }
+}
+
+/* Cyberpunk year divider without template progress: a data track (yellow dashes on a
+   dark rail with a cyan tick moving along, the yellow flickers).
+   Two backgrounds: the tick first (moves), the dashes second. Size/position are per
+   layer in the same order, swap them and the dashes move. */
+[data-accent="cyberpunk"] .cp-rule {
+  background-image:
+    linear-gradient(90deg, transparent, #00f0ff 45%, #00f0ff 55%, transparent),
+    repeating-linear-gradient(90deg, #fcee0a 0 6px, rgba(252, 238, 10, 0.15) 6px 12px);
+  background-size:
+    22% 100%,
+    100% 100%;
+  background-position:
+    0% 0,
+    0 0;
+  background-repeat: no-repeat, repeat;
+  animation:
+    cp-rule-run 6s linear infinite,
+    cp-rule-flicker 3.1s steps(2) infinite;
+}
+/* the tick goes and comes back (a one-way sweep looks like a reset) */
+@keyframes cp-rule-run {
+  0% { background-position: -25% 0, 0 0; }
+  50% { background-position: 105% 0, 0 0; }
+  100% { background-position: -25% 0, 0 0; }
+}
+/* two steps, not a fade (this theme's lights buzz) */
+@keyframes cp-rule-flicker {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
+
+/* progress as 3 diamonds: filled ones flow with the foil, empty ones are a pearl outline */
+[data-accent="iridescent"] .iri-kite {
+  border-radius: 2px;
+  transition: background 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+}
+[data-accent="iridescent"] .iri-kite--off {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.05);
+}
+[data-accent="iridescent"] .iri-kite--on {
+  background-image: linear-gradient(135deg, #c4b5fd, #f5c2ff 45%, #a7f3d0 75%, #bae6fd);
+  background-size: 200% 200%;
+  box-shadow: 0 0 7px rgba(245, 194, 255, 0.7);
+  animation: micoll-iri-flow 3.5s steps(35) infinite;
+}
+/* % in a pearl gradient */
+[data-accent="iridescent"] .iri-pct {
+  background: linear-gradient(90deg, #ddd6fe, #f5c2ff 40%, #a7f3d0 80%, #ddd6fe);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  filter: drop-shadow(0 0 6px rgba(245, 194, 255, 0.4));
+  animation: micoll-iri-bar-flow 5s steps(100) infinite;
+}
+
+/* === cherry blossom foil over the template card cover ===
+   Pink/violet bands + falling petals + pearl sheen + mouse glare + top gloss.
+   V1 (50-99%) light, V2 (100%) with a prism band, more petals and sparkles.
+   Below 50% nothing (JSX). The card tilts toward the mouse (MonthCard).
+   Uses screen like the iridescent foil so it works on dark covers. */
+[data-accent="sakura"] .sak-holo-scene {
+  perspective: 1100px;
+}
+[data-accent="sakura"] .sak-holo-card {
+  transform-style: preserve-3d;
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+[data-accent="sakura"] .sak-holo-card.sak-holo-tilt {
+  transform:
+    rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg))
+    scale(calc(1 + var(--active, 0) * 0.02));
+  will-change: transform;
+}
+[data-accent="sakura"] .sak-holo {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  overflow: hidden;
+  /* size container so petals can fall the full card height (cqh) */
+  container-type: size;
+}
+[data-accent="sakura"] .sak-holo > div {
+  position: absolute;
+  inset: 0;
+}
+/* drifting pastel bands */
+[data-accent="sakura"] .sak-holo-bands {
+  mix-blend-mode: screen;
+  opacity: 0.31;
+  background: linear-gradient(110deg, transparent 18%, #ffb2de 34%, #ce96ff 46%, #ff8cc8 56%, #ffd2f0 64%, transparent 84%);
+  background-size: 240% 100%;
+  animation: micoll-holo-sheen 9s steps(90) infinite;
+}
+/* V2: a second prism band the other way */
+[data-accent="sakura"] .sak-holo-prism {
+  mix-blend-mode: screen;
+  opacity: 0.32;
+  background: linear-gradient(-72deg, transparent 24%, #dc96ff 46%, #ff96cd 56%, #dc96ff 64%, transparent 82%);
+  background-size: 260% 100%;
+  animation: micoll-holo-sheen2 7s steps(70) infinite;
+}
+/* pearl sheen */
+[data-accent="sakura"] .sak-holo-pearl {
+  mix-blend-mode: screen;
+  opacity: 0.18;
+  background: linear-gradient(110deg, transparent 36%, rgba(255, 255, 255, 0.65) 50%, transparent 64%);
+  background-size: 240% 100%;
+  animation: micoll-holo-sheen 9s steps(90) infinite;
+}
+/* glare following the mouse, subtle */
+[data-accent="sakura"] .sak-holo-glare {
+  mix-blend-mode: screen;
+  opacity: calc(0.045 + var(--active, 0) * 0.117);
+  background: radial-gradient(circle at var(--px, 50%) var(--py, 50%), rgba(255, 230, 245, 0.85), rgba(255, 230, 245, 0) 50%);
+}
+/* top gloss + thin inner edge */
+[data-accent="sakura"] .sak-holo-gloss {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.29), transparent 22%);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.45), inset 0 0 60px rgba(255, 150, 210, 0.18);
+}
+/* petal + sparkle containers (the elements are made in MonthCard) */
+[data-accent="sakura"] .sak-holo-petals {
+  overflow: hidden;
+}
+[data-accent="sakura"] .sak-holo-spark {
+  mix-blend-mode: screen;
+  /* already its own blend group, so opacity here just dims the sparkles */
+  opacity: 0.9;
+  overflow: hidden;
+}
+/* V1 light (base above), V2 stronger */
+[data-accent="sakura"] .sak-holo--v2 .sak-holo-bands { opacity: 0.45; }
+[data-accent="sakura"] .sak-holo--v2 .sak-holo-pearl { opacity: 0.27; }
+[data-accent="sakura"] .sak-holo--v2 .sak-holo-glare { opacity: calc(0.072 + var(--active, 0) * 0.162); }
+[data-accent="sakura"] .sak-holo--v2 .sak-holo-gloss {
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.54), inset 0 0 70px rgba(255, 140, 215, 0.29);
+}
+/* a petal falls the card height, a nested element sways */
+@keyframes micoll-sak-fall {
+  0% { transform: translateY(-16cqh); opacity: 0; }
+  9% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { transform: translateY(116cqh); opacity: 0; }
+}
+@keyframes micoll-sak-sway {
+  from { transform: translateX(-10px) rotate(-22deg); }
+  to { transform: translateX(10px) rotate(202deg); }
+}
+/* sparkle: fade + scale + slow rotate */
+@keyframes micoll-sak-twinkle {
+  0%, 100% { opacity: 0; transform: scale(0.3) rotate(0deg); }
+  50% { opacity: 1; transform: scale(1) rotate(90deg); }
+}
+
+/* ---- sakura template card chrome (footer, pills, checks) ----
+   Pink pearl glass body, shimmering %, petal pips, and theme checkmarks
+   (glowing blossom for 100%, pink badge for verified). */
+[data-accent="sakura"] .sak-card {
+  background:
+    linear-gradient(165deg, rgba(255, 209, 230, 0.1), rgba(34, 18, 30, 0.6) 55%),
+    #161016;
+  border: 1px solid rgba(249, 168, 212, 0.28);
+  box-shadow: 0 10px 26px -14px rgba(244, 114, 182, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+[data-accent="sakura"] .sak-foot {
+  border-top: 1px solid rgba(249, 168, 212, 0.22);
+  background: linear-gradient(180deg, rgba(255, 209, 230, 0.06), transparent);
+}
+/* minimal mode: the card's frame glows instead of a badge. The glow is outside
+   the card, so it covers no pixels of the cover. */
+/* ---- Appearance chips --------------------------------------------------- */
+/* The license chip's tint as the idle background of every chip in Appearance
+   (only idle, a switched-on chip keeps its own fill). From --color-brand-500,
+   so it's the theme's own color. */
+.appearance-chip {
+  background-image: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--color-brand-500) 16%, transparent),
+    transparent 85%
+  );
+}
+
+[data-accent="sakura"] .sak-verified-edge {
+  border-color: rgba(255, 154, 206, 0.9);
+  box-shadow:
+    0 0 0 1px rgba(255, 154, 206, 0.35),
+    0 0 16px rgba(244, 114, 182, 0.45),
+    0 10px 26px -14px rgba(244, 114, 182, 0.5);
+}
+[data-accent="sakura"] .sak-pill {
+  color: #ffe1ee;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(249, 168, 212, 0.3);
+}
+/* sakura: the petal cut (the card frame shape) and the frosted rose glass, separate.
+   The picked platform tab only takes the cut and keeps its pink fill. */
+[data-accent="sakura"] .sak-petal-cut {
+  border-radius: 0.35rem 1.1rem 0.35rem 1.1rem;
+}
+/* frosted rose glass: pale wash, lit top edge, blossom hairline */
+[data-accent="sakura"] .sak-chip {
+  color: #f7d9e7;
+  border-color: rgba(249, 168, 212, 0.28);
+  background:
+    linear-gradient(160deg, rgba(255, 209, 229, 0.12), rgba(26, 14, 21, 0.5) 58%),
+    rgba(26, 14, 21, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 224, 238, 0.2),
+    0 2px 10px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(6px);
+}
+[data-accent="sakura"] .sak-chip:hover:not(:disabled) {
+  color: #ffeaf4;
+  border-color: rgba(249, 168, 212, 0.6);
+  background:
+    linear-gradient(160deg, rgba(255, 209, 229, 0.22), rgba(34, 18, 28, 0.55) 58%),
+    rgba(34, 18, 28, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 235, 245, 0.3),
+    0 3px 14px rgba(244, 114, 182, 0.18);
+}
+/* the main action of a pair ("Create Card"): the same glass with more blossom, a
+   brighter rim and a glow. Must stay below .sak-chip:hover (same specificity, order wins). */
+[data-accent="sakura"] .sak-chip--lead {
+  color: #fff2f8;
+  border-color: rgba(249, 168, 212, 0.6);
+  background:
+    linear-gradient(160deg, rgba(255, 209, 229, 0.32), rgba(244, 114, 182, 0.3) 52%, rgba(42, 20, 32, 0.6)),
+    rgba(42, 20, 32, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 240, 247, 0.42),
+    0 3px 16px rgba(244, 114, 182, 0.26);
+}
+[data-accent="sakura"] .sak-chip--lead:hover:not(:disabled) {
+  color: #fffafc;
+  border-color: rgba(255, 209, 229, 0.9);
+  background:
+    linear-gradient(160deg, rgba(255, 224, 238, 0.45), rgba(244, 114, 182, 0.42) 52%, rgba(48, 22, 36, 0.6)),
+    rgba(48, 22, 36, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 4px 22px rgba(244, 114, 182, 0.42);
+}
+
+/* % in a pink gradient */
+[data-accent="sakura"] .sak-pct {
+  background: linear-gradient(90deg, #ffd0e3, #f472b6 45%, #c98cff 85%, #ffd0e3);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  filter: drop-shadow(0 0 6px rgba(244, 114, 182, 0.4));
+  animation: micoll-iri-bar-flow 5s steps(100) infinite;
+}
+/* progress as 3 petal pips */
+/* the petal pips: a tall box turned 60 degrees so it leans like a fallen petal */
+[data-accent="sakura"] .sak-petal-pip {
+  border-radius: 100% 0 100% 0;
+  transform: rotate(60deg);
+  transition: background 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+}
+/* the three pips as a small heap (absolute positions, different rotations).
+   The petals spill over the box on purpose. */
+[data-accent="sakura"] .sak-pip-cluster {
+  position: relative;
+  width: 34px;
+  height: 18px;
+}
+[data-accent="sakura"] .sak-pip-cluster .sak-petal-pip {
+  position: absolute;
+  width: 10px;
+  height: 14px;
+}
+[data-accent="sakura"] .sak-pip-cluster .sak-petal-pip:nth-child(1) {
+  left: 0;
+  top: 3px;
+  transform: rotate(-26deg);
+}
+[data-accent="sakura"] .sak-pip-cluster .sak-petal-pip:nth-child(2) {
+  left: 11px;
+  top: 0;
+  transform: rotate(34deg);
+}
+/* the last one lies almost flat */
+[data-accent="sakura"] .sak-pip-cluster .sak-petal-pip:nth-child(3) {
+  left: 21px;
+  top: 5px;
+  transform: rotate(78deg);
+}
+[data-accent="sakura"] .sak-petal-pip--off {
+  border: 1px solid rgba(249, 168, 212, 0.4);
+  background: rgba(255, 255, 255, 0.05);
+}
+[data-accent="sakura"] .sak-petal-pip--on {
+  background: linear-gradient(135deg, #ffd0e3, #f472b6 50%, #c98cff);
+  box-shadow: 0 0 7px rgba(244, 114, 182, 0.7);
+}
+/* "fully collected" mark: glowing pink blossom with a check */
+[data-accent="sakura"] .sak-bloom-badge {
+  color: #ffc1da;
+  filter: drop-shadow(0 0 5px rgba(255, 150, 210, 0.85)) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+[data-accent="sakura"] .sak-bloom-core {
+  background: linear-gradient(135deg, #f472b6, #c98cff);
+  box-shadow: 0 0 6px rgba(255, 140, 215, 0.8), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+/* Sakura header logo: the icon turns into a blossom and back (SakuraMark.tsx picks
+   the timing). Both are stacked and cross-faded by a class, so it's never blank.
+   They leave and arrive with opposite rotations. */
+/* staggered: the leaving one goes first, the arriving one waits
+   (both half visible at once looked broken) */
+[data-accent="sakura"] .sak-mark {
+  transition:
+    opacity 0.5s ease,
+    transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: 0.42s;
+}
+[data-accent="sakura"] .sak-mark--off {
+  opacity: 0;
+  transform: rotate(90deg) scale(0.5);
+  transition-delay: 0s;
+}
+[data-accent="sakura"] .sak-mark--off-bloom {
+  transform: rotate(-90deg) scale(0.5);
+}
+[data-accent="sakura"] .sak-mark-bloom {
+  color: #f9a8d4;
+  filter: drop-shadow(0 0 4px rgba(244, 114, 182, 0.7));
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="sakura"] .sak-mark {
+    transition: none !important;
+  }
+}
+/* Cyberpunk header logo: house and "M" on the yellow plate glitch-swap.
+   Without animations the house is shown. */
+[data-accent="cyberpunk"] .cyber-mark-house {
+  animation: micoll-cyber-swap-house 4.2s linear infinite;
+}
+[data-accent="cyberpunk"] .cyber-mark-m {
+  opacity: 0;
+  animation: micoll-cyber-swap-m 4.2s linear infinite;
+}
+@keyframes micoll-cyber-swap-house {
+  0%, 42% { opacity: 1; transform: translate(0, 0); filter: none; }
+  44% { opacity: 0.8; transform: translate(-1.5px, 1px); filter: drop-shadow(1.5px 0 #00e5ff) drop-shadow(-1.5px 0 #ff2bd6); }
+  46% { opacity: 0.35; transform: translate(1.5px, -1px); }
+  48%, 92% { opacity: 0; transform: translate(0, 0); filter: none; }
+  94% { opacity: 0.4; transform: translate(1.5px, 0); filter: drop-shadow(-1.5px 0 #00e5ff) drop-shadow(1.5px 0 #ff2bd6); }
+  96% { opacity: 0.8; transform: translate(-1px, 1px); }
+  100% { opacity: 1; transform: translate(0, 0); filter: none; }
+}
+@keyframes micoll-cyber-swap-m {
+  0%, 42% { opacity: 0; transform: translate(0, 0); filter: none; }
+  44% { opacity: 0.4; transform: translate(1.5px, -1px); filter: drop-shadow(-1.5px 0 #00e5ff) drop-shadow(1.5px 0 #ff2bd6); }
+  46% { opacity: 0.8; transform: translate(-1.5px, 1px); }
+  48%, 92% { opacity: 1; transform: translate(0, 0); filter: none; }
+  94% { opacity: 0.55; transform: translate(-1.5px, 0); filter: drop-shadow(1.5px 0 #00e5ff) drop-shadow(-1.5px 0 #ff2bd6); }
+  96% { opacity: 0.3; transform: translate(1px, -1px); }
+  100% { opacity: 0; transform: translate(0, 0); filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="cyberpunk"] .cyber-mark-house,
+  [data-accent="cyberpunk"] .cyber-mark-m {
+    animation: none !important;
+  }
+}
+
+/* ---- Dashboard home plate + brand mark + menus ----------------------- */
+.iri-home-plate {
+  background: linear-gradient(135deg, #c4b5fd, #f5c2ff 35%, #a7f3d0 65%, #bae6fd);
+  background-size: 200% 200%;
+  animation: micoll-iri-flow 6s steps(60) infinite;
+}
+@keyframes micoll-iri-mark {
+  0%, 100% { filter: hue-rotate(0deg) brightness(1); }
+  50% { filter: hue-rotate(38deg) brightness(1.18); }
+}
+/* progress crystal: the pearl fill shimmers with a slow hue rotate (same keyframes as the
+   logo) */
+.iri-crystal-fill {
+  animation: micoll-iri-mark 5s ease-in-out infinite;
+}
+[data-animations="off"] .iri-crystal-fill {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .iri-crystal-fill {
+    animation: none;
+  }
+}
+/* iridescent "set type" fold: slow rainbow flow */
+.micoll-corner-rainbow {
+  background: linear-gradient(135deg, #f5c2ff, #c4b5fd, #a5b4fc, #7dd3fc, #a7f3d0, #fde68a, #fbcfe8);
+  background-size: 300% 300%;
+  /* back and forth inside the gradient (sliding past 100% shows the tile seam) */
+  animation: micoll-iri-flow 7s steps(70) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .micoll-corner-rainbow { animation: none; }
+}
+/* filter dropdowns: dark frosted glass with a faint iridescent tint.
+   The menu already has "absolute" from Tailwind, don't set position here. */
+[data-accent="iridescent"] .iri-menu {
+  background-image:
+    linear-gradient(150deg, rgba(196, 181, 253, 0.16), rgba(245, 194, 255, 0.08) 45%, rgba(167, 243, 208, 0.12));
+}
+[data-accent="iridescent"] .iri-menu::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, #c4b5fd, #f5c2ff, #a7f3d0, #bae6fd);
+  opacity: 0.85;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="iridescent"] .iri-fx-shift,
+  [data-accent="iridescent"] .iri-grain,
+  [data-accent="iridescent"] .iri-aura::before,
+  [data-accent="iridescent"] .iri-aura::after,
+  [data-accent="iridescent"] .iri-card,
+  [data-accent="iridescent"] .iri-edge,
+  [data-accent="iridescent"] .iri-holo-bands,
+  [data-accent="iridescent"] .iri-holo-prism,
+  [data-accent="iridescent"] .iri-holo-pearl,
+  [data-accent="iridescent"] .iri-holo-spark,
+  [data-accent="iridescent"] .iri-holo-spark::before,
+  [data-accent="iridescent"] .iri-holo-spark::after,
+  [data-accent="sakura"] .sak-holo-bands,
+  [data-accent="sakura"] .sak-holo-prism,
+  [data-accent="sakura"] .sak-holo-pearl,
+  [data-accent="sakura"] .sak-holo-petals span,
+  [data-accent="sakura"] .sak-holo-spark span,
+  [data-accent="sakura"] .sak-pct,
+  [data-accent="sakura"] .sak-yearfill,
+  [data-accent="sakura"] .sak-card-petal,
+  [data-accent="iridescent"] .iri-card-spark,
+  [data-accent="iridescent"] .iri-foot,
+  [data-accent="iridescent"] .iri-kite--on,
+  [data-accent="iridescent"] .iri-fill,
+  [data-accent="iridescent"] .iri-pct,
+  [data-accent="iridescent"] .iri-check,
+  [data-accent="iridescent"] .iri-home-plate,
+  [data-accent="iridescent"] .sfw-dot::before,
+  [data-accent="cyberpunk"] .sfw-dot,
+  [data-accent="cyberpunk"] .sfw-dot::before,
+  [data-accent="cyberpunk"] .sfw-dot::after {
+    animation: none !important;
+  }
+}
+
+/* ---- "SFW mode is on" dot on the logo ----
+   Default: an emerald dot with a dark ring. Premium themes keep the green core
+   but style the ring: iridescent spinning holo ring, sakura blossom, cyberpunk neon. */
+.sfw-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 9999px;
+  background: #34d399;
+  box-shadow: 0 0 0 2px #09090b;
+}
+/* iridescent: liquid green core + shine in a rotating holo ring.
+   no position here, the element already has "absolute" */
+[data-accent="iridescent"] .sfw-dot {
+  /* sits ON the logo's sparkle so it hides the star (8px circle centered on it).
+     Overrides the -right-0.5 -top-0.5 utilities. Don't make it smaller or move it
+     without measuring the star again. */
+  right: 0;
+  top: 0.125rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  /* the palette's mint instead of saturated emerald (still green, but pastel) */
+  background: radial-gradient(circle at 50% 34%, #ecfeff 0%, #a7f3d0 48%, #34d399 100%);
+  box-shadow:
+    0 0 7px rgba(167, 243, 208, 0.7),
+    0 1px 2px rgba(0, 0, 0, 0.55);
+}
+[data-accent="iridescent"] .sfw-dot::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 9999px;
+  background: conic-gradient(from 0deg, #c4b5fd, #f5c2ff, #a7f3d0, #bae6fd, #c4b5fd);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.75px), #000 calc(100% - 1.75px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 1.75px), #000 calc(100% - 1.75px));
+  /* slower, a fast spin looks like a flicker at this size */
+  animation: sfw-iri-spin 6.5s linear infinite;
+}
+[data-accent="iridescent"] .sfw-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at 34% 26%, rgba(255, 255, 255, 0.95) 0%, transparent 48%);
+}
+@keyframes sfw-iri-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* sakura: green core, pink ring + glow */
+[data-accent="sakura"] .sfw-dot {
+  background: radial-gradient(circle at 50% 32%, #d1fae5 0%, #34d399 48%, #15803d 100%);
+  box-shadow: 0 0 0 2px #09090b, 0 0 0 3.5px rgba(249, 168, 212, 0.85), 0 0 8px rgba(249, 168, 212, 0.6);
+}
+/* cyberpunk: glitchy neon green dot with magenta + cyan ghosts that snap out on glitches */
+[data-accent="cyberpunk"] .sfw-dot {
+  background: radial-gradient(circle at 50% 34%, #e6fff0 0%, #24e26c 45%, #0b7d3b 100%);
+  box-shadow:
+    0 0 0 1.5px #04120a,
+    0 0 5px rgba(36, 226, 108, 0.95),
+    0 0 11px rgba(0, 255, 140, 0.55);
+  animation: sfw-cyber-flicker 2.4s steps(1, end) infinite;
+}
+[data-accent="cyberpunk"] .sfw-dot::before,
+[data-accent="cyberpunk"] .sfw-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  mix-blend-mode: screen;
+  opacity: 0;
+}
+/* magenta ghost, snaps up-left */
+[data-accent="cyberpunk"] .sfw-dot::before {
+  background: radial-gradient(circle at 50% 34%, #ff8df2 0%, #ff2ee6 60%, transparent 100%);
+  animation: sfw-cyber-ghost-a 2.4s steps(1, end) infinite;
+}
+/* cyan ghost, snaps down-right (sometimes as a slice) */
+[data-accent="cyberpunk"] .sfw-dot::after {
+  background: radial-gradient(circle at 50% 34%, #b6fbff 0%, #00e5ff 60%, transparent 100%);
+  animation: sfw-cyber-ghost-b 2.4s steps(1, end) infinite;
+}
+@keyframes sfw-cyber-flicker {
+  0%, 46%, 52%, 80%, 100% { filter: brightness(1) saturate(1); }
+  47% { filter: brightness(1.7) saturate(1.3); }
+  49% { filter: brightness(0.8); }
+  50% { filter: brightness(1.5); }
+  82% { filter: brightness(1.6) saturate(1.4); }
+  83% { filter: brightness(0.9); }
+}
+@keyframes sfw-cyber-ghost-a {
+  0%, 46%, 54%, 100% { opacity: 0; transform: translate(0, 0); clip-path: none; }
+  47% { opacity: 0.85; transform: translate(-1.6px, -0.8px); }
+  50% { opacity: 0.6; transform: translate(-1px, 0.4px); }
+  53% { opacity: 0.7; transform: translate(-0.6px, 0); }
+  81% { opacity: 0; }
+  82% { opacity: 0.8; transform: translate(-1.4px, 0.6px); clip-path: inset(28% 0 40% 0); }
+  84% { opacity: 0; clip-path: none; }
+}
+@keyframes sfw-cyber-ghost-b {
+  0%, 46%, 54%, 100% { opacity: 0; transform: translate(0, 0); clip-path: none; }
+  47% { opacity: 0.85; transform: translate(1.6px, 0.8px); }
+  50% { opacity: 0.6; transform: translate(1px, -0.4px); }
+  53% { opacity: 0.7; transform: translate(0.6px, 0); }
+  81% { opacity: 0; }
+  82% { opacity: 0.8; transform: translate(1.4px, -0.6px); clip-path: inset(48% 0 16% 0); }
+  84% { opacity: 0; clip-path: none; }
+}
+
+/* ---- "Simple Mode" (Settings, next to Back) ----
+   Hides the explanation texts (.settings-desc). See lib/concise.ts. */
+[data-concise="1"] .settings-desc {
+  display: none !important;
+}
+
+/* iridescent range slider (.iri-range): pearl track + dark angular thumb,
+   also used outside the viewer (e.g. holo frequency). -webkit rules for Chromium. */
+[data-accent="iridescent"] .iri-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  border-radius: 0;
+  background: linear-gradient(90deg, #c4b5fd, #f5c2ff 40%, #a7f3d0 70%, #bae6fd);
+  outline: none;
+  cursor: pointer;
+}
+[data-accent="iridescent"] .iri-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin-top: -5px; /* centre the 13px thumb on the 3px track */
+  border: none;
+  border-radius: 0;
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+  background-color: #17141f;
+  background-image: linear-gradient(135deg, #241f31, #17141f 55%, #2a2140);
+  box-shadow: inset 0 0 0 1.5px rgba(236, 231, 255, 0.55);
+  transition: box-shadow 0.15s ease;
+}
+[data-accent="iridescent"] .iri-range:hover::-webkit-slider-thumb,
+[data-accent="iridescent"] .iri-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: inset 0 0 0 2px rgba(245, 194, 255, 0.9);
+}
+[data-accent="iridescent"] .iri-range:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---- master "Animations" switch ----
+   When off, every decorative CSS animation in .app-content stops (shimmer, foil,
+   sparkles, glitch, pins, particles, logo effects). The animated background has
+   its own switch. Loaders keep running, framer-motion is inline so it still works.
+   WebGL/canvas effects are skipped in React. */
+[data-animations="off"] .app-content *,
+[data-animations="off"] .app-content *::before,
+[data-animations="off"] .app-content *::after {
+  animation: none !important;
+}
+/* keep spinners/loaders running */
+[data-animations="off"] .app-content .animate-spin {
+  animation: spin 1s linear infinite !important;
+}
+[data-animations="off"] .app-content .animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite !important;
+}
+[data-animations="off"] .app-content .animate-ping {
+  animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite !important;
+}
+[data-animations="off"] .app-content .animate-bounce {
+  animation: bounce 1s infinite !important;
+}
+
+/* ---- K/DA-style image viewer & editor (iridescent accent only) --------- */
+/* K/DA style chrome: square buttons with a cut corner, active = flowing pearl foil
+   with a dark icon, hard corners on the media and panels.
+   Scoped with the micoll-viewer class on ImageViewer + ImageEditor. */
+[data-accent="iridescent"] .micoll-viewer .viewer-btn {
+  border-radius: 0;
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+}
+[data-accent="iridescent"] .micoll-viewer .viewer-btn[data-active] {
+  background-color: #c4b5fd;
+  background-image: linear-gradient(135deg, #c4b5fd, #f5c2ff 45%, #a7f3d0 75%, #bae6fd);
+  background-size: 200% 200%;
+  color: #1e1b2e;
+  animation: micoll-iri-flow 3.5s steps(35) infinite;
+}
+[data-accent="iridescent"] .micoll-viewer .viewer-btn[data-active]:hover {
+  filter: brightness(1.07);
+}
+/* hard corners on the image/video, thumbs, dropdowns and toolbars */
+[data-accent="iridescent"] .micoll-viewer img,
+[data-accent="iridescent"] .micoll-viewer video,
+[data-accent="iridescent"] .micoll-viewer canvas,
+[data-accent="iridescent"] .micoll-viewer .rounded-md,
+[data-accent="iridescent"] .micoll-viewer .rounded-lg,
+[data-accent="iridescent"] .micoll-viewer .rounded-xl,
+[data-accent="iridescent"] .micoll-viewer .rounded-2xl {
+  border-radius: 0;
+}
+/* editor top bar: pearl wash in the corners instead of the brand purple */
+[data-accent="iridescent"] .micoll-viewer .viewer-topbar {
+  background-image:
+    linear-gradient(100deg, rgba(196, 181, 253, 0.16), rgba(9, 9, 11, 0) 26%),
+    linear-gradient(280deg, rgba(186, 230, 253, 0.14), rgba(9, 9, 11, 0) 26%);
+}
+/* toolbar chips get the same cut corner (it cuts the border too) */
+[data-accent="iridescent"] .micoll-viewer .viewer-chip {
+  border-radius: 0;
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+}
+/* sliders: thin pearl track with a dark angular thumb */
+[data-accent="iridescent"] .micoll-viewer input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  border-radius: 0;
+  background: linear-gradient(90deg, #c4b5fd, #f5c2ff 40%, #a7f3d0 70%, #bae6fd);
+  outline: none;
+  cursor: pointer;
+}
+[data-accent="iridescent"] .micoll-viewer input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  /* center the 13px thumb on the 3px track (Chromium doesn't) */
+  margin-top: -5px;
+  border: none;
+  border-radius: 0;
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+  background-color: #17141f;
+  background-image: linear-gradient(135deg, #241f31, #17141f 55%, #2a2140);
+  /* inset ring (an outer shadow would be clipped) */
+  box-shadow: inset 0 0 0 1.5px rgba(236, 231, 255, 0.55);
+  transition: box-shadow 0.15s ease;
+}
+[data-accent="iridescent"] .micoll-viewer input[type="range"]:hover::-webkit-slider-thumb,
+[data-accent="iridescent"] .micoll-viewer input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: inset 0 0 0 2px rgba(245, 194, 255, 0.9);
+}
+/* the viewer is outside .app-content, so guard the foil flow for the Animations switch
+   and reduced motion here */
+[data-animations="off"] .micoll-viewer .viewer-btn[data-active] {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="iridescent"] .micoll-viewer .viewer-btn[data-active] {
+    animation: none;
+  }
+}
+
+/* ---- Iridescent: a lit top-bar button (graveyard, wishlist, hidden) ---- */
+/* the normal lit state is too faint on iridescent, so only the RIM gets the pearl foil
+   (dark glass on the padding box over the foil on the border box).
+   Icon goes pearl white. Unlayered so it wins over the Tailwind tint. */
+[data-accent="iridescent"] header [data-lit] {
+  border: 1.5px solid transparent;
+  background-color: transparent;
+  background-image:
+    linear-gradient(rgba(30, 27, 46, 0.85), rgba(30, 27, 46, 0.85)),
+    linear-gradient(135deg, #c4b5fd, #f5c2ff 45%, #a7f3d0 75%, #bae6fd);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  background-size: 100% 100%, 200% 200%;
+  color: #f5ecff;
+  box-shadow: 0 0 10px rgba(245, 194, 255, 0.3);
+  animation: micoll-iri-flow 3.5s steps(35) infinite;
+}
+[data-accent="iridescent"] header [data-lit]:hover {
+  color: #ffffff;
+  box-shadow: 0 0 14px rgba(245, 194, 255, 0.45);
+}
+[data-animations="off"] header [data-lit] {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="iridescent"] header [data-lit] {
+    animation: none;
+  }
+}
+
+/* ---- The top bar's one-time hint bubble (TopbarHint) -------------------- */
+/* standard accents: dark glass with the theme color, brand rim and glow
+   (from --color-brand-500). The arrow is a rotated square. */
+.tb-hint-wrap {
+  width: 17rem;
+}
+.tb-hint {
+  position: relative;
+  padding: 12px 12px 12px 14px;
+  border-radius: 14px;
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--color-brand-500) 14%, transparent), transparent 60%),
+    #18181b;
+  border: 1px solid color-mix(in srgb, var(--color-brand-500) 45%, transparent);
+  box-shadow:
+    0 16px 34px -14px rgba(0, 0, 0, 0.75),
+    0 0 24px -10px color-mix(in srgb, var(--color-brand-500) 70%, transparent);
+  color: #e4e4e7;
+}
+.tb-hint-arrow {
+  position: absolute;
+  z-index: 1;
+  top: -6px;
+  width: 12px;
+  height: 12px;
+  transform: rotate(45deg);
+  background: color-mix(in srgb, var(--color-brand-500) 12%, #18181b);
+  border-left: 1px solid color-mix(in srgb, var(--color-brand-500) 45%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--color-brand-500) 45%, transparent);
+  border-top-left-radius: 2px;
+}
+.tb-hint-icon {
+  color: var(--color-brand-300);
+}
+.tb-hint-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f4f4f5;
+}
+.tb-hint-body {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #a1a1aa;
+}
+.tb-hint-close {
+  color: #71717a;
+  transition: color 0.15s, background-color 0.15s;
+}
+.tb-hint-close:hover {
+  color: #f4f4f5;
+  background: color-mix(in srgb, var(--color-brand-500) 18%, transparent);
+}
+
+/* sakura: pearl pink glass, a petal cut corner and a slowly turning blossom */
+[data-accent="sakura"] .tb-hint {
+  border-radius: 18px 18px 18px 6px;
+  background:
+    linear-gradient(165deg, rgba(255, 209, 230, 0.13), rgba(34, 18, 30, 0.92) 55%),
+    #161016;
+  border-color: rgba(249, 168, 212, 0.42);
+  box-shadow:
+    0 14px 30px -12px rgba(244, 114, 182, 0.55),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+[data-accent="sakura"] .tb-hint-arrow {
+  background: #2a1a25;
+  border-color: rgba(249, 168, 212, 0.42);
+}
+[data-accent="sakura"] .tb-hint-icon {
+  color: #f9a8d4;
+}
+[data-accent="sakura"] .tb-hint-title {
+  color: #fde7f3;
+}
+[data-accent="sakura"] .tb-hint-body {
+  color: #e9b8d0;
+}
+[data-accent="sakura"] .tb-hint-close:hover {
+  color: #fde7f3;
+  background: rgba(244, 114, 182, 0.18);
+}
+.tb-hint-blossom {
+  position: absolute;
+  right: -9px;
+  bottom: -9px;
+  width: 24px;
+  height: 24px;
+  filter: drop-shadow(0 2px 6px rgba(244, 114, 182, 0.55));
+  animation: tb-hint-blossom 14s linear infinite;
+}
+@keyframes tb-hint-blossom {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* cyberpunk: black plate, yellow rim, cut corner, a cyan "// tip" tag and a scan line.
+   The arrow is a solid yellow wedge. */
+[data-accent="cyberpunk"] .tb-hint {
+  border-radius: 0;
+  overflow: hidden;
+  background: #09090b;
+  border-color: rgba(252, 238, 10, 0.75);
+  box-shadow:
+    0 0 24px rgba(252, 238, 10, 0.16),
+    inset 0 0 0 1px rgba(0, 229, 255, 0.12);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%);
+}
+[data-accent="cyberpunk"] .tb-hint::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0, 229, 255, 0.85), transparent);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.6);
+  opacity: 0;
+  animation: tb-hint-scan 4.2s ease-in-out 1.2s infinite;
+  pointer-events: none;
+}
+@keyframes tb-hint-scan {
+  0% {
+    top: 0;
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  30% {
+    top: 100%;
+    opacity: 0;
+  }
+  100% {
+    top: 100%;
+    opacity: 0;
+  }
+}
+[data-accent="cyberpunk"] .tb-hint-arrow {
+  background: #fcee0a;
+  border: none;
+  border-radius: 0;
+  /* only the top half (a full diamond sat on the rim) */
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+  top: -5px;
+}
+[data-accent="cyberpunk"] .tb-hint-icon {
+  color: #fcee0a;
+}
+.tb-hint-tag {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #00e5ff;
+}
+[data-accent="cyberpunk"] .tb-hint-title {
+  color: #fcee0a;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12px;
+}
+[data-accent="cyberpunk"] .tb-hint-body {
+  color: #d4d4d8;
+}
+[data-accent="cyberpunk"] .tb-hint-close {
+  border-radius: 0;
+}
+[data-accent="cyberpunk"] .tb-hint-close:hover {
+  color: #09090b;
+  background: #fcee0a;
+}
+
+/* iridescent: the pearl foil rim around dark glass, arrow in pearl */
+[data-accent="iridescent"] .tb-hint {
+  border: 1.5px solid transparent;
+  background-image:
+    linear-gradient(rgba(30, 27, 46, 0.9), rgba(30, 27, 46, 0.9)),
+    linear-gradient(135deg, #c4b5fd, #f5c2ff 45%, #a7f3d0 75%, #bae6fd);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  background-size: 100% 100%, 200% 200%;
+  backdrop-filter: blur(18px);
+  box-shadow:
+    0 16px 34px -14px rgba(0, 0, 0, 0.7),
+    0 0 18px rgba(245, 194, 255, 0.25);
+  animation: micoll-iri-flow 3.5s steps(35) infinite;
+}
+[data-accent="iridescent"] .tb-hint-arrow {
+  /* same frosted glass as the panel */
+  background: rgba(30, 27, 46, 0.9);
+  backdrop-filter: blur(18px);
+  border-left: 1.5px solid #d9c3fe;
+  border-top: 1.5px solid #d9c3fe;
+}
+[data-accent="iridescent"] .tb-hint-icon {
+  color: #f5c2ff;
+}
+[data-accent="iridescent"] .tb-hint-title {
+  color: #f5ecff;
+}
+[data-accent="iridescent"] .tb-hint-body {
+  color: #cfc6e6;
+}
+[data-accent="iridescent"] .tb-hint-close:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tb-hint-blossom,
+  [data-accent="cyberpunk"] .tb-hint::after,
+  [data-accent="iridescent"] .tb-hint {
+    animation: none;
+  }
+}
+
+/* ---- Iridescent: the viewer's idle icon buttons ------------------------ */
+/* Idle buttons: half transparent pill (the picture shows through) and the icon
+   carries the foil. The stroke uses the SVG gradient ImageViewer renders, and the
+   stops move (lavender -> orchid -> mint -> sky).
+   Only .viewer-icon-btn, the editor's .viewer-btn buttons stay as they are. */
+[data-accent="iridescent"] .micoll-viewer .viewer-icon-btn:not([data-active]) {
+  background-color: rgba(39, 39, 42, 0.28);
+}
+[data-accent="iridescent"] .micoll-viewer .viewer-icon-btn:not([data-active]):hover {
+  background-color: rgba(63, 63, 70, 0.45);
+}
+[data-accent="iridescent"] .micoll-viewer .viewer-icon-btn:not([data-active]) svg {
+  stroke: url(#micoll-iri-ink);
+}
+/* one keyframe, three phases, so the colors travel across the icon */
+@keyframes micoll-iri-ink {
+  0%,
+  100% {
+    stop-color: #c4b5fd;
+  }
+  25% {
+    stop-color: #f5c2ff;
+  }
+  50% {
+    stop-color: #a7f3d0;
+  }
+  75% {
+    stop-color: #bae6fd;
+  }
+}
+/* static colors for other accents, only iridescent moves them */
+.iri-ink-1 {
+  stop-color: #c4b5fd;
+}
+.iri-ink-2 {
+  stop-color: #f5c2ff;
+}
+.iri-ink-3 {
+  stop-color: #a7f3d0;
+}
+[data-accent="iridescent"] .micoll-viewer .iri-ink {
+  animation: micoll-iri-ink 6s linear infinite;
+}
+[data-accent="iridescent"] .micoll-viewer .iri-ink-2 {
+  animation-delay: -2s;
+}
+[data-accent="iridescent"] .micoll-viewer .iri-ink-3 {
+  animation-delay: -4s;
+}
+/* the viewer is outside .app-content, so guard the drift here too */
+[data-animations="off"] .micoll-viewer .iri-ink {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .micoll-viewer .iri-ink {
+    animation: none;
+  }
+}
+
+/* ---- Cyberpunk: the viewer's round icon buttons ------------------------ */
+/* Hard-edged squares with a thin cyan rim instead of soft pills.
+   Active = a yellow EDGE, not a yellow fill (a big yellow block would dominate).
+   Only .viewer-icon-btn, the editor's buttons stay. Unlayered so it beats
+   rounded-full / bg-brand-600 / hover:bg-brand-500. */
+[data-accent="cyberpunk"] .micoll-viewer .viewer-icon-btn {
+  border-radius: 0;
+  background-color: rgba(9, 9, 11, 0.72);
+  border: 1px solid rgba(0, 229, 255, 0.28);
+  color: #d4d4d8;
+}
+[data-accent="cyberpunk"] .micoll-viewer .viewer-icon-btn:hover {
+  background-color: rgba(9, 9, 11, 0.9);
+  border-color: rgba(252, 238, 10, 0.55);
+  color: #fcee0a;
+}
+[data-accent="cyberpunk"] .micoll-viewer .viewer-icon-btn[data-active] {
+  background-color: rgba(9, 9, 11, 0.85);
+  border-color: #fcee0a;
+  color: #fcee0a;
+  box-shadow:
+    0 0 12px rgba(252, 238, 10, 0.35),
+    inset 0 0 0 1px rgba(252, 238, 10, 0.3);
+}
+[data-accent="cyberpunk"] .micoll-viewer .viewer-icon-btn[data-active]:hover {
+  background-color: rgba(24, 24, 27, 0.92);
+  border-color: #fff35c;
+  color: #fff35c;
+}
+
+/* ---- Cyberpunk: what sits ON the acid-yellow fill ---------------------- */
+/* Everything filled with the brand color in the editor is yellow on cyberpunk,
+   so the white text becomes near-black. Not for .viewer-icon-btn (those are
+   yellow outlines with a yellow icon). Stated with :not() instead of relying on order. */
+[data-accent="cyberpunk"] .micoll-viewer .viewer-btn[data-active]:not(.viewer-icon-btn) {
+  color: #09090b;
+}
+
+/* ---- Editor: the secondary save ("Save a copy") ------------------------- */
+/* A second save next to "Save as version" (the main one). Uses the accent too,
+   but quieter: a tint and an edge, no fill. Unlayered so it wins. */
+[data-accent="cyberpunk"] .micoll-viewer .viewer-btn[data-secondary] {
+  background-color: rgba(252, 238, 10, 0.07);
+  border-color: rgba(252, 238, 10, 0.45);
+  color: #fcee0a;
+}
+[data-accent="cyberpunk"] .micoll-viewer .viewer-btn[data-secondary]:hover {
+  background-color: rgba(252, 238, 10, 0.15);
+  border-color: rgba(252, 238, 10, 0.8);
+  box-shadow: 0 0 10px rgba(252, 238, 10, 0.22);
+}
+/* iridescent: faint pearl wash + hairline */
+[data-accent="iridescent"] .micoll-viewer .viewer-btn[data-secondary] {
+  background-color: rgba(255, 255, 255, 0.05);
+  background-image: linear-gradient(
+    135deg,
+    rgba(196, 181, 253, 0.16),
+    rgba(245, 194, 255, 0.12) 45%,
+    rgba(167, 243, 208, 0.1) 75%,
+    rgba(186, 230, 253, 0.14)
+  );
+  border-color: rgba(245, 194, 255, 0.4);
+  color: #f5ecff;
+}
+[data-accent="iridescent"] .micoll-viewer .viewer-btn[data-secondary]:hover {
+  background-image: linear-gradient(
+    135deg,
+    rgba(196, 181, 253, 0.28),
+    rgba(245, 194, 255, 0.22) 45%,
+    rgba(167, 243, 208, 0.18) 75%,
+    rgba(186, 230, 253, 0.24)
+  );
+  border-color: rgba(245, 194, 255, 0.65);
+}
+/* sakura: the same glass, pink tinted (no border, the glass has its ring) */
+[data-accent="sakura"] .micoll-viewer .viewer-btn[data-secondary] {
+  border-color: transparent;
+  background-color: rgba(244, 114, 182, 0.23);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 240, 247, 0.35),
+    inset 0 0 0 1px rgba(249, 168, 212, 0.5),
+    0 6px 18px rgba(0, 0, 0, 0.45);
+  color: #ffe4f1;
+}
+[data-accent="sakura"] .micoll-viewer .viewer-btn[data-secondary]:hover {
+  background-color: rgba(244, 114, 182, 0.33);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 245, 250, 0.45),
+    inset 0 0 0 1px rgba(249, 168, 212, 0.72),
+    0 8px 22px rgba(0, 0, 0, 0.5),
+    0 0 16px rgba(244, 114, 182, 0.3);
+}
+
+/* ---- Filmstrip marks, per premium accent -------------------------------- */
+/* The filmstrip marks the current photo and (in select mode) the chosen ones.
+   Each premium theme gets its own look instead of a purple ring.
+   viewer-thumb = the tile, viewer-thumb-check = its corner box, data-current = shown,
+   data-sel = chosen. They never appear together, so one look serves both.
+   Unlayered so they beat the ring-* / bg-* utilities. */
+
+/* cyberpunk: hard cell with a cut corner, chosen ones glow inside (inset, the cut clips
+   outer shadows) */
+[data-accent="cyberpunk"] .micoll-viewer .viewer-thumb {
+  border-radius: 0;
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+}
+[data-accent="cyberpunk"] .micoll-viewer .viewer-thumb:is([data-sel], [data-current]) {
+  box-shadow:
+    inset 0 0 0 2px #fcee0a,
+    inset 0 0 14px rgba(252, 238, 10, 0.35);
+}
+[data-accent="cyberpunk"] .micoll-viewer .viewer-thumb-check {
+  border-radius: 0;
+  border-color: rgba(0, 229, 255, 0.6);
+  background-color: rgba(9, 9, 11, 0.7);
+}
+[data-accent="cyberpunk"] .micoll-viewer .viewer-thumb-check[data-sel] {
+  border-color: #fcee0a;
+  background-color: #fcee0a;
+  color: #09090b;
+  box-shadow: 0 0 8px rgba(252, 238, 10, 0.6);
+}
+
+/* iridescent: a real pearl foil rim (padding-box/border-box mask trick), flowing */
+[data-accent="iridescent"] .micoll-viewer .viewer-thumb:is([data-sel], [data-current]) {
+  box-shadow: 0 0 14px rgba(196, 181, 253, 0.5);
+}
+[data-accent="iridescent"] .micoll-viewer .viewer-thumb:is([data-sel], [data-current])::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 2px solid transparent;
+  background: linear-gradient(135deg, #c4b5fd, #f5c2ff 35%, #a7f3d0 70%, #bae6fd) border-box;
+  background-size: 200% 200%;
+  -webkit-mask:
+    linear-gradient(#000 0 0) padding-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) padding-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: micoll-iri-flow 3.5s steps(35) infinite;
+}
+[data-accent="iridescent"] .micoll-viewer .viewer-thumb-check {
+  border-radius: 0;
+}
+[data-accent="iridescent"] .micoll-viewer .viewer-thumb-check[data-sel] {
+  border-color: rgba(255, 255, 255, 0.8);
+  background-color: #c4b5fd;
+  background-image: linear-gradient(135deg, #c4b5fd, #f5c2ff 45%, #a7f3d0 75%, #bae6fd);
+  color: #1e1b2e;
+}
+
+/* sakura: pink rim with a warm glow, the corner box shows the blossom instead of a tick */
+[data-accent="sakura"] .micoll-viewer .viewer-thumb:is([data-sel], [data-current]) {
+  box-shadow:
+    0 0 0 2px #f9a8d4,
+    0 0 14px rgba(249, 168, 212, 0.55);
+}
+[data-accent="sakura"] .micoll-viewer .viewer-thumb-check {
+  border-color: rgba(251, 182, 212, 0.6);
+  background-color: rgba(58, 30, 45, 0.6);
+}
+[data-accent="sakura"] .micoll-viewer .viewer-thumb-check[data-sel] {
+  position: relative;
+  border-color: rgba(255, 245, 250, 0.85);
+  background-color: #f9a8d4;
+  background-image: linear-gradient(100deg, #ffd0e3, #f9a8d4 50%, #ea5ba6);
+  color: transparent; /* the tick steps aside for the blossom below */
+  box-shadow: 0 0 8px rgba(249, 168, 212, 0.55);
+}
+[data-accent="sakura"] .micoll-viewer .viewer-thumb-check[data-sel]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: #4a1130;
+  -webkit-mask-image: var(--sak-blossom);
+  mask-image: var(--sak-blossom);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: 82% 82%;
+  mask-size: 82% 82%;
+}
+/* the viewer is outside .app-content, guard the foil flow here */
+[data-animations="off"] .micoll-viewer .viewer-thumb::after {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="iridescent"] .micoll-viewer .viewer-thumb::after {
+    animation: none;
+  }
+}
+
+/* ---- Cyberpunk: switches as power cells --------------------------------- */
+/* All switches have .micoll-switch on the track and .micoll-switch-knob on the knob.
+   On cyberpunk: hard edges with a cut corner, dark housing with cyan rim when off,
+   a yellow cell with ribs when on. The knob is a dark slab with a lightning bolt
+   (dim cyan off, bright yellow on).
+   ON comes from aria-checked (track is the button) or data-on (track is a span).
+   Unlayered so it beats rounded-full / bg-zinc-700 / bg-white.
+   The bolt is a data URI mask so its color comes from CSS. */
+[data-accent="cyberpunk"] .micoll-switch {
+  border-radius: 0;
+  background-color: rgba(9, 9, 11, 0.85);
+  background-image: none;
+  border: 1px solid rgba(0, 229, 255, 0.35);
+  box-shadow: inset 0 0 8px rgba(0, 229, 255, 0.12);
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+}
+[data-accent="cyberpunk"] .micoll-switch[aria-checked="true"],
+[data-accent="cyberpunk"] .micoll-switch[data-on] {
+  background-color: #fcee0a;
+  /* ribs on the live cell */
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgba(9, 9, 11, 0.3) 0 1px,
+    rgba(9, 9, 11, 0) 1px 4px
+  );
+  border-color: #fcee0a;
+  box-shadow:
+    0 0 12px rgba(252, 238, 10, 0.45),
+    inset 0 0 0 1px rgba(9, 9, 11, 0.3);
+  animation: micoll-cyber-cell 2.4s ease-in-out infinite;
+}
+[data-accent="cyberpunk"] .micoll-switch-knob {
+  position: relative;
+  border-radius: 0;
+  background-color: #09090b;
+  box-shadow: inset 0 0 0 1px rgba(0, 229, 255, 0.5);
+  clip-path: polygon(3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%, 0 3px);
+}
+[data-accent="cyberpunk"] .micoll-switch[aria-checked="true"] .micoll-switch-knob,
+[data-accent="cyberpunk"] .micoll-switch[data-on] .micoll-switch-knob {
+  box-shadow: inset 0 0 0 1px rgba(252, 238, 10, 0.85);
+}
+[data-accent="cyberpunk"] .micoll-switch-knob::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: rgba(0, 229, 255, 0.45);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Cpath%20fill='%23000'%20d='M13%202%203%2014h7l-1%208%2010-12h-7l1-8z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Cpath%20fill='%23000'%20d='M13%202%203%2014h7l-1%208%2010-12h-7l1-8z'/%3E%3C/svg%3E");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: 62% 62%;
+  mask-size: 62% 62%;
+  transition: background-color 0.15s ease;
+}
+[data-accent="cyberpunk"] .micoll-switch[aria-checked="true"] .micoll-switch-knob::after,
+[data-accent="cyberpunk"] .micoll-switch[data-on] .micoll-switch-knob::after {
+  background-color: #fcee0a;
+}
+@keyframes micoll-cyber-cell {
+  0%,
+  100% {
+    box-shadow:
+      0 0 10px rgba(252, 238, 10, 0.35),
+      inset 0 0 0 1px rgba(9, 9, 11, 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 18px rgba(252, 238, 10, 0.6),
+      inset 0 0 0 1px rgba(9, 9, 11, 0.3);
+  }
+}
+/* the idle glow: the Animations switch already stops it, only reduced motion needed here */
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="cyberpunk"] .micoll-switch[aria-checked="true"],
+  [data-accent="cyberpunk"] .micoll-switch[data-on] {
+    animation: none;
+  }
+}
+
+/* ======================================================================== */
+/* === SAKURA premium chrome ============================================== */
+/* Sakura styles for the everyday stuff (switches, viewer controls, sliders, card
+   edges) that used to stay plain zinc. Soft petals and warm pink instead of
+   cyberpunk's hard edges. All unlayered so they win over Tailwind. */
+
+/* ---- Switches as pearl cells ------------------------------------------- */
+/* Iridescent switches: before this they were a grey slab.
+   Off = the same foil unlit (the four tints at 1/6 strength), so turning on
+   brightens what's already there.
+   Off rules use :not() because this unlayered block would otherwise also
+   override the ON gradient from toggleOnClass.
+   ON comes from aria-checked or data-on. */
+[data-accent="iridescent"] .micoll-switch:not([aria-checked="true"]):not([data-on]) {
+  background-color: rgba(20, 18, 38, 0.6);
+  background-image: linear-gradient(
+    90deg,
+    rgba(196, 181, 253, 0.16),
+    rgba(245, 194, 255, 0.16),
+    rgba(167, 243, 208, 0.16),
+    rgba(186, 230, 253, 0.16)
+  );
+  border: 1px solid rgba(226, 232, 255, 0.28);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+[data-accent="iridescent"] .micoll-switch[aria-checked="true"],
+[data-accent="iridescent"] .micoll-switch[data-on] {
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow:
+    0 0 12px rgba(196, 181, 253, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+/* pearl knob, not white */
+[data-accent="iridescent"] .micoll-switch-knob {
+  background-color: #f1eefb;
+  box-shadow: 0 1px 3px rgba(14, 12, 32, 0.5);
+}
+
+/* ---- Switches as blossoms ---------------------------------------------- */
+/* Sakura switches: off = dark plum groove, pale rose rim and a closed faded blossom.
+   On = pink track, the flower opens (turns one petal step, turns cherry) and glows.
+   ON comes from aria-checked or data-on. */
+[data-accent="sakura"] .micoll-switch {
+  background-color: rgba(58, 30, 45, 0.75);
+  background-image: none;
+  border: 1px solid rgba(251, 182, 212, 0.3);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+[data-accent="sakura"] .micoll-switch[aria-checked="true"],
+[data-accent="sakura"] .micoll-switch[data-on] {
+  background-color: #f9a8d4;
+  background-image: linear-gradient(100deg, #ffd0e3, #f9a8d4 45%, #ea5ba6);
+  border-color: rgba(255, 245, 250, 0.7);
+  box-shadow:
+    0 0 12px rgba(249, 168, 212, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  animation: micoll-sak-bloom 3.6s ease-in-out infinite;
+}
+[data-accent="sakura"] .micoll-switch-knob {
+  position: relative;
+  background-color: #fff5fa;
+  box-shadow: 0 1px 3px rgba(74, 17, 48, 0.45);
+}
+[data-accent="sakura"] .micoll-switch-knob::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: rgba(214, 65, 143, 0.3);
+  -webkit-mask-image: var(--sak-blossom);
+  mask-image: var(--sak-blossom);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: 74% 74%;
+  mask-size: 74% 74%;
+  /* the overshoot makes the flower spring open */
+  transition:
+    background-color 0.18s ease,
+    transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+[data-accent="sakura"] .micoll-switch[aria-checked="true"] .micoll-switch-knob::after,
+[data-accent="sakura"] .micoll-switch[data-on] .micoll-switch-knob::after {
+  background-color: #d6418f;
+  transform: rotate(72deg); /* one petal-step — the blossom opens */
+}
+@keyframes micoll-sak-bloom {
+  0%,
+  100% {
+    box-shadow:
+      0 0 9px rgba(249, 168, 212, 0.35),
+      inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  }
+  50% {
+    box-shadow:
+      0 0 17px rgba(249, 168, 212, 0.6),
+      inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  }
+}
+/* the idle glow: the Animations switch already stops it, only reduced motion needed here */
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="sakura"] .micoll-switch[aria-checked="true"],
+  [data-accent="sakura"] .micoll-switch[data-on] {
+    animation: none;
+  }
+}
+
+/* ---- Sliders: a petal on a blossom-pink track --------------------------- */
+/* .sak-range for Settings, and every range in the viewer/editor gets it too
+   (like .iri-range). The thumb is a white disc with the blossom. */
+[data-accent="sakura"] .sak-range,
+[data-accent="sakura"] .micoll-viewer input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #ffe1ee, #f9a8d4 55%, #ea5ba6);
+  outline: none;
+  cursor: pointer;
+}
+[data-accent="sakura"] .sak-range::-webkit-slider-thumb,
+[data-accent="sakura"] .micoll-viewer input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin-top: -5.5px; /* centre the 15px thumb on the 4px track */
+  border: none;
+  border-radius: 9999px;
+  background-color: #fff5fa;
+  /* the colored version (a slider thumb has no pseudo element for a mask) */
+  background-image: var(--sak-blossom-ink);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 78% 78%;
+  box-shadow:
+    0 0 0 1px rgba(214, 65, 143, 0.35),
+    0 0 8px rgba(249, 168, 212, 0.55);
+  transition: box-shadow 0.15s ease;
+}
+[data-accent="sakura"] .sak-range:hover::-webkit-slider-thumb,
+[data-accent="sakura"] .sak-range:focus-visible::-webkit-slider-thumb,
+[data-accent="sakura"] .micoll-viewer input[type="range"]:hover::-webkit-slider-thumb,
+[data-accent="sakura"] .micoll-viewer input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 1px rgba(214, 65, 143, 0.6),
+    0 0 12px rgba(249, 168, 212, 0.85);
+}
+[data-accent="sakura"] .sak-range:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---- The viewer's controls --------------------------------------------- */
+/* Blown glass instead of a flat pill:
+   · a dome highlight at the top edge
+   · a bright top hairline inside the edge + a dimmer rose ring around
+   · a drop shadow so it sits above the photo
+   The plum stays dark so the picture keeps the attention. */
+[data-accent="sakura"] .micoll-viewer .viewer-btn {
+  background-color: rgba(40, 20, 31, 0.55);
+  background-image: radial-gradient(
+    120% 100% at 50% 0%,
+    rgba(255, 235, 245, 0.16),
+    rgba(255, 235, 245, 0) 62%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 240, 247, 0.3),
+    inset 0 0 0 1px rgba(251, 182, 212, 0.26),
+    0 6px 18px rgba(0, 0, 0, 0.45);
+  /* stronger blur with more saturation so the photo's color shows through */
+  backdrop-filter: blur(16px) saturate(1.3);
+  color: #ffe9f3;
+  transition:
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+[data-accent="sakura"] .micoll-viewer .viewer-btn:hover {
+  background-color: rgba(74, 34, 55, 0.6);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 252, 0.45),
+    inset 0 0 0 1px rgba(251, 182, 212, 0.55),
+    0 8px 22px rgba(0, 0, 0, 0.5),
+    0 0 18px rgba(244, 114, 182, 0.28);
+}
+/* the picked one: blossom colored with a dark cherry icon */
+[data-accent="sakura"] .micoll-viewer .viewer-btn[data-active] {
+  background-color: #f9a8d4;
+  background-image: linear-gradient(150deg, #fff0f6, #f9a8d4 46%, #e0559b);
+  color: #4a1130;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -1px 0 rgba(120, 20, 65, 0.35),
+    0 4px 14px rgba(0, 0, 0, 0.4),
+    0 0 22px rgba(244, 114, 182, 0.45);
+}
+[data-accent="sakura"] .micoll-viewer .viewer-btn[data-active]:hover {
+  filter: brightness(1.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -1px 0 rgba(120, 20, 65, 0.35),
+    0 4px 14px rgba(0, 0, 0, 0.4),
+    0 0 30px rgba(244, 114, 182, 0.6);
+}
+/* ---- Sakura: the viewer's own icon buttons ----------------------------- */
+/* The round shape made these look cheap (every media player has it).
+   They take the theme's petal cut (.sak-petal-cut) and a flat finish:
+   one fill, one hairline, no shadow, no gloss, in plum and rose.
+   Only .viewer-icon-btn. Unlayered so it beats rounded-full. */
+[data-accent="sakura"] .micoll-viewer .viewer-icon-btn {
+  border-radius: 0.45rem 1.15rem 0.45rem 1.15rem;
+  background-color: rgba(30, 16, 25, 0.62);
+  background-image: none;
+  border: 1px solid rgba(251, 182, 212, 0.28);
+  box-shadow: none;
+  color: #ffe9f3;
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
+}
+[data-accent="sakura"] .micoll-viewer .viewer-icon-btn svg {
+  filter: none;
+}
+[data-accent="sakura"] .micoll-viewer .viewer-icon-btn:hover {
+  background-color: rgba(62, 28, 46, 0.72);
+  border-color: rgba(251, 182, 212, 0.55);
+  box-shadow: none;
+}
+/* the picked one: flat blossom fill with a cherry icon */
+[data-accent="sakura"] .micoll-viewer .viewer-icon-btn[data-active] {
+  background-color: #f4a3cf;
+  background-image: none;
+  border-color: #f9c6de;
+  color: #46102e;
+  box-shadow: none;
+}
+[data-accent="sakura"] .micoll-viewer .viewer-icon-btn[data-active] svg {
+  filter: none;
+}
+[data-accent="sakura"] .micoll-viewer .viewer-icon-btn[data-active]:hover {
+  background-color: #f9b8da;
+  border-color: #ffdcec;
+  box-shadow: none;
+  /* no extra brightening on hover (the fill already changes) */
+  filter: none;
+}
+
+/* toolbar chips: the same glass without the dome (a wide highlight looks like a smear) */
+[data-accent="sakura"] .micoll-viewer .viewer-chip {
+  border-color: rgba(251, 182, 212, 0.3);
+  background-color: rgba(40, 20, 31, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 240, 247, 0.22),
+    0 4px 14px rgba(0, 0, 0, 0.35);
+}
+/* editor top bar: blossom wash instead of the brand purple */
+[data-accent="sakura"] .micoll-viewer .viewer-topbar {
+  background-image:
+    linear-gradient(100deg, rgba(249, 168, 212, 0.18), rgba(9, 9, 11, 0) 26%),
+    linear-gradient(280deg, rgba(255, 209, 230, 0.14), rgba(9, 9, 11, 0) 26%);
+}
+
+/* ---- Creator-card edge -------------------------------------------------- */
+/* Sakura version of .iri-edge: a petal gradient border around the card over a dark
+   plum body, slowly drifting. padding-box = card, border-box = rim. */
+[data-accent="sakura"] .sak-edge {
+  border: 2px solid transparent;
+  background:
+    linear-gradient(#1d121a, #1d121a) padding-box,
+    linear-gradient(120deg, #ffe1ee, #f9a8d4 28%, #ea5ba6 52%, #ffd0e3 78%, #ffe1ee) border-box;
+  background-size:
+    100% 100%,
+    220% 220%;
+  animation: micoll-sak-edge 11s ease-in-out infinite;
+}
+@keyframes micoll-sak-edge {
+  0%,
+  100% {
+    background-position:
+      0 0,
+      0% 50%;
+  }
+  50% {
+    background-position:
+      0 0,
+      100% 50%;
+  }
+}
+
+/* the editor's options bar scrolls instead of wrapping, a visible scrollbar
+   would change its height, so hide it */
+.editor-optionsbar {
+  scrollbar-width: none;
+}
+.editor-optionsbar::-webkit-scrollbar {
+  height: 0;
+  width: 0;
+}
+
+/* checkerboard behind the edited image (shows where it's transparent) */
+.editor-checker {
+  background-color: #3f3f46;
+  background-image:
+    linear-gradient(45deg, #52525b 25%, transparent 25%),
+    linear-gradient(-45deg, #52525b 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #52525b 75%),
+    linear-gradient(-45deg, transparent 75%, #52525b 75%);
+  background-size: 16px 16px;
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+}
+
+/* ---- Holo frequency: the low levels freeze the ALWAYS-ON loops --------- */
+/* The two lowest holo frequency levels also pause the always-on iridescent loops
+   (card borders, month auras, band drift, foil footers), those keep the GPU busy.
+   paused (not none) so they freeze in place. */
+html[data-holo-freq="2"] .iri-edge,
+html[data-holo-freq="2"] .iri-card,
+html[data-holo-freq="2"] .iri-aura::before,
+html[data-holo-freq="2"] .iri-aura::after,
+html[data-holo-freq="2"] .iri-aura.iri-max,
+html[data-holo-freq="2"] .iri-foot,
+html[data-holo-freq="2"] .iri-tpl-band1,
+html[data-holo-freq="2"] .iri-tpl-band2 {
+  animation-play-state: paused !important;
+}
+/* level 1: every decorative loop pauses on iridescent */
+html[data-holo-freq="1"][data-accent="iridescent"] .app-content *,
+html[data-holo-freq="1"][data-accent="iridescent"] .app-content *::before,
+html[data-holo-freq="1"][data-accent="iridescent"] .app-content *::after {
+  animation-play-state: paused !important;
+}
+/* loaders keep running */
+html[data-holo-freq="1"] .app-content .animate-spin,
+html[data-holo-freq="1"] .app-content .animate-pulse,
+html[data-holo-freq="1"] .app-content .animate-ping,
+html[data-holo-freq="1"] .app-content .animate-bounce {
+  animation-play-state: running !important;
+}
+
+/* ---- Focus idling: nothing animates in a window nobody looks at -------- */
+/* While the idle pause applies (unfocused and/or minimized, as the Performance level
+   says, fx.ts sets data-fx-idle) every decorative loop pauses on every accent.
+   The WebGL engines pause through their own listeners. */
+html[data-fx-idle="1"] .app-content *,
+html[data-fx-idle="1"] .app-content *::before,
+html[data-fx-idle="1"] .app-content *::after,
+html[data-fx-idle="1"] .app-wallpaper *,
+html[data-fx-idle="1"] .app-wallpaper *::before,
+html[data-fx-idle="1"] .app-wallpaper *::after {
+  animation-play-state: paused !important;
+}
+html[data-fx-idle="1"] .app-content .animate-spin,
+html[data-fx-idle="1"] .app-content .animate-pulse,
+html[data-fx-idle="1"] .app-content .animate-ping,
+html[data-fx-idle="1"] .app-content .animate-bounce {
+  animation-play-state: running !important;
+}
+
+/* Same for tiles scrolled far out of view (lib/onScreen marks them).
+   The creator page and reward grid mount every tile, so this matters there. */
+[data-offscreen="1"],
+[data-offscreen="1"] *,
+[data-offscreen="1"] *::before,
+[data-offscreen="1"] *::after {
+  animation-play-state: paused !important;
+}
+[data-offscreen="1"] .animate-spin,
+[data-offscreen="1"] .animate-pulse,
+[data-offscreen="1"] .animate-ping,
+[data-offscreen="1"] .animate-bounce {
+  animation-play-state: running !important;
+}
+
+/* ---- Collab: a reward that lives in another creator's folder ------------ */
+/* The ghost frame, the cover wash and the chip ("from X" / "with X") all speak the
+   same language. The color comes from the accent (not a fixed violet).
+   Unlayered so it beats the tile's border utilities.
+   A broken link stays amber (it's an error). */
+/* text color is a variable: dark text reads better on most fills,
+   only purple needs white */
+.collab-chip {
+  --collab-chip-ink: #1c1917;
+  --collab-chip-shadow: none;
+  border-radius: 0.375rem;
+  background: color-mix(in srgb, var(--color-brand-500) 90%, transparent);
+  border: 1px solid color-mix(in srgb, #fff 22%, transparent);
+  color: var(--collab-chip-ink);
+  text-shadow: var(--collab-chip-shadow);
+}
+[data-accent="purple"] .collab-chip {
+  --collab-chip-ink: #fff;
+  --collab-chip-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+/* An extra: in the month but not one of its releases. A quiet muted amber edge
+   and chip (no other tile state uses that). Premium themes restate it below,
+   the base doesn't follow the accent on purpose. */
+.reward-extra {
+  border-color: rgba(217, 180, 106, 0.55);
+  box-shadow: 0 0 0 1px rgba(217, 180, 106, 0.16);
+}
+.reward-extra-chip {
+  background: rgba(70, 54, 24, 0.82);
+  color: rgb(245, 223, 168);
+  box-shadow: inset 0 0 0 1px rgba(217, 180, 106, 0.45);
+}
+
+/* iridescent: pearl over the prism */
+[data-accent="iridescent"] .reward-extra {
+  border-color: rgba(226, 214, 184, 0.7);
+  box-shadow:
+    0 0 0 1px rgba(226, 214, 184, 0.28),
+    0 0 12px rgba(214, 196, 150, 0.22);
+}
+[data-accent="iridescent"] .reward-extra-chip {
+  background: rgba(28, 26, 34, 0.78);
+  color: rgb(240, 228, 198);
+  box-shadow: inset 0 0 0 1px rgba(226, 214, 184, 0.45);
+}
+
+/* sakura: the warm side of the palette */
+[data-accent="sakura"] .reward-extra {
+  border-color: rgba(230, 190, 150, 0.72);
+  box-shadow:
+    0 0 0 1px rgba(230, 190, 150, 0.22),
+    0 0 10px rgba(230, 190, 150, 0.2);
+}
+[data-accent="sakura"] .reward-extra-chip {
+  background: rgba(62, 40, 40, 0.8);
+  color: rgb(248, 224, 200);
+  box-shadow: inset 0 0 0 1px rgba(230, 190, 150, 0.45);
+}
+
+/* cyberpunk: its amber warning light, dimmed */
+[data-accent="cyberpunk"] .reward-extra {
+  border-color: rgba(255, 184, 0, 0.62);
+  box-shadow:
+    0 0 0 1px rgba(255, 184, 0, 0.2),
+    0 0 10px rgba(255, 184, 0, 0.22);
+}
+[data-accent="cyberpunk"] .reward-extra-chip {
+  background: rgba(38, 30, 8, 0.85);
+  color: rgb(255, 214, 102);
+  box-shadow: inset 0 0 0 1px rgba(255, 184, 0, 0.5);
+}
+
+.collab-ghost {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-brand-400) 70%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-brand-400) 22%, transparent);
+}
+.collab-wash {
+  background: color-mix(in srgb, var(--color-brand-500) 12%, transparent);
+}
+.collab-ink {
+  color: var(--color-brand-300);
+}
+
+/* iridescent: the spectrum rim at chip size, dark face for the text, a slow flow.
+   The rim is a masked ::after (see .iri-lead). */
+[data-accent="iridescent"] .collab-chip {
+  position: relative;
+  border: 0;
+  background-image:
+    linear-gradient(
+      90deg,
+      rgba(196, 181, 253, 0.32),
+      rgba(245, 194, 255, 0.32),
+      rgba(167, 243, 208, 0.26),
+      rgba(186, 230, 253, 0.32)
+    ),
+    linear-gradient(rgba(14, 12, 28, 0.74), rgba(14, 12, 28, 0.74));
+  background-size:
+    200% 100%,
+    100% 100%;
+  color: #fff;
+  text-shadow:
+    0 1px 2px rgba(12, 10, 26, 0.9),
+    0 0 8px rgba(12, 10, 26, 0.6);
+  animation: micoll-iri-flow 9s steps(90) infinite;
+}
+[data-accent="iridescent"] .collab-chip::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, #c4b5fd, #f5c2ff, #a7f3d0, #bae6fd);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+[data-accent="iridescent"] .collab-ghost {
+  border-color: rgba(233, 238, 255, 0.72);
+  box-shadow:
+    0 0 0 1px rgba(245, 194, 255, 0.35),
+    0 0 14px rgba(169, 182, 238, 0.3);
+}
+[data-accent="iridescent"] .collab-wash {
+  background: linear-gradient(
+    135deg,
+    rgba(196, 181, 253, 0.16),
+    rgba(167, 243, 208, 0.12) 55%,
+    rgba(186, 230, 253, 0.16)
+  );
+}
+[data-accent="iridescent"] .collab-ink {
+  color: #dbe7ff;
+}
+
+/* sakura: a petal gradient with a pink glow */
+[data-accent="sakura"] .collab-chip {
+  background: linear-gradient(135deg, #f9a8d4, #ec4899);
+  border-color: rgba(255, 255, 255, 0.38);
+  /* deep plum text, white would be unreadable on the pale end */
+  color: #3f1027;
+  box-shadow: 0 1px 6px rgba(236, 72, 153, 0.35);
+}
+[data-accent="sakura"] .collab-ghost {
+  border-color: rgba(249, 168, 212, 0.8);
+  box-shadow:
+    0 0 0 1px rgba(236, 72, 153, 0.22),
+    0 0 12px rgba(244, 114, 182, 0.25);
+}
+[data-accent="sakura"] .collab-wash {
+  background: color-mix(in srgb, #f472b6 14%, transparent);
+}
+[data-accent="sakura"] .collab-ink {
+  color: #fbcfe8;
+}
+
+/* cyberpunk: a data tag (square, cut corner, yellow on black, cyan for borrowed) */
+[data-accent="cyberpunk"] .collab-chip {
+  border-radius: 0;
+  background: rgba(10, 10, 10, 0.88);
+  border: 1px solid rgba(252, 238, 10, 0.75);
+  color: #fcee0a;
+  text-shadow: 0 0 6px rgba(252, 238, 10, 0.5);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%);
+}
+[data-accent="cyberpunk"] .collab-ghost {
+  border-color: rgba(0, 229, 255, 0.8);
+  box-shadow:
+    0 0 0 1px rgba(0, 229, 255, 0.25),
+    0 0 12px rgba(0, 229, 255, 0.28);
+}
+[data-accent="cyberpunk"] .collab-wash {
+  background: color-mix(in srgb, #00e5ff 10%, transparent);
+}
+[data-accent="cyberpunk"] .collab-ink {
+  color: #00e5ff;
+}
+
+/* Your OWN reward that's also credited to someone else: solid edge, full color,
+   no wash, just a quiet accent rim (dashed + faded means "files aren't here"). */
+.collab-shared {
+  border-color: color-mix(in srgb, var(--color-brand-400) 45%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-brand-400) 20%, transparent);
+}
+[data-accent="iridescent"] .collab-shared {
+  border-color: rgba(216, 226, 255, 0.4);
+  box-shadow: 0 0 0 1px rgba(245, 194, 255, 0.28);
+}
+[data-accent="sakura"] .collab-shared {
+  border-color: rgba(249, 168, 212, 0.5);
+  box-shadow: 0 0 0 1px rgba(236, 72, 153, 0.2);
+}
+[data-accent="cyberpunk"] .collab-shared {
+  border-color: rgba(252, 238, 10, 0.55);
+  box-shadow: 0 0 0 1px rgba(252, 238, 10, 0.18);
+}
+
+/* Iridescent month without template: the same glass but no motion
+   (the moving edge and footer are for template months). Also cheap. */
+[data-accent="iridescent"] .iri-card-quiet {
+  position: relative;
+  z-index: 0;
+  border-radius: 1rem;
+  border: 1px solid rgba(214, 222, 255, 0.2);
+  /* the same violet -> indigo -> teal as .iri-card at about half the opacity */
+  background: linear-gradient(
+    150deg,
+    rgba(58, 42, 96, 0.55),
+    rgba(30, 26, 60, 0.6) 45%,
+    rgba(22, 34, 52, 0.6)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transition: border-color 0.2s ease;
+}
+[data-accent="iridescent"] .iri-card-quiet:hover {
+  border-color: rgba(226, 232, 255, 0.36);
+}
+/* the caption strip: a faint static version of the foil band */
+[data-accent="iridescent"] .iri-foot-quiet {
+  background: linear-gradient(
+    120deg,
+    rgba(196, 181, 253, 0.12),
+    rgba(245, 194, 255, 0.09) 40%,
+    rgba(167, 243, 208, 0.09) 72%,
+    rgba(186, 230, 253, 0.11)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Frosted buttons, off by default (see lib/glassButtons.ts).
+   The iridescent pills use .iri-frost instead of backdrop-blur (blur in blur draws
+   a dark seam in WebView2). It's a setting because it depends on the machine. */
+[data-glass-buttons="on"] .iri-frost {
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+/* ---- Switches as liquid light (iridescent) ------------------------------ */
+/* Iridescent switches as liquid light.
+   The track has the full spectrum in BOTH states, a dark veil (::before) makes it
+   look off and fades out (gradients don't animate well). The gradient slides as
+   the switch turns. The knob is a liquid bead with a spring.
+   ON comes from aria-checked or data-on. */
+[data-accent="iridescent"] .micoll-switch {
+  background-color: transparent;
+  background-image: linear-gradient(90deg, #c4b5fd, #f5c2ff 32%, #a7f3d0 66%, #bae6fd);
+  background-size: 220% 100%;
+  background-position: left center;
+  border: 1px solid rgba(214, 222, 255, 0.3);
+  box-shadow: inset 0 1px 3px rgba(10, 8, 24, 0.45);
+  transition:
+    background-position 0.45s cubic-bezier(0.34, 1.4, 0.64, 1),
+    border-color 0.25s ease,
+    box-shadow 0.25s ease;
+}
+/* the veil, fading opacity is reliable */
+[data-accent="iridescent"] .micoll-switch::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(12, 10, 28, 0.66);
+  pointer-events: none;
+  transition: opacity 0.28s ease;
+}
+[data-accent="iridescent"] .micoll-switch[aria-checked="true"],
+[data-accent="iridescent"] .micoll-switch[data-on] {
+  background-position: right center;
+  border-color: rgba(255, 255, 255, 0.55);
+  box-shadow:
+    0 0 12px rgba(196, 181, 253, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+[data-accent="iridescent"] .micoll-switch[aria-checked="true"]::before,
+[data-accent="iridescent"] .micoll-switch[data-on]::before {
+  opacity: 0;
+}
+
+[data-accent="iridescent"] .micoll-switch-knob {
+  /* above the veil */
+  position: relative;
+  z-index: 1;
+  background-color: transparent;
+  background-image: radial-gradient(
+    circle at 32% 28%,
+    #ffffff 0%,
+    #f5f8ff 44%,
+    #dde5ff 76%,
+    #c7d4f4 100%
+  );
+  box-shadow:
+    0 1px 3px rgba(10, 8, 30, 0.5),
+    0 0 9px rgba(226, 232, 255, 0.45),
+    inset 0 1px 1px rgba(255, 255, 255, 0.9),
+    inset 0 -1px 2px rgba(120, 130, 190, 0.32);
+  /* left is in the list because the sidebar switch animates left, not transform */
+  transition:
+    transform 0.42s cubic-bezier(0.34, 1.56, 0.64, 1),
+    left 0.42s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.25s ease;
+}
+/* the bead highlight, a radial gradient (no filter) */
+[data-accent="iridescent"] .micoll-switch-knob::after {
+  content: "";
+  position: absolute;
+  left: 18%;
+  top: 12%;
+  width: 46%;
+  height: 36%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0));
+  pointer-events: none;
+}
+[data-accent="iridescent"] .micoll-switch[aria-checked="true"] .micoll-switch-knob,
+[data-accent="iridescent"] .micoll-switch[data-on] .micoll-switch-knob {
+  box-shadow:
+    0 1px 3px rgba(10, 8, 30, 0.45),
+    0 0 14px rgba(245, 194, 255, 0.6),
+    inset 0 1px 1px rgba(255, 255, 255, 0.95),
+    inset 0 -1px 2px rgba(120, 130, 190, 0.28);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="iridescent"] .micoll-switch,
+  [data-accent="iridescent"] .micoll-switch-knob {
+    transition-duration: 0.01ms;
+  }
+}
+
+/* ---- "new" badge ----
+   A reward added but never opened. Goes away the first time it's opened.
+   A narrow shine crosses it with a long pause (so many badges glint, not strobe).
+   The Animations switch turns the shine off. */
+.new-badge {
+  /* no position here, the tile positions it with absolute (this unlayered block would
+     override it) */
+  overflow: hidden;
+  border-radius: 0.375rem;
+  /* dark text on a light fill (brand 200-400), better contrast on all accents */
+  --new-ink: #1c1917;
+  background: linear-gradient(135deg, var(--color-brand-200), var(--color-brand-400));
+  border: 1px solid color-mix(in srgb, #fff 30%, transparent);
+  color: var(--new-ink);
+  box-shadow:
+    0 2px 8px -2px rgba(0, 0, 0, 0.65),
+    0 0 0 1px rgba(0, 0, 0, 0.25);
+  letter-spacing: 0.08em;
+}
+.new-badge::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.85) 50%,
+    transparent 62%
+  );
+  transform: translateX(-130%);
+  animation: micoll-new-sweep 3.4s ease-in-out infinite;
+}
+@keyframes micoll-new-sweep {
+  0%,
+  62% {
+    transform: translateX(-130%);
+  }
+  88%,
+  100% {
+    transform: translateX(130%);
+  }
+}
+/* no purple exception here (unlike .collab-chip), dark text works on all */
+
+/* iridescent: spectrum rim, dark face and the shine (see .collab-chip) */
+[data-accent="iridescent"] .new-badge {
+  border: 0;
+  background:
+    linear-gradient(rgba(14, 12, 28, 0.82), rgba(14, 12, 28, 0.82));
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(12, 10, 26, 0.9);
+}
+[data-accent="iridescent"] .new-badge::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, #c4b5fd, #f5c2ff, #a7f3d0, #bae6fd);
+  background-size: 220% 100%;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: micoll-iri-flow 9s steps(90) infinite;
+}
+
+/* sakura: a petal, deep plum text */
+[data-accent="sakura"] .new-badge {
+  background: linear-gradient(135deg, #ffd9e8, #f472b6);
+  border-color: rgba(255, 255, 255, 0.45);
+  --new-ink: #3f1027;
+  box-shadow: 0 1px 8px rgba(236, 72, 153, 0.4);
+}
+
+/* cyberpunk: square, cut corner, its yellow */
+[data-accent="cyberpunk"] .new-badge {
+  border-radius: 0;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%);
+  background: #fcee0a;
+  border-color: rgba(0, 0, 0, 0.55);
+  --new-ink: #0a0a0a;
+  box-shadow: 0 0 12px rgba(252, 238, 10, 0.5);
+}
+@media (prefers-reduced-motion: reduce) {
+  .new-badge::after,
+  [data-accent="iridescent"] .new-badge::before {
+    animation: none;
+  }
+  /* without the sweep the highlight would be frozen on the pill */
+  .new-badge::after {
+    opacity: 0;
+  }
+}
+
+/* ---- switching SFW: creators fade out/in ----
+   Cards fade where they stand before the others move (the grid's FLIP does the rest).
+   The stagger is an inline animation-delay from the tile position (StartPage).
+   On a wrapper, not the card (the themes animate transform on the card).
+   "both" keeps the delayed cards still/invisible until their turn. */
+@keyframes micoll-card-leave {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.93);
+  }
+}
+@keyframes micoll-card-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.card-leaving {
+  animation: micoll-card-leave 200ms cubic-bezier(0.4, 0, 1, 1) both;
+  /* fading out = not clickable */
+  pointer-events: none;
+}
+.card-entering {
+  animation: micoll-card-enter 320ms cubic-bezier(0.16, 0.84, 0.44, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* jump straight to the end */
+  .card-leaving,
+  .card-entering {
+    animation-duration: 1ms;
+    animation-delay: 0ms !important;
+  }
+}

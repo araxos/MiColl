@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="260" viewBox="0 0 800 260" font-family="Segoe UI, system-ui, -apple-system, sans-serif">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9d8bf7"/>
+      <stop offset="1" stop-color="#ff9f45"/>
+    </linearGradient>
+    <clipPath id="left"><rect x="40" y="36" width="300" height="180" rx="12"/></clipPath>
+    <clipPath id="right"><rect x="460" y="36" width="300" height="180" rx="12"/></clipPath>
+    <g id="scene">
+      <rect width="300" height="180" fill="url(#sky)"/>
+      <circle cx="220" cy="62" r="26" fill="#ffe1ee" opacity="0.9"/>
+      <path d="M0,140 L70,92 L130,128 L200,80 L300,134 L300,180 L0,180 Z" fill="#2a2440"/>
+      <path d="M0,160 L90,128 L170,156 L260,122 L300,140 L300,180 L0,180 Z" fill="#15121c"/>
+    </g>
+  </defs>
+  <rect width="800" height="260" rx="18" fill="#15121c"/>
+
+  <!-- before: watermark + a stray object, brushed over -->
+  <g clip-path="url(#left)">
+    <use href="#scene" x="40" y="36"/>
+    <text x="190" y="138" fill="#ffffff" opacity="0.55" font-size="26" font-weight="700"
+          text-anchor="middle" transform="rotate(-14 190 130)">© WATERMARK</text>
+    <rect x="86" y="58" width="34" height="34" rx="6" fill="#5eead4" transform="rotate(12 103 75)"/>
+    <!-- the brush strokes over what should go -->
+    <path d="M92,150 C140,110 230,128 290,104" stroke="#ff4e7e" stroke-width="26" stroke-linecap="round" fill="none" opacity="0.5"/>
+    <circle cx="103" cy="75" r="26" fill="#ff4e7e" opacity="0.5"/>
+  </g>
+  <rect x="40" y="36" width="300" height="180" rx="12" fill="none" stroke="#35304a" stroke-width="2"/>
+  <text x="190" y="242" fill="#8b85a0" font-size="13" text-anchor="middle">Brush over it</text>
+
+  <!-- arrow -->
+  <path d="M370,126 L430,126" stroke="#e9e6f2" stroke-width="3"/>
+  <path d="M422,116 L434,126 L422,136" stroke="#e9e6f2" stroke-width="3" fill="none"/>
+
+  <!-- after: clean -->
+  <g clip-path="url(#right)">
+    <use href="#scene" x="460" y="36"/>
+  </g>
+  <rect x="460" y="36" width="300" height="180" rx="12" fill="none" stroke="#35304a" stroke-width="2"/>
+  <text x="610" y="242" fill="#8b85a0" font-size="13" text-anchor="middle">Gone, filled in on your PC</text>
+</svg>

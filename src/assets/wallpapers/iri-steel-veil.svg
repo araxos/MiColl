@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2000 1125" width="2000" height="1125">
+  <!--
+    Steel veil: bands of light across dark slate (iridescent theme).
+    One gradient across the bands, they lean ~20 degrees, so the axis is (2000,731).
+    That's why the stop offsets are odd numbers.
+    The noise at the end stops color banding on 8-bit screens.
+  -->
+  <defs>
+    <linearGradient id="veil" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="2000" y2="731">
+      <stop offset="0%"   stop-color="#6b85b2"/>
+      <stop offset="9%"   stop-color="#7d93bd"/>
+      <stop offset="16%"  stop-color="#93a6c9"/>
+      <stop offset="22%"  stop-color="#aebbd4"/>
+      <stop offset="28%"  stop-color="#c5cee0"/>
+      <stop offset="32%"  stop-color="#a79ecb"/>
+      <stop offset="36%"  stop-color="#b9c9da"/>
+      <stop offset="40%"  stop-color="#6d7fa2"/>
+      <stop offset="46%"  stop-color="#3a4c73"/>
+      <stop offset="57%"  stop-color="#1b2a4b"/>
+      <stop offset="68%"  stop-color="#24365a"/>
+      <stop offset="80%"  stop-color="#3f5178"/>
+      <stop offset="88%"  stop-color="#6b7996"/>
+      <stop offset="93%"  stop-color="#8f9ab2"/>
+      <stop offset="100%" stop-color="#75819d"/>
+    </linearGradient>
+
+    <!-- darker in the middle of the dark part -->
+    <radialGradient id="well" gradientUnits="userSpaceOnUse" cx="1150" cy="520" r="820">
+      <stop offset="0%"   stop-color="#0d1730" stop-opacity="0.5"/>
+      <stop offset="60%"  stop-color="#0d1730" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#0d1730" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- haze from the bottom right corner -->
+    <radialGradient id="haze" gradientUnits="userSpaceOnUse" cx="1880" cy="1180" r="900">
+      <stop offset="0%"   stop-color="#aab6cc" stop-opacity="0.34"/>
+      <stop offset="55%"  stop-color="#aab6cc" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#aab6cc" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- very light noise against banding -->
+    <filter id="dither" x="0%" y="0%" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="n"/>
+      <feColorMatrix in="n" type="saturate" values="0"/>
+    </filter>
+  </defs>
+
+  <rect width="2000" height="1125" fill="url(#veil)"/>
+  <rect width="2000" height="1125" fill="url(#well)"/>
+  <rect width="2000" height="1125" fill="url(#haze)"/>
+
+  <!-- two thin lines at the same angle as the bands (dx/dy = -0.369) -->
+  <line x1="680" y1="0" x2="265" y2="1125" stroke="#f2f5fc" stroke-width="1.6" opacity="0.62"/>
+  <line x1="1995" y1="250" x2="1672" y2="1125" stroke="#e8eefb" stroke-width="1.4" opacity="0.42"/>
+
+  <rect width="2000" height="1125" filter="url(#dither)" opacity="0.035"/>
+</svg>

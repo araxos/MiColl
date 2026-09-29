@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2000 1125" width="2000" height="1125">
+  <!--
+    Hazard line (cyberpunk theme): a yellow warning-tape band across the bottom left
+    at 27 degrees, with a shifted cyan copy like a glitch. Faint HUD shapes at the
+    top right. The rest stays almost black on purpose.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b0c10"/>
+      <stop offset="55%" stop-color="#07080b"/>
+      <stop offset="100%" stop-color="#040405"/>
+    </linearGradient>
+    <radialGradient id="warm" gradientUnits="userSpaceOnUse" cx="200" cy="1100" r="900">
+      <stop offset="0%" stop-color="#fcee0a" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#fcee0a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="cool" gradientUnits="userSpaceOnUse" cx="1700" cy="250" r="800">
+      <stop offset="0%" stop-color="#00e5ff" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#00e5ff" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="tape" width="46" height="46" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="46" height="46" fill="#fcee0a"/>
+      <rect width="18" height="46" fill="#0a0a0a"/>
+    </pattern>
+    <pattern id="grid" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M80,0 L0,0 L0,80" fill="none" stroke="#8fb3c4" stroke-width="1" opacity="0.05"/>
+    </pattern>
+    <filter id="glow" x="-10%" y="-50%" width="120%" height="200%">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+    <pattern id="scan" width="4" height="4" patternUnits="userSpaceOnUse">
+      <rect width="4" height="1" fill="#000" opacity="0.5"/>
+    </pattern>
+    <radialGradient id="vig" gradientUnits="userSpaceOnUse" cx="1000" cy="520" r="1250">
+      <stop offset="45%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.75"/>
+    </radialGradient>
+    <filter id="dither" x="0%" y="0%" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="11" result="n"/>
+      <feColorMatrix in="n" type="saturate" values="0"/>
+    </filter>
+  </defs>
+  <rect width="2000" height="1125" fill="url(#bg)"/>
+  <rect width="2000" height="1125" fill="url(#grid)"/>
+  <rect width="2000" height="1125" fill="url(#warm)"/>
+  <rect width="2000" height="1125" fill="url(#cool)"/>
+
+  <!-- the band: cyan copy, glow, then the tape -->
+  <g transform="translate(-120 560) rotate(27)">
+    <rect x="0" y="-8" width="1500" height="64" fill="#00e5ff" opacity="0.35"/>
+    <rect x="0" y="0" width="1500" height="56" fill="#fcee0a" opacity="0.35" filter="url(#glow)"/>
+    <rect x="0" y="0" width="1500" height="56" fill="url(#tape)" opacity="0.62"/>
+    <rect x="0" y="0" width="1500" height="3" fill="#fff" opacity="0.35"/>
+    <!-- glitch: one slice shifted right -->
+    <rect x="520" y="18" width="260" height="14" fill="#07080b"/>
+    <rect x="552" y="18" width="260" height="14" fill="url(#tape)" opacity="0.62"/>
+  </g>
+  <g transform="translate(-120 700) rotate(27)">
+    <rect x="0" y="0" width="1500" height="2" fill="#00e5ff" opacity="0.3"/>
+  </g>
+
+  <!-- HUD shapes, top right -->
+  <path d="M1234,120 L1860,120 L1860,556 L1826,590 L1200,590 L1200,154 Z" fill="none" stroke="#00e5ff" stroke-width="1.4" opacity="0.22"/>
+  <path d="M1246,140 L1840,140 L1840,544 L1814,570 L1220,570 L1220,166 Z" fill="none" stroke="#00e5ff" stroke-width="1.4" opacity="0.08"/>
+  <path d="M1266,230 L1420,230 L1420,324 L1404,340 L1250,340 L1250,246 Z" fill="none" stroke="#fcee0a" stroke-width="1.4" opacity="0.28"/>
+  <path d="M1266,360 L1420,360 L1420,514 L1404,530 L1250,530 L1250,376 Z" fill="none" stroke="#00e5ff" stroke-width="1.4" opacity="0.16"/>
+  <g fill="#00e5ff" opacity="0.3"><rect x="1240" y="176" width="2" height="16"/><rect x="1256" y="176" width="2" height="8"/><rect x="1272" y="176" width="2" height="8"/><rect x="1288" y="176" width="2" height="8"/><rect x="1304" y="176" width="2" height="8"/><rect x="1320" y="176" width="2" height="16"/><rect x="1336" y="176" width="2" height="8"/><rect x="1352" y="176" width="2" height="8"/><rect x="1368" y="176" width="2" height="8"/><rect x="1384" y="176" width="2" height="8"/><rect x="1400" y="176" width="2" height="16"/><rect x="1416" y="176" width="2" height="8"/><rect x="1432" y="176" width="2" height="8"/><rect x="1448" y="176" width="2" height="8"/><rect x="1464" y="176" width="2" height="8"/><rect x="1480" y="176" width="2" height="16"/><rect x="1496" y="176" width="2" height="8"/><rect x="1512" y="176" width="2" height="8"/><rect x="1528" y="176" width="2" height="8"/><rect x="1544" y="176" width="2" height="8"/><rect x="1560" y="176" width="2" height="16"/><rect x="1576" y="176" width="2" height="8"/><rect x="1592" y="176" width="2" height="8"/><rect x="1608" y="176" width="2" height="8"/><rect x="1624" y="176" width="2" height="8"/><rect x="1640" y="176" width="2" height="16"/><rect x="1656" y="176" width="2" height="8"/><rect x="1672" y="176" width="2" height="8"/><rect x="1688" y="176" width="2" height="8"/><rect x="1704" y="176" width="2" height="8"/><rect x="1720" y="176" width="2" height="16"/><rect x="1736" y="176" width="2" height="8"/><rect x="1752" y="176" width="2" height="8"/><rect x="1768" y="176" width="2" height="8"/><rect x="1784" y="176" width="2" height="8"/><rect x="1800" y="176" width="2" height="16"/><rect x="1816" y="176" width="2" height="8"/><rect x="1832" y="176" width="2" height="8"/><rect x="1848" y="176" width="2" height="8"/><rect x="1864" y="176" width="2" height="8"/></g>
+  <g fill="#00e5ff"><rect x="1460" y="320" width="71.2" height="6" opacity="0.2"/><rect x="1460" y="338" width="120.8" height="6" opacity="0.3"/><rect x="1460" y="356" width="84.6" height="6" opacity="0.4"/><rect x="1460" y="374" width="32.5" height="6" opacity="0.3"/><rect x="1460" y="392" width="160.6" height="6" opacity="0.2"/><rect x="1460" y="410" width="137.3" height="6" opacity="0.3"/><rect x="1460" y="428" width="78.5" height="6" opacity="0.2"/><rect x="1460" y="446" width="121.7" height="6" opacity="0.4"/><rect x="1460" y="464" width="160.5" height="6" opacity="0.4"/><rect x="1460" y="482" width="171.6" height="6" opacity="0.3"/><rect x="1460" y="500" width="171.4" height="6" opacity="0.2"/><rect x="1460" y="518" width="143" height="6" opacity="0.3"/></g>
+  <rect x="1200" y="112" width="120" height="4" fill="#fcee0a" opacity="0.7"/>
+  <rect x="1740" y="590" width="120" height="3" fill="#00e5ff" opacity="0.45"/>
+
+  <!-- corner brackets -->
+  <path d="M40,120 L40,40 L120,40" fill="none" stroke="#fcee0a" stroke-width="2" opacity="0.25"/>
+  <path d="M1960,1005 L1960,1085 L1880,1085" fill="none" stroke="#00e5ff" stroke-width="2" opacity="0.25"/>
+  <rect width="2000" height="1125" fill="url(#vig)"/>
+  <rect width="2000" height="1125" fill="url(#scan)" opacity="0.18"/>
+  <rect width="2000" height="1125" filter="url(#dither)" opacity="0.04"/>
+</svg>
