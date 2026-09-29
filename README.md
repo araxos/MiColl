@@ -84,5 +84,7 @@ Release build (signed for the updater): `npm run release`. Checks: `npx tsc --no
 
 ## License
 
+© 2026 araxos. All rights reserved.
+
 MiColl is free to use. The source code is published for transparency only, see
 [LICENSE](LICENSE). Third-party components are listed in [THIRD-PARTY.md](THIRD-PARTY.md).
