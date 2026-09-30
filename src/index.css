@@ -2615,14 +2615,62 @@ img {
   }
 }
 /* iridescent "set type" fold: slow rainbow flow */
-.micoll-corner-rainbow {
-  background: linear-gradient(135deg, #f5c2ff, #c4b5fd, #a5b4fc, #7dd3fc, #a7f3d0, #fde68a, #fbcfe8);
-  background-size: 300% 300%;
-  /* back and forth inside the gradient (sliding past 100% shows the tile seam) */
-  animation: micoll-iri-flow 7s steps(70) infinite;
+/* iridescent face for a card without an image: the new creator preview and the card
+   itself use the same one */
+.iri-face {
+  background: linear-gradient(150deg, #c4b5fd, #f5c2ff 32%, #a7f3d0 66%, #bae6fd);
+}
+
+/* iridescent "set type" badge: a small dark glass disc with a turning pearl ring */
+@property --iri-dot-ang {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.iri-type-dot {
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(rgba(12, 10, 20, 0.7), rgba(12, 10, 20, 0.7)) padding-box,
+    conic-gradient(
+        from var(--iri-dot-ang),
+        #f5c2ff,
+        #c4b5fd,
+        #7dd3fc,
+        #a7f3d0,
+        #fde68a,
+        #fbcfe8,
+        #f5c2ff
+      )
+      border-box;
+  backdrop-filter: blur(8px);
+  box-shadow:
+    0 0 12px rgba(196, 181, 253, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  animation: iri-dot-turn 6s linear infinite;
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease;
+}
+.iri-type-dot:hover,
+.iri-type-dot:focus-visible {
+  transform: scale(1.12);
+  box-shadow:
+    0 0 18px rgba(245, 194, 255, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.iri-type-dot-q {
+  background: linear-gradient(135deg, #f5c2ff, #c4b5fd 45%, #a7f3d0);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+@keyframes iri-dot-turn {
+  to {
+    --iri-dot-ang: 360deg;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .micoll-corner-rainbow { animation: none; }
+  .iri-type-dot { animation: none; }
 }
 /* filter dropdowns: dark frosted glass with a faint iridescent tint.
    The menu already has "absolute" from Tailwind, don't set position here. */

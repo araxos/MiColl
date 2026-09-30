@@ -30,6 +30,15 @@ and what you own versus what's still missing.
 
 <img src="docs/readme/one-view.svg" alt="File explorer needs four clicks per month, MiColl shows platforms, years and months in one view" width="100%" />
 
+## Templates: a creator's whole history
+
+Load a creator's template and MiColl knows everything they ever released: every
+platform, every year and month, and which rewards came out when. What you have fills in,
+what you're missing shows as an empty slot, so your completion % finally means something.
+A template is one small file you can share. Verified ones carry a checkmark.
+
+<img src="docs/readme/templates.svg" alt="A template file fills a creator's release timeline, owned rewards and missing ones month by month" width="100%" />
+
 ## Collabs live in two places
 
 A reward made by two creators shows up at both of them. The files stay in one folder,
@@ -37,12 +46,29 @@ so nothing is copied and you find it no matter whose page you open.
 
 <img src="docs/readme/collab.svg" alt="One reward folder linked to two creators" width="100%" />
 
-## Erase what you don't want
+## Editor
+
+Fix a picture right where it is. Every tool runs on your PC, the AI ones too.
+
+- **Erase** removes watermarks, logos and stray objects
+- **Cutout** takes the background away in one pass
+- **Crop** and **Rotate**, with flip and straighten
+- **Resize**, and going bigger switches to AI upscaling
+- **Adjust** brightness, contrast and saturation
+
+### Erase what you don't want
 
 A watermark, a logo, a stray object? Brush over it and MiColl fills it in.
 It runs on your PC with local AI, nothing gets uploaded.
 
 <img src="docs/readme/eraser.svg" alt="Brush over a watermark and an object, the picture comes back clean" width="100%" />
+
+### Your original stays
+
+Every edit is saved as its own version. The original file is never touched, and you
+can switch between versions or go back to the original any time.
+
+<img src="docs/readme/editor.svg" alt="The editor tools, and an original kept next to two edited versions" width="100%" />
 
 ## Your privacy comes first
 
@@ -62,8 +88,7 @@ Sakura, Cyberpunk and Iridescent, each with its own animations, card frames and 
 ## And also
 
 - **Reads your folders as they are.** Nothing is moved unless you want a tidy structure.
-- **Templates** list everything a creator released, so your completion % actually means something.
-- **Viewer and editor** with slideshow, crop, resize, AI upscaler and background removal.
+- **Viewer** with slideshow, zoom and an overview of every file in a reward.
 - **Duplicate finder** and a storage overview.
 - **MiSD** moves rewards to an external disk and keeps showing them with previews.
 - **Wishlist**, **SFW mode**, **9 languages** and **automatic updates**.

@@ -99,7 +99,7 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
   );
   const tileFill =
     accent === "iridescent"
-      ? "bg-[linear-gradient(150deg,#c4b5fd,#f5c2ff_32%,#a7f3d0_66%,#bae6fd)] text-zinc-900"
+      ? "iri-face text-zinc-900"
       : accent === "sakura"
         ? "bg-[linear-gradient(150deg,#f9a8d4,#ea5ba6_55%,#b3306f)] text-white"
         : accent === "cyberpunk"

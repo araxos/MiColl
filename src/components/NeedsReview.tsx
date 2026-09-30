@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, X, BellOff, Images, MapPin } from "lucide-react";
+import { AlertTriangle, X, BellOff, Images, Loader2, MapPin, Tags } from "lucide-react";
+import { ThemedSelect, type SelectOption } from "@/components/ThemedSelect";
+import { useDialogTheme } from "@/lib/dialogTheme";
 import { useData } from "@/store";
 import { setPeriodPlatform } from "@/api/library";
 import { NEEDS_REVIEW_DISMISSED, WARNINGS_RESET_EVENT } from "@/lib/warnings";
@@ -154,6 +156,8 @@ function ReviewModal({
   const tp = useTp();
   const [busy, setBusy] = useState<string | null>(null);
   const navigate = useNavigate();
+  const accent = useAccent();
+  const dlg = useDialogTheme();
 
   // open the artist page on the Unsorted tab
   const locate = (artist: Artist) => {
@@ -171,69 +175,117 @@ function ReviewModal({
     }
   };
 
+  // Escape closes (the themed dropdown swallows its own Escape first)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const options: SelectOption[] = [
+    { value: "", label: t("Choose platform…"), muted: true },
+    ...PLATFORMS.map((p) => ({ value: p, label: p })),
+  ];
+
+  // header badge: the theme's own accent fill, dark ink on the light premium fills
+  const badgeInk = accent === "iridescent" || accent === "cyberpunk" ? "text-zinc-950" : "text-white";
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <motion.div
         initial={{ opacity: 0, y: 12, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        className="flex max-h-[88vh] w-[40rem] max-w-full flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl"
+        transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal
+        className={cn("flex max-h-[88vh] w-[40rem] max-w-full flex-col overflow-hidden", dlg.panel)}
       >
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
-          <div>
+        <div className={cn("flex items-center gap-3 border-b px-5 py-4", dlg.divider)}>
+          <span
+            className={cn(
+              "flex h-9 w-9 shrink-0 items-center justify-center",
+              accent === "cyberpunk" ? "rounded-none" : "rounded-xl",
+              dlg.accent,
+              badgeInk,
+              accent === "cyberpunk" && "shadow-[0_0_14px_rgba(252,238,10,0.35)]",
+              accent === "iridescent" && "shadow-[0_0_16px_rgba(196,181,253,0.4)]",
+              accent === "sakura" && "shadow-[0_0_14px_rgba(236,72,153,0.35)]",
+            )}
+          >
+            <Tags className="h-4 w-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            {accent === "cyberpunk" && (
+              <div className="font-mono text-[10px] uppercase tracking-widest text-[#00e5ff]/80">
+                {"// unsorted"}
+              </div>
+            )}
             <h2 className="text-base font-semibold text-zinc-100">{t("Assign platforms")}</h2>
-            <p className="text-xs text-zinc-400">
+            <p className="text-xs text-zinc-300">
               {tf("{n} need a platform", { n: tp("{n} periods", items.length) })}
             </p>
           </div>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
+          <button
+            onClick={onClose}
+            title={t("Close")}
+            aria-label={t("Close")}
+            className={cn("flex h-8 w-8 shrink-0 items-center justify-center", dlg.control)}
+          >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <div className="flex-1 space-y-2 overflow-y-auto px-5 py-4">
           {items.length === 0 ? (
-            <p className="py-8 text-center text-sm text-zinc-400">{t("All periods are assigned. 🎉")}</p>
+            <p className="py-8 text-center text-sm text-zinc-300">{t("All periods are assigned. 🎉")}</p>
           ) : (
-            items.map(({ artist, month }) => (
-              <div
-                key={month.id}
-                className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 px-3 py-2.5"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-zinc-100">{artist.name}</div>
-                  <div className="flex items-center gap-2 text-xs text-zinc-500">
-                    <span>{month.label}</span>
-                    <span className="inline-flex items-center gap-1">
-                      <Images className="h-3 w-3" />
-                      {ownRewards(month).length}
-                    </span>
+            <AnimatePresence initial={false}>
+              {items.map(({ artist, month }) => (
+                // an assigned row slides out instead of vanishing
+                <motion.div
+                  key={month.id}
+                  layout
+                  exit={{ opacity: 0, x: 24, transition: { duration: 0.22 } }}
+                  className={cn("flex items-center gap-3 px-3 py-2.5", dlg.box)}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-zinc-100">{artist.name}</div>
+                    <div className="flex items-center gap-2 text-xs text-zinc-400">
+                      <span>{month.label}</span>
+                      <span className="inline-flex items-center gap-1">
+                        <Images className="h-3 w-3" />
+                        {ownRewards(month).length}
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <button
-                  onClick={() => locate(artist)}
-                  title={t("Locate in MiColl — open these files to review them")}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 text-xs text-zinc-200 transition-colors micoll-hover"
-                >
-                  <MapPin className="h-3.5 w-3.5 text-brand-300" />
-                  {t("Locate")}
-                </button>
-                <select
-                  defaultValue=""
-                  disabled={busy === month.id}
-                  onChange={(e) => e.target.value && void assign(month, e.target.value)}
-                  className="h-8 rounded-lg border border-amber-500/50 bg-zinc-950 px-2 text-xs text-amber-200 outline-none focus:border-brand-500/60 disabled:opacity-50"
-                >
-                  <option value="" disabled>
-                    {t("Choose platform…")}
-                  </option>
-                  {PLATFORMS.map((p) => (
-                    <option key={p} value={p} className="text-zinc-100">
-                      {p}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ))
+                  <button
+                    onClick={() => locate(artist)}
+                    title={t("Locate in MiColl — open these files to review them")}
+                    className={cn("inline-flex h-8 items-center gap-1.5 px-2.5 text-xs", dlg.control)}
+                  >
+                    <MapPin className={cn("h-3.5 w-3.5", dlg.accentText)} />
+                    {t("Locate")}
+                  </button>
+                  {busy === month.id ? (
+                    <span className="flex h-8 min-w-[9.5rem] items-center justify-center">
+                      <Loader2 className={cn("h-4 w-4 animate-spin", dlg.accentText)} />
+                    </span>
+                  ) : (
+                    <ThemedSelect
+                      value=""
+                      options={options}
+                      onChange={(v) => v && void assign(month, v)}
+                      className={cn("h-8 min-w-[9.5rem] px-2.5 text-xs", dlg.field)}
+                      ink="text-zinc-100"
+                    />
+                  )}
+                </motion.div>
+              ))}
+            </AnimatePresence>
           )}
         </div>
       </motion.div>

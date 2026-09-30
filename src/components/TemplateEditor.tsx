@@ -574,7 +574,7 @@ export function TemplateEditor({
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder={t("e.g. Pixelfox")}
+                placeholder={t("e.g. Bonnie")}
                 className="h-9 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-brand-500/60"
               />
             </div>

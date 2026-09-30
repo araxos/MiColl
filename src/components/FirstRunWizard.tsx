@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { documentDir, join } from "@tauri-apps/api/path";
 import {
+  AlertTriangle,
   ArrowRight,
   Check,
+  Download,
+  Eye,
+  EyeOff,
   FolderOpen,
   KeyRound,
   Loader2,
@@ -50,6 +54,11 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
   const [pw1, setPw1] = useState("");
   const [pw2, setPw2] = useState("");
   const [pwNote, setPwNote] = useState<string | null>(null);
+  const [showPw, setShowPw] = useState(false);
+  // "are you sure" windows: going on without a managed collection, and the password
+  const [confirmUnmanaged, setConfirmUnmanaged] = useState(false);
+  const [confirmPw, setConfirmPw] = useState(false);
+  const [pwSaved, setPwSaved] = useState(false);
 
   // step 4 - theme (only the standard ones, premium must be bought)
   const accent = useAccent();
@@ -98,7 +107,8 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
   /** Turn on the managed collection only if the box is checked. */
   const commitLibrary = async () => {
     if (!managedWanted || !root) {
-      setStep(3);
+      // without it is the less tested way, ask first
+      setConfirmUnmanaged(true);
       return;
     }
     setBusy(true);
@@ -121,13 +131,34 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
       setPwNote(t("The two don’t match."));
       return;
     }
+    setPwNote(null);
+    setPwSaved(false);
+    setConfirmPw(true);
+  };
+
+  /** After the no-recovery warning: really set it. */
+  const commitPassword = async () => {
     setBusy(true);
     try {
       await api.setPassword(pw1);
+      setConfirmPw(false);
       setStep(4);
     } finally {
       setBusy(false);
     }
+  };
+
+  /** Save the password as a text file where the user wants it. */
+  const downloadPassword = async () => {
+    const path = await save({
+      title: t("Save your MiColl password"),
+      defaultPath: "pw.txt",
+      filters: [{ name: "Text", extensions: ["txt"] }],
+    });
+    if (typeof path !== "string") return;
+    // plain text write (the same command the template download uses)
+    await api.exportTemplate(path, `MiColl password: ${pw1}\r\n`);
+    setPwSaved(true);
   };
 
   const finish = async () => {
@@ -142,6 +173,10 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
 
   /** Skip = move on without doing the step (the platform step still saves "answered"). */
   const skip = () => {
+    if (step === 2) {
+      setConfirmUnmanaged(true);
+      return;
+    }
     if (step === 1) commitPlatforms();
     if (step < LAST) setStep(step + 1);
     else void finish();
@@ -233,8 +268,8 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
                           on
                             ? "text-white"
                             : done
-                              ? "text-zinc-400"
-                              : "text-zinc-600",
+                              ? "text-zinc-300"
+                              : "text-zinc-400",
                         )}
                         style={
                           on
@@ -270,13 +305,15 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
                   </h2>
                   <p className="mt-1.5 text-sm leading-relaxed text-zinc-400">
                     {t(
-                      "These fill the platform menus. Pick the ones you actually buy from — the list stays short and useful that way. Anything you don’t sort into a platform lands in",
+                      "These fill the platform menus. Pick the ones you actually buy from — the list stays short and useful that way. Anything without a platform waits in",
                     )}{" "}
+                    <b className="text-zinc-300">{t("Unsorted")}</b>
+                    {t(" until you pick one;")}{" "}
                     <b className="text-zinc-300">{t("Misc")}</b>
-                    {t(", and you can add more whenever.")}
+                    {t(" is for the ones you’ll never know. You can add more platforms whenever.")}
                   </p>
 
-                  <div className="mt-5 flex flex-wrap gap-2">
+                  <div className="mt-5 flex flex-wrap justify-center gap-2">
                     {PLATFORMS.map((p) => {
                       const on = chosen.some((x) => x.toLowerCase() === p.toLowerCase());
                       return (
@@ -441,23 +478,35 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
                       <KeyRound className="h-4 w-4" style={{ color: "var(--color-brand-400)" }} />
                       {t("Password")}
                     </div>
-                    <input
-                      type="password"
-                      value={pw1}
-                      onChange={(e) => setPw1(e.target.value)}
-                      placeholder={t("Password")}
-                      className={fieldCls}
-                    />
-                    <input
-                      type="password"
-                      value={pw2}
-                      onChange={(e) => setPw2(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && void savePassword()}
-                      placeholder={t("Repeat it")}
-                      className={fieldCls}
-                    />
+                    {[
+                      { value: pw1, set: setPw1, placeholder: "Password", enter: false },
+                      { value: pw2, set: setPw2, placeholder: "Repeat it", enter: true },
+                    ].map((f) => (
+                      <div key={f.placeholder} className="relative">
+                        <input
+                          type={showPw ? "text" : "password"}
+                          value={f.value}
+                          onChange={(e) => f.set(e.target.value)}
+                          onKeyDown={
+                            f.enter ? (e) => e.key === "Enter" && void savePassword() : undefined
+                          }
+                          placeholder={t(f.placeholder)}
+                          className={cn(fieldCls, "pr-10")}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPw((s) => !s)}
+                          title={showPw ? t("Hide password") : t("Show password")}
+                          aria-label={showPw ? t("Hide password") : t("Show password")}
+                          className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100"
+                        >
+                          {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    ))}
                     {pwNote && <p className="text-xs text-amber-300">{pwNote}</p>}
-                    <p className="text-[11px] leading-relaxed text-zinc-500">
+                    <p className="flex items-start gap-2 text-[13px] font-medium leading-relaxed text-rose-300">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                       {t(
                         "There is no recovery for this — MiColl stores a hash, never the password itself.",
                       )}
@@ -586,6 +635,104 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
             </div>
           </>
         )}
+      </motion.div>
+
+      {confirmUnmanaged && (
+        <WizardAsk
+          title={t("Continue without a managed collection?")}
+          body={t(
+            "Reading your folders where they are hasn’t been tested as much yet and may be unstable, so there’s no guarantee it works in every case. You can turn the managed collection on later in Settings.",
+          )}
+          onCancel={() => setConfirmUnmanaged(false)}
+          actions={
+            <button
+              onClick={() => {
+                setConfirmUnmanaged(false);
+                setStep(3);
+              }}
+              className="setup-btn setup-btn--primary"
+            >
+              {t("Continue anyway")}
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          }
+        />
+      )}
+
+      {confirmPw && (
+        <WizardAsk
+          title={t("There’s no way to recover this password")}
+          body={t(
+            "If you forget it, MiColl can’t get you back in. Save it somewhere safe — for example as a text file.",
+          )}
+          onCancel={() => setConfirmPw(false)}
+          actions={
+            <>
+              <button
+                onClick={() => void downloadPassword()}
+                disabled={busy}
+                className="setup-btn setup-btn--ghost"
+              >
+                {pwSaved ? <Check className="h-4 w-4" /> : <Download className="h-4 w-4" />}
+                {pwSaved ? t("Saved") : t("Download pw.txt")}
+              </button>
+              <button
+                onClick={() => void commitPassword()}
+                disabled={busy}
+                className="setup-btn setup-btn--primary"
+              >
+                {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                {t("Continue")}
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </>
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+/** Small "are you sure" window over the wizard, in the wizard's own look. */
+function WizardAsk({
+  title,
+  body,
+  actions,
+  onCancel,
+}: {
+  title: string;
+  body: string;
+  actions: React.ReactNode;
+  onCancel: () => void;
+}) {
+  const t = useT();
+  return (
+    <div
+      className="absolute inset-0 z-10 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 8, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+        onClick={(e) => e.stopPropagation()}
+        role="alertdialog"
+        aria-modal
+        className="setup-panel w-[28rem] max-w-full rounded-3xl px-6 py-5"
+      >
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold text-white">{title}</h3>
+            <p className="mt-1.5 text-sm leading-relaxed text-zinc-300">{body}</p>
+          </div>
+        </div>
+        <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+          <button onClick={onCancel} className="setup-btn setup-btn--ghost">
+            {t("Cancel")}
+          </button>
+          {actions}
+        </div>
       </motion.div>
     </div>
   );

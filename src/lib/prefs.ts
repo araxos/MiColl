@@ -33,6 +33,7 @@ const SYNCED = [
   "micoll.wallpaper",
   "micoll.wallpaperDim",
   "micoll.hideNames",
+  "micoll.cardNameSize",
   "micoll.cardPlus",
   "micoll.cardMeta",
   "micoll.stripCreator",

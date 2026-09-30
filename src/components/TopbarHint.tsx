@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { MousePointerClick, X } from "lucide-react";
 import { useAccent } from "@/lib/theme";
@@ -11,7 +11,19 @@ import { dismissTopbarHint } from "@/lib/topbarHint";
  * Styles are in index.css (.tb-hint). The arrow is a sibling of the panel
  * so the cyberpunk clip-path doesn't cut it off.
  */
+/** Shown after this long on the dashboard, not right away (first start is busy enough). */
+const HINT_DELAY_MS = 10_000;
+
 export function TopbarHint() {
+  const [due, setDue] = useState(false);
+  useEffect(() => {
+    const id = window.setTimeout(() => setDue(true), HINT_DELAY_MS);
+    return () => window.clearTimeout(id);
+  }, []);
+  return due ? <TopbarHintBubble /> : null;
+}
+
+function TopbarHintBubble() {
   const t = useT();
   const accent = useAccent();
   // right-aligned under the buttons (centered it went off screen),
@@ -33,7 +45,7 @@ export function TopbarHint() {
       role="note"
       initial={{ opacity: 0, y: -6, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1], delay: 0.6 }}
+      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
       style={{ transformOrigin: `calc(100% - ${arrowRight + 6}px) 0` }}
       className="tb-hint-wrap absolute right-0 top-full z-40 mt-3"
     >

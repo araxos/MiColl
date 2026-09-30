@@ -21,6 +21,16 @@ export function seedGradient(seed: string): string {
   return `linear-gradient(135deg, hsl(${h1} 70% 45%), hsl(${h2} 65% 30%))`;
 }
 
+/**
+ * Text size factor for something that grows with a card, softer than the card itself
+ * (square root): twice as wide is about 1.4x, not 2x. `ref` is the width the base
+ * size was made for. Kept between 0.85 and 1.4.
+ */
+export function softScale(width: number, ref: number): number {
+  if (width <= 0) return 1;
+  return Math.min(1.4, Math.max(0.85, Math.sqrt(width / ref)));
+}
+
 /** Longest common folder of some paths. */
 export function commonDir(paths: (string | undefined)[]): string | undefined {
   const valid = paths.filter((p): p is string => !!p);

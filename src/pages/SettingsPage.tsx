@@ -60,6 +60,12 @@ import { getGlassButtons, setGlassButtons } from "@/lib/glassButtons";
 import { getTemplateFont, setTemplateFont, useTemplateFont } from "@/lib/templateFont";
 import { getClassIconOpacity, setClassIconOpacity } from "@/lib/classIconOpacity";
 import {
+  CARD_NAME_MAX,
+  CARD_NAME_MIN,
+  getCardNameSize,
+  setCardNameSize,
+} from "@/lib/cardNameSize";
+import {
   getWallpaper,
   setWallpaper,
   getWallpaperDim,
@@ -352,6 +358,11 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
   const changeHoloFreq = (v: HoloFreq) => {
     setHoloFreqOn(v);
     setHoloFreq(v);
+  };
+  const [nameSize, setNameSizeStep] = useState(getCardNameSize());
+  const changeNameSize = (v: number) => {
+    setNameSizeStep(v);
+    setCardNameSize(v);
   };
   const [classIcons, setClassIconsPct] = useState(getClassIconOpacity());
   const changeClassIcons = (v: number) => {
@@ -1542,6 +1553,50 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
           </div>
           <Toggle checked={hideNames} onChange={toggleHideNames} />
         </div>
+        {/* name size on the creator cards, 7 steps, 4 = the tuned size */}
+        <div className={cn("mt-3", cardInner)}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-zinc-100">
+                {t("Name size on creator cards")}
+              </h2>
+              <p className="settings-desc mt-0.5 text-sm text-zinc-400">
+                {t(
+                  "How big the creator’s name is on the dashboard cards, in seven steps. 4 is the standard size; long names still shrink to fit.",
+                )}
+              </p>
+            </div>
+            <span
+              className={cn(
+                "shrink-0 rounded-md px-2 py-1 text-xs font-medium tabular-nums",
+                irid
+                  ? "bg-white/15 text-white ring-1 ring-inset ring-white/25"
+                  : "bg-zinc-800 text-zinc-200",
+              )}
+            >
+              {nameSize} / {CARD_NAME_MAX}
+            </span>
+          </div>
+          <input
+            type="range"
+            min={CARD_NAME_MIN}
+            max={CARD_NAME_MAX}
+            step={1}
+            value={nameSize}
+            onChange={(e) => changeNameSize(Number(e.target.value))}
+            className={cn("mt-3 w-full", rangeClass)}
+          />
+          <div
+            className={cn(
+              "flex justify-between text-[10px] font-medium uppercase tracking-wide",
+              irid ? "text-white/75" : "text-zinc-600",
+            )}
+          >
+            <span>{t("Very small")}</span>
+            <span>{t("Default")}</span>
+            <span>{t("Very large")}</span>
+          </div>
+        </div>
         <div className={cn("mt-3 flex items-center justify-between gap-3", cardInner)}>
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-zinc-100">{t("Hide add button on creator cards")}</h2>
@@ -1968,7 +2023,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                   <FolderOpen className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" />
                   <span>
                     {t("Tip: pick any folder — a single creator (e.g.")}{" "}
-                    <code className={cn(codeChip, "px-1 py-0.5")}>Pixelfox240</code>
+                    <code className={cn(codeChip, "px-1 py-0.5")}>Bonnie</code>
                     {t(
                       ") or a whole library of creators. MiColl detects platform / year / month wherever it can and shows you a review screen to confirm and fill in anything it couldn’t determine.",
                     )}

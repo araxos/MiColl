@@ -855,6 +855,35 @@ struct Ctx {
     month: Option<i64>,
     number: Option<i64>,
     category: Option<String>,
+    /// The platform level is behind us (also through "Unsorted", which has none).
+    past_platform: bool,
+}
+
+impl Ctx {
+    /// Right under the creator, where organize puts the platform folders.
+    fn at_platform_level(&self) -> bool {
+        self.platform.is_none()
+            && !self.past_platform
+            && self.year.is_none()
+            && self.number.is_none()
+            && self.category.is_none()
+    }
+    /// Right under a platform, where organize puts "Misc" for rewards without a date.
+    fn at_period_level(&self) -> bool {
+        (self.platform.is_some() || self.past_platform)
+            && self.year.is_none()
+            && self.number.is_none()
+            && self.category.is_none()
+    }
+}
+
+/// The two folder names organize writes itself. Under the creator, "Misc" is the Misc
+/// platform (don't know it, won't look it up) and "Unsorted" is no platform yet.
+/// Under a platform, "Misc" is the folder for rewards without a date.
+const MISC_DIR: &str = "Misc";
+const UNSORTED_DIR: &str = "Unsorted";
+fn is_dir_word(name: &str, word: &str) -> bool {
+    name.trim().eq_ignore_ascii_case(word)
 }
 
 /// Does this folder (or its children) show a known structure?
@@ -872,8 +901,16 @@ fn has_structure(dir: &Path) -> bool {
         return true;
     }
     children.iter().zip(&names).any(|(c, n)| {
-        dir_has_direct_media(c) || platform_from_name(n).is_some() || date_level(n).is_some()
+        dir_has_direct_media(c)
+            || platform_from_name(n).is_some()
+            || date_level(n).is_some()
+            || is_organized_dir(n)
     })
+}
+
+/// A folder organize writes under a creator (Misc platform / Unsorted).
+fn is_organized_dir(name: &str) -> bool {
+    is_dir_word(name, MISC_DIR) || is_dir_word(name, UNSORTED_DIR)
 }
 
 /// Clean up a folder name for display: remove a date at the end and a platform at
@@ -1042,9 +1079,24 @@ fn collect_rewards_at(dir: &Path, artist: &str, ctx: &Ctx, out: &mut Vec<Detecte
                 image_count: images.len() as i64,
                 root,
             });
+        } else if ctx.at_platform_level() && is_dir_word(&name, MISC_DIR) {
+            // the Misc platform
+            let mut c = ctx.clone();
+            c.platform = Some(MISC_DIR.to_string());
+            c.past_platform = true;
+            collect_rewards_at(&child, artist, &c, out, depth + 1);
+        } else if ctx.at_platform_level() && is_dir_word(&name, UNSORTED_DIR) {
+            // no platform yet: stays unset, the review banner asks for it
+            let mut c = ctx.clone();
+            c.past_platform = true;
+            collect_rewards_at(&child, artist, &c, out, depth + 1);
+        } else if ctx.at_period_level() && is_dir_word(&name, MISC_DIR) {
+            // "no date" folder: not a category, the rewards inside have no period
+            collect_rewards_at(&child, artist, ctx, out, depth + 1);
         } else if let Some(p) = platform_from_name(&name) {
             let mut c = ctx.clone();
             c.platform = Some(p);
+            c.past_platform = true;
             collect_rewards_at(&child, artist, &c, out, depth + 1);
         } else if let Some((y, m)) = date_level(&name) {
             let mut c = ctx.clone();
@@ -1183,6 +1235,7 @@ pub fn analyze(path: &str) -> ImportPlan {
             || platform_from_name(n).is_some()
             || date_level(n).is_some()
             || numbered_token(n).is_some()
+            || is_organized_dir(n)
     }) || dir_has_direct_media(root)
         || is_numbered_run(&child_names);
 
@@ -1856,6 +1909,32 @@ pub(crate) mod tests {
         assert_eq!(r.year, Some(2026));
         assert_eq!(r.month, Some(2));
         assert_eq!(r.title, "RewardA");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn organized_misc_and_unsorted_read_back() {
+        // what organize writes: Artist / Misc|Unsorted|Platform / Misc (no date) / Reward
+        let base = tmpdir("miscplat");
+        let artist = base.join("Bonnie");
+        touch(artist.join("Misc").join("Misc").join("RewardM").join("01.jpg"));
+        touch(artist.join("Unsorted").join("Misc").join("RewardU").join("01.jpg"));
+        touch(artist.join("Patreon").join("Misc").join("RewardP").join("01.jpg"));
+
+        let plan = analyze(&artist.to_string_lossy());
+        let by = |t: &str| plan.rewards.iter().find(|r| r.title == t).expect(t);
+
+        let m = by("RewardM");
+        assert_eq!(m.platform.as_deref(), Some("Misc"), "Misc under the creator is a platform");
+        assert_eq!((m.year, m.category.as_deref()), (None, None), "inner Misc = no date");
+
+        let u = by("RewardU");
+        assert_eq!(u.platform, None, "Unsorted stays without a platform");
+        assert_eq!(u.category, None);
+
+        let p = by("RewardP");
+        assert_eq!(p.platform.as_deref(), Some("Patreon"));
+        assert_eq!(p.category, None, "the no-date folder isn't a category");
         let _ = std::fs::remove_dir_all(&base);
     }
 

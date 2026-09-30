@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { cn, seedGradient } from "@/lib/utils";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { cn, seedGradient, softScale } from "@/lib/utils";
+import { useAccent } from "@/lib/theme";
 import { ImageOff } from "lucide-react";
 
 /**
@@ -29,6 +30,7 @@ export function Thumb({
 }) {
   // if a thumbnail fails (deleted, MiSD unplugged, locked) try the next one,
   // the gradient is the last fallback
+  const accent = useAccent();
   const [at, setAt] = useState(0);
   const chain = [src, ...(alts ?? [])].filter((s): s is string => !!s);
   const key = chain.join("|");
@@ -51,20 +53,75 @@ export function Thumb({
     );
   }
   return (
+    <ThumbFace
+      seed={seed}
+      label={label}
+      className={className}
+      rounded={rounded}
+      showMissingIcon={showMissingIcon}
+      irid={accent === "iridescent"}
+    />
+  );
+}
+
+/** The label's size at a 180px wide tile (text-sm). */
+const FACE_LABEL_PX = 14;
+const FACE_REF_PX = 180;
+
+/**
+ * No image: a gradient with the label, which grows with the tile (softly, see softScale).
+ * Iridescent gets the theme's own pearl face (same as the new creator preview), not
+ * the per-name gradient of the standard themes.
+ */
+function ThumbFace({
+  seed,
+  label,
+  className,
+  rounded,
+  showMissingIcon,
+  irid,
+}: {
+  seed: string;
+  label?: string;
+  className?: string;
+  rounded?: string;
+  showMissingIcon: boolean;
+  irid: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [labelPx, setLabelPx] = useState(FACE_LABEL_PX);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !label) return;
+    const place = () => setLabelPx(FACE_LABEL_PX * softScale(el.clientWidth, FACE_REF_PX));
+    place();
+    const ro = new ResizeObserver(place);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [label]);
+  return (
     <div
+      ref={ref}
       className={cn(
         "relative flex h-full w-full items-center justify-center overflow-hidden",
+        irid && "iri-face",
         rounded,
         className,
       )}
-      style={{ background: seedGradient(seed) }}
+      style={irid ? undefined : { background: seedGradient(seed) }}
     >
-      <div className="absolute inset-0 bg-black/15" />
+      {!irid && <div className="absolute inset-0 bg-black/15" />}
       {showMissingIcon ? (
-        <ImageOff className="relative h-6 w-6 text-white/70" />
+        <ImageOff className={cn("relative h-6 w-6", irid ? "text-zinc-900/60" : "text-white/70")} />
       ) : (
         label && (
-          <span className="relative px-2 text-center text-sm font-semibold text-white/90 drop-shadow">
+          <span
+            className={cn(
+              "relative px-2 text-center font-semibold leading-snug",
+              irid ? "text-zinc-900/80" : "text-white/90 drop-shadow",
+            )}
+            style={{ fontSize: labelPx }}
+          >
             {label}
           </span>
         )

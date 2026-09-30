@@ -35,9 +35,14 @@ import { cn } from "@/lib/utils";
 import { useT, useTf, useTp } from "@/lib/i18n";
 
 const MISC = "__misc__"; // sentinel select value meaning the "Misc" bucket
-// "Misc" files the reward under a real "Misc" platform (own tab/folder),
-// not the "needs review" state
+// "Misc" files the reward under a real "Misc" platform (own tab/folder): "I don't know
+// the platform and won't look it up". It stays there, no banner.
 const MISC_PLATFORM = "Misc";
+// "Unsorted" = no platform yet, still to do: the "need a platform" banner asks for it.
+// Also where anything lands that no platform was found for.
+const UNSORTED = "__unsorted__";
+// what the backend calls "no platform" in a per-platform style override
+const UNSORTED_PLATFORM = "Unsorted";
 
 /**
  * Text input that keeps a local draft while focused and only saves on blur or
@@ -155,7 +160,7 @@ type DraftRow = {
   /** The artist detection found. */
   origArtist: string;
   creator: string;
-  platform: string; // MISC sentinel or a platform name
+  platform: string; // MISC / UNSORTED sentinel or a platform name
   title: string;
   category: string | null;
   root: boolean;
@@ -358,7 +363,7 @@ export function ImportReviewTree({
     const a = artists.find((x) => normName(x.name) === normName(name));
     if (!a) return null;
     // Misc can have its own style override too
-    const plat = platform === MISC ? MISC_PLATFORM : platform;
+    const plat = platform === MISC ? MISC_PLATFORM : platform === UNSORTED ? undefined : platform;
     const p = plat
       ? a.platforms.find((x) => x.name.toLowerCase() === plat.toLowerCase())
       : undefined;
@@ -368,10 +373,14 @@ export function ImportReviewTree({
   /**
    * The platform a row lands on (same as the draft rows use).
    * "Misc" is mapped back to the picker's sentinel so the field isn't empty next time.
+   * Nothing known -> Unsorted (still to do), not Misc.
    */
   const platformFor = (detected: string | null | undefined, creator: string): string => {
-    const p = detected ?? defaultPlatform ?? lastPlatformFor(creator) ?? MISC;
-    return p.trim().toLowerCase() === MISC_PLATFORM.toLowerCase() ? MISC : p;
+    const p = detected ?? defaultPlatform ?? lastPlatformFor(creator) ?? UNSORTED;
+    const low = p.trim().toLowerCase();
+    // dropped on the Unsorted tab -> the sentinel, not a platform called "Unsorted"
+    if (low === UNSORTED_PLATFORM.toLowerCase()) return UNSORTED;
+    return low === MISC_PLATFORM.toLowerCase() ? MISC : p;
   };
 
   /**
@@ -698,7 +707,9 @@ export function ImportReviewTree({
 
   /* ---- build + confirm --------------------------------------------------- */
 
-  const platformOf = (v: string): string => (v && v !== MISC ? v : MISC_PLATFORM);
+  /** Picker value -> platform for the backend. null = Unsorted (no platform yet). */
+  const platformOf = (v: string): string | null =>
+    v === MISC ? MISC_PLATFORM : v && v !== UNSORTED ? v : null;
 
   const num = (v: string): number | null => {
     const t = v.trim();
@@ -730,7 +741,7 @@ export function ImportReviewTree({
       return [
         {
           artist: creator,
-          platform: platformOf(first?.platform ?? MISC),
+          platform: platformOf(first?.platform ?? UNSORTED),
           year: s === "monthly" ? num(first?.year ?? "") : null,
           month: s === "monthly" ? num(first?.month ?? "") : null,
           number: s === "numbered" ? num(first?.num ?? "") : null,
@@ -758,14 +769,14 @@ export function ImportReviewTree({
       seen.add(k);
       const chosen = styles[k] ?? "monthly";
       // compare with the setting for this platform, not the artist row
-      const stored = storedStyle(rw.artist, rw.platform ?? MISC_PLATFORM);
+      const stored = storedStyle(rw.artist, rw.platform ?? UNSORTED);
       if (stored === chosen) continue; // nothing to change
       if (stored == null) {
         out.push({ artist: rw.artist, style: chosen });
       } else {
         // existing creator, other style -> override only the platforms in this import
         const plats = new Set(
-          rewards.filter((x) => normName(x.artist) === k).map((x) => x.platform ?? MISC_PLATFORM),
+          rewards.filter((x) => normName(x.artist) === k).map((x) => x.platform ?? UNSORTED_PLATFORM),
         );
         for (const p of plats) out.push({ artist: rw.artist, style: chosen, platform: p });
       }
@@ -901,7 +912,9 @@ export function ImportReviewTree({
   const [dontWarn, setDontWarn] = useState(false);
   const firstRow = rows[0];
   const quickArtist = (lockedArtist ?? firstRow?.creator ?? rootName).trim() || rootName;
-  const quickPlatform = platformOf(firstRow?.platform ?? MISC);
+  // quick import = sort it later: without a known platform it goes to Unsorted
+  const quickPlatform = platformOf(firstRow?.platform ?? UNSORTED);
+  const quickPlatformLabel = quickPlatform ?? t("Unsorted");
   const quickTitle = (combine ? combinedTitle : firstRow?.title ?? rootName).trim() || rootName;
 
   const runQuickImport = () => {
@@ -1046,7 +1059,7 @@ export function ImportReviewTree({
                   const known = artists.find((a) => normName(a.name) === normName(node.creator));
                   const allRows = node.periods.flatMap((p) => p.rows);
                   const groupPlatform = allRows.every((r) => r.platform === allRows[0]?.platform)
-                    ? allRows[0]?.platform ?? MISC
+                    ? allRows[0]?.platform ?? UNSORTED
                     : "";
                   // year/month shared by all rewards (empty if they differ)
                   const sharedYear =
@@ -1146,6 +1159,7 @@ export function ImportReviewTree({
                             ...(groupPlatform === ""
                               ? [{ value: "", label: t("(mixed)"), muted: true }]
                               : []),
+                            { value: UNSORTED, label: t("Unsorted — decide later") },
                             { value: MISC, label: t("Misc") },
                             ...platformOptions.map((p) => ({ value: p, label: p })),
                             { value: "__add__", label: t("+ Platform…"), muted: true },
@@ -1527,7 +1541,7 @@ export function ImportReviewTree({
                 disabled={busy || rows.length === 0}
                 onClick={onQuickImport}
                 title={tf("Combine everything into one reward under “{platform}”, ignoring periods", {
-                  platform: quickPlatform,
+                  platform: quickPlatformLabel,
                 })}
               >
                 <Zap className="h-4 w-4" />
@@ -1569,7 +1583,7 @@ export function ImportReviewTree({
             <div className="px-5 py-4 text-sm text-zinc-300">
               <p>
                 {tf("Everything in “{name}” will be combined into", { name: rootName })}{" "}
-                <b>{t("one reward")}</b> {t("and filed under")} <b>{quickPlatform}</b>,{" "}
+                <b>{t("one reward")}</b> {t("and filed under")} <b>{quickPlatformLabel}</b>,{" "}
                 <b>{t("ignoring periods")}</b>. {t("You can sort it later.")}
               </p>
               <label className="mt-4 flex cursor-pointer items-center gap-2 text-xs text-zinc-400">

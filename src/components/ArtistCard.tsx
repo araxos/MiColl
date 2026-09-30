@@ -23,7 +23,7 @@ import {
   HardDrive,
   DatabaseBackup,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, softScale } from "@/lib/utils";
 import { useT, useTf } from "@/lib/i18n";
 import { Cover } from "@/components/Cover";
 import { TagParticles } from "@/components/TagParticles";
@@ -41,6 +41,7 @@ import { useSakuraFrame } from "@/lib/sakuraFrame";
 import { useIriFrame } from "@/lib/iriFrame";
 import { useTemplateFont } from "@/lib/templateFont";
 import { useHideNames } from "@/lib/hideNames";
+import { cardNameScale, useCardNameSize } from "@/lib/cardNameSize";
 import { useCardMeta } from "@/lib/cardMeta";
 import { useShowHidden } from "@/lib/showHidden";
 import { GraveyardIcon } from "@/lib/graveyardIcon";
@@ -67,6 +68,13 @@ import { PLATFORM_ICONS, normalizePlatform } from "@/lib/platformIcons";
 const NAME_MIN_PX = 9.5;
 /** How much the letter spacing may shrink (fraction of the font size). */
 const NAME_MIN_TRACK = -0.06;
+/**
+ * Name and "?" grow and shrink with the card, softer than the card (softScale).
+ * The base sizes were made for the default 180px card, its caption row is ~152px.
+ */
+const CARD_REF_PX = 180;
+const NAME_ROW_REF_PX = 152;
+
 /** How long to hover a shortened name before the tooltip shows (long on purpose). */
 const NAME_TIP_DELAY_MS = 3000;
 /** Shorter delay when only the first word is shown. */
@@ -105,7 +113,9 @@ function FitName({ name, base, className }: { name: string; base: number; classN
     // written straight to the node (a React round trip would flash the reset).
     // only "was it squeezed" goes to state, because it decides the tooltip.
     const measure = () => {
-      el.style.fontSize = `${base}px`;
+      // the base size follows the card size (softly), then the fitting below
+      const start = base * softScale(row.clientWidth, NAME_ROW_REF_PX);
+      el.style.fontSize = `${start}px`;
       el.style.letterSpacing = "normal";
       el.textContent = name;
       const full = el.scrollWidth;
@@ -123,12 +133,12 @@ function FitName({ name, base, className }: { name: string; base: number; classN
       const text = only ? first : name;
       const natural = only ? el.scrollWidth : full;
 
-      let size = base;
+      let size = start;
       let track = 0;
       if (natural > avail) {
-        size = Math.max(NAME_MIN_PX, (base * avail) / natural);
+        size = Math.max(NAME_MIN_PX, (start * avail) / natural);
         // text width scales with the font size
-        const over = (natural * size) / base - avail;
+        const over = (natural * size) / start - avail;
         if (over > 0) {
           track = Math.max(-over / Math.max(1, text.length - 1), NAME_MIN_TRACK * size);
         }
@@ -451,6 +461,19 @@ function TypeCorner({
   // "?" is black on cyberpunk yellow, white elsewhere
   const qClass = cyber ? "text-zinc-950" : "text-white";
 
+  // follows the card size softly (zoom scales the hit area too, not just the look)
+  const ref = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  useLayoutEffect(() => {
+    const card = ref.current?.parentElement;
+    if (!card) return;
+    const place = () => setScale(softScale(card.clientWidth, CARD_REF_PX));
+    place();
+    const ro = new ResizeObserver(place);
+    ro.observe(card);
+    return () => ro.disconnect();
+  }, [irid]);
+
   // mouse: open at the cursor, keyboard: under the corner
   const open = (e: React.MouseEvent | React.KeyboardEvent) => {
     e.stopPropagation();
@@ -468,19 +491,39 @@ function TypeCorner({
     } as React.MouseEvent);
   };
 
+  const buttonProps = {
+    ref,
+    style: { zoom: scale },
+    role: "button",
+    tabIndex: 0,
+    "aria-label": t("Set creator type"),
+    title: t("Set creator type — model, artist, cosplayer…"),
+    onClick: open,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        open(e);
+      }
+    },
+  } as const;
+
+  // iridescent: no fold, a small glass disc with a turning pearl ring (.iri-type-dot)
+  if (irid) {
+    return (
+      <div
+        {...buttonProps}
+        className="iri-type-dot absolute right-3 top-3 z-20 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full outline-none"
+      >
+        <span className="iri-type-dot-q pointer-events-none text-[13px] font-bold leading-none">
+          ?
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div
-      role="button"
-      tabIndex={0}
-      aria-label={t("Set creator type")}
-      title={t("Set creator type — model, artist, cosplayer…")}
-      onClick={open}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          open(e);
-        }
-      }}
+      {...buttonProps}
       className="absolute right-0 top-0 z-20 h-12 w-12 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-white/70"
     >
       {cyber ? (
@@ -507,15 +550,6 @@ function TypeCorner({
           <div
             className="absolute inset-0 shadow-[0_0_8px_rgba(252,238,10,0.6)]"
             style={{ clipPath: tri, background: "#fcee0a", animation: "micoll-icon-glitch 3.4s infinite" }}
-          />
-        </>
-      ) : irid ? (
-        <>
-          <div className="micoll-corner-rainbow absolute inset-0" style={{ clipPath: tri }} />
-          {/* shine along the fold */}
-          <div
-            className="absolute inset-0"
-            style={{ clipPath: tri, background: "linear-gradient(135deg, rgba(255,255,255,0.75), transparent 42%)" }}
           />
         </>
       ) : sakura ? (
@@ -625,6 +659,7 @@ function ArtistCardBase({
   // hover effects use the saved switch only (see useCardFxPref)
   const fxPref = useCardFxPref();
   const hideNames = useHideNames();
+  const nameSize = useCardNameSize();
   // platform logos + reward count under the name
   const cardMeta = useCardMeta();
   // the hover "+" button
@@ -1065,6 +1100,8 @@ function ArtistCardBase({
           cardMeta
             ? "from-black/85 via-black/40 pb-2 pt-7"
             : "from-black/65 via-black/25 pb-2.5 pt-5",
+          // iridescent frame, single line: lift the name off the frame's bottom edge
+          iriFrame && !cardMeta && "pb-4",
           // with hidden names fade the whole shadow with the text
           hideNames &&
             "opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100 group-focus-visible:opacity-100",
@@ -1103,7 +1140,11 @@ function ArtistCardBase({
             )}
             // name size: smaller for KDA, bigger for the cyberpunk font, else 15px (keys
             // off displayFace)
-            base={displayFace && irid ? 10.5 : displayFace && cyber ? 13 : irid ? 13 : 15}
+            // times the size step from Settings (4 = these sizes)
+            base={
+              (displayFace && irid ? 10.5 : displayFace && cyber ? 13 : irid ? 13 : 15) *
+              cardNameScale(nameSize)
+            }
           />
           {artist.verified ? (
             // hide the verified check when the display font already shows it's a template

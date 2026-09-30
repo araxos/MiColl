@@ -333,15 +333,17 @@ export function TemplatesPanel({
           variant="primary"
           onClick={importViaPicker}
           disabled={busy}
-          // white label (not on cyberpunk, its button is yellow)
-          className={accent === "cyberpunk" ? undefined : "!text-white"}
+          // white label, black on the light fills (cyberpunk yellow, iridescent pearl)
+          className={
+            accent === "cyberpunk" ? undefined : accent === "iridescent" ? "!text-zinc-950" : "!text-white"
+          }
         >
           <Upload className={`h-4 w-4 ${busy ? "animate-pulse" : ""}`} />
-          {t("Import template…")}
+          {t("Import template")}
         </Button>
         <Button variant="outline" onClick={() => setEditing(true)} disabled={busy}>
           <Plus className="h-4 w-4" />
-          {t("Create template…")}
+          {t("Create template")}
         </Button>
         <Button variant="ghost" onClick={() => void load()} disabled={busy} title={t("Reload the template list")}>
           <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />
