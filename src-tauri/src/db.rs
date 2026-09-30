@@ -1106,6 +1106,37 @@ pub fn period_scope(
     .optional()
 }
 
+pub fn artist_reward_ids(conn: &Connection, artist_id: i64) -> rusqlite::Result<Vec<i64>> {
+    let mut stmt = conn.prepare(
+        "SELECT r.id FROM rewards r JOIN periods p ON p.id = r.period_id WHERE p.artist_id = ?1",
+    )?;
+    let rows = stmt
+        .query_map(params![artist_id], |r| r.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+pub fn period_reward_ids(conn: &Connection, period_id: i64) -> rusqlite::Result<Vec<i64>> {
+    let mut stmt = conn.prepare("SELECT id FROM rewards WHERE period_id = ?1")?;
+    let rows = stmt
+        .query_map(params![period_id], |r| r.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// The rewards of one platform of a creator, the same rows delete_artist_platform
+/// removes ("Unsorted" = no platform).
+pub fn platform_reward_ids(conn: &Connection, artist_id: i64, platform: &str) -> rusqlite::Result<Vec<i64>> {
+    let mut stmt = conn.prepare(
+        "SELECT r.id FROM rewards r JOIN periods p ON p.id = r.period_id
+         WHERE p.artist_id = ?1 AND (p.platform = ?2 OR (?2 = 'Unsorted' AND p.platform IS NULL))",
+    )?;
+    let rows = stmt
+        .query_map(params![artist_id, platform], |r| r.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 /// Reward folders of a period (to find its real month folder).
 pub fn period_reward_folders(conn: &Connection, period_id: i64) -> rusqlite::Result<Vec<String>> {
     let mut stmt = conn.prepare("SELECT folder_path FROM rewards WHERE period_id = ?1")?;

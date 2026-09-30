@@ -1,5 +1,5 @@
 /**
- * Built-in wallpapers of the premium themes (iridescent, cyberpunk).
+ * Built-in wallpapers of the premium themes (iridescent, cyberpunk, sakura).
  * Separate from wallpaper.ts because this file imports the images (Vite bundles them).
  * "shader" has no image, it's the captured shader frame (see iridSnapshot),
  * picking it just clears the wallpaper.
@@ -12,6 +12,9 @@ import steelVeil from "@/assets/wallpapers/iri-steel-veil.svg";
 import neonSkyline from "@/assets/wallpapers/cyber-neon-skyline.svg";
 import circuitTrace from "@/assets/wallpapers/cyber-circuit-trace.svg";
 import hazardLine from "@/assets/wallpapers/cyber-hazard-line.svg";
+import toriiMist from "@/assets/wallpapers/sakura-torii-mist.svg";
+import petalWind from "@/assets/wallpapers/sakura-petal-wind.svg";
+import moonPond from "@/assets/wallpapers/sakura-moon-pond.svg";
 
 export interface WallpaperPreset {
   /** Saved as preset:<id>. */
@@ -97,8 +100,47 @@ export const CYBER_WALLPAPERS: WallpaperPreset[] = [
   },
 ];
 
+/** Sakura's default: "blossom-branch" has no image, it's SakuraStill. */
+export const SAKURA_DEFAULT_WALLPAPER = "blossom-branch";
+
+/** Sakura presets in menu order (generated SVGs, dark and calm on the left). */
+export const SAKURA_WALLPAPERS: WallpaperPreset[] = [
+  {
+    id: "blossom-branch",
+    label: "Blossom branch",
+    hint: "The theme’s own still — a branch in bloom with a few petals falling.",
+    url: "",
+    accent: "sakura",
+  },
+  {
+    id: "torii-mist",
+    label: "Torii mist",
+    hint: "A vermilion torii before a pale sun, its posts fading into the mist.",
+    url: toriiMist,
+    accent: "sakura",
+  },
+  {
+    id: "petal-wind",
+    label: "Petal wind",
+    hint: "A gust carrying petals and a few whole blossoms down from the top corner.",
+    url: petalWind,
+    accent: "sakura",
+  },
+  {
+    id: "moon-pond",
+    label: "Moon pond",
+    hint: "Still water at night, the moon mirrored in it and blossoms drifting in rings.",
+    url: moonPond,
+    accent: "sakura",
+  },
+];
+
 /** All built-ins of all themes (theme.ts checks against this). */
-export const ALL_WALLPAPER_PRESETS: WallpaperPreset[] = [...IRI_WALLPAPERS, ...CYBER_WALLPAPERS];
+export const ALL_WALLPAPER_PRESETS: WallpaperPreset[] = [
+  ...IRI_WALLPAPERS,
+  ...CYBER_WALLPAPERS,
+  ...SAKURA_WALLPAPERS,
+];
 
 export function findWallpaperPreset(id: string): WallpaperPreset | undefined {
   return ALL_WALLPAPER_PRESETS.find((p) => p.id === id);
@@ -108,5 +150,6 @@ export function findWallpaperPreset(id: string): WallpaperPreset | undefined {
 export function themeWallpapers(accent: AccentKey): { list: WallpaperPreset[]; fallback: string } {
   if (accent === "iridescent") return { list: IRI_WALLPAPERS, fallback: IRI_DEFAULT_WALLPAPER };
   if (accent === "cyberpunk") return { list: CYBER_WALLPAPERS, fallback: CYBER_DEFAULT_WALLPAPER };
+  if (accent === "sakura") return { list: SAKURA_WALLPAPERS, fallback: SAKURA_DEFAULT_WALLPAPER };
   return { list: [], fallback: "" };
 }

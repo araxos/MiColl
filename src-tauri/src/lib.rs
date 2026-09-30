@@ -2561,18 +2561,16 @@ async fn merge_rewards(
             .map_err(map_err)?;
     }
 
-    // trash the empty source folders
+    // trash the source folders that are empty now. Only the indexed files moved, a
+    // folder that still has something (a text file, a subfolder) stays
     {
         let conn = db.lock().map_err(map_err)?;
         let boundaries = delete_boundaries(&conn);
         drop(conn);
         for (_, folder) in &sources {
             let dir = std::path::PathBuf::from(folder);
-            if dir != dest_dir && dir.exists() {
-                let _ = trash::delete(&dir);
-                if let Some(parent) = dir.parent() {
-                    prune_empty_dirs(parent.to_path_buf(), &boundaries);
-                }
+            if dir != dest_dir {
+                let _ = trash_if_empty(&dir, &boundaries);
             }
         }
     }
@@ -2591,23 +2589,41 @@ fn reveal_period(db: State<Db>, period_id: i64) -> Result<(), String> {
     open_dir(&dir)
 }
 
+/// The folder that is this period's own: a month, a year or a drop. A period without a
+/// date has none, its rebuilt path is the platform's folder (or for no platform the
+/// creator's), which holds everything else too.
+fn period_own_dir(conn: &rusqlite::Connection, period_id: i64) -> Option<std::path::PathBuf> {
+    let (_, _, year, _, number) = db::period_scope(conn, period_id).ok().flatten()?;
+    if year.is_none() && number.is_none() {
+        return None;
+    }
+    period_month_dir(conn, period_id)
+}
+
 /// Delete a period (a break or empty month), optionally trashing its folder.
 #[tauri::command]
 async fn delete_period(db: State<'_, Db>, period_id: i64, also_files: bool) -> Result<(), String> {
     let conn = db.lock().map_err(map_err)?;
-    let dir = if also_files {
-        period_month_dir(&conn, period_id)
-    } else {
-        None
-    };
-    // disk first, the rows only go once the folder is really gone
-    if let Some(dir) = dir {
+    // disk first, the rows only go once the files are really gone
+    if also_files {
         let boundaries = delete_boundaries(&conn);
-        if let Some(why) = trash_dir(&dir) {
-            return Err(trash_failure_message(&[why]));
+        // before the rewards go, the folder is found through them
+        let own_dir = period_own_dir(&conn, period_id);
+        let marker_dir = period_month_dir(&conn, period_id);
+        let ids = db::period_reward_ids(&conn, period_id).map_err(map_err)?;
+        let plan = plan_reward_trash(&conn, &ids).map_err(map_err)?;
+        let (done, failed) = trash_rewards(&plan, &boundaries);
+        if !failed.is_empty() {
+            db::delete_rewards(&conn, &done).map_err(map_err)?;
+            return Err(trash_failure_message(&failed));
         }
-        if let Some(parent) = dir.parent() {
-            prune_empty_dirs(parent.to_path_buf(), &boundaries);
+        // a break's note is ours
+        if let Some(dir) = marker_dir {
+            let _ = std::fs::remove_file(dir.join(db::SKIP_MARKER));
+        }
+        // the month folder itself only when nothing is left in it
+        if let Some(why) = own_dir.and_then(|d| trash_if_empty(&d, &boundaries)) {
+            return Err(trash_failure_message(&[why]));
         }
     }
     db::delete_period(&conn, period_id).map_err(map_err)
@@ -3207,6 +3223,128 @@ fn prune_empty_dirs(mut dir: std::path::PathBuf, boundaries: &std::collections::
             Err(_) => break,
         }
     }
+}
+
+/// inner is dir or somewhere below it (both as norm_path keys).
+fn is_at_or_below(inner: &str, dir: &str) -> bool {
+    inner == dir || inner.starts_with(&format!("{dir}\\"))
+}
+
+/// What deleting a reward's files sends to the recycle bin.
+#[derive(Debug, PartialEq)]
+enum RewardTrash {
+    /// the reward's own folder
+    Folder(std::path::PathBuf),
+    /// only its files: another reward lives in or below its folder (a root reward's
+    /// files sit loose in the month folder, next to the other rewards' folders)
+    Files(Vec<std::path::PathBuf>),
+}
+
+/// Plan the recycle bin step for deleting these rewards' files. Picked by the rewards
+/// themselves, never by folder names (deleting "Unsorted" matched every folder called
+/// Unsorted, also "Twitter\Unsorted\Gifs"). A folder only goes whole when no reward
+/// that stays lives inside it. Template placeholders have no folder.
+fn plan_reward_trash(
+    conn: &rusqlite::Connection,
+    ids: &[i64],
+) -> rusqlite::Result<Vec<(i64, RewardTrash)>> {
+    let going: std::collections::HashSet<i64> = ids.iter().copied().collect();
+    let mut staying: Vec<String> = Vec::new();
+    {
+        let mut stmt = conn.prepare("SELECT id, folder_path FROM rewards")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        for row in rows {
+            let (id, folder) = row?;
+            if !going.contains(&id) && !folder.contains('\u{1}') {
+                staying.push(norm_path(std::path::Path::new(&folder)));
+            }
+        }
+    }
+    let mut plan = Vec::new();
+    for &id in ids {
+        let Some(folder) = db::reward_folder(conn, id)? else { continue };
+        if folder.contains('\u{1}') {
+            continue;
+        }
+        let key = norm_path(std::path::Path::new(&folder));
+        if staying.iter().any(|s| is_at_or_below(s, &key)) {
+            let files = db::image_paths_for_rewards(conn, &[id])?
+                .into_iter()
+                .map(std::path::PathBuf::from)
+                .collect();
+            plan.push((id, RewardTrash::Files(files)));
+        } else {
+            plan.push((id, RewardTrash::Folder(std::path::PathBuf::from(folder))));
+        }
+    }
+    Ok(plan)
+}
+
+/// Carry out one planned step. None = done, Some(message) = something stayed on disk.
+fn trash_reward(
+    item: &RewardTrash,
+    boundaries: &std::collections::HashSet<String>,
+) -> Option<String> {
+    match item {
+        RewardTrash::Folder(dir) => {
+            if let Some(why) = trash_dir(dir) {
+                return Some(why);
+            }
+            if let Some(parent) = dir.parent() {
+                prune_empty_dirs(parent.to_path_buf(), boundaries);
+            }
+            None
+        }
+        RewardTrash::Files(files) => {
+            let mut failed = Vec::new();
+            for f in files.iter().filter(|f| f.exists()) {
+                if let Err(e) = trash::delete(f) {
+                    failed.push(format!("{} — {}", f.display(), e));
+                }
+            }
+            (!failed.is_empty()).then(|| failed.join("\n"))
+        }
+    }
+}
+
+/// Run a plan, returns (the rewards whose files are gone, messages for the rest).
+fn trash_rewards(
+    plan: &[(i64, RewardTrash)],
+    boundaries: &std::collections::HashSet<String>,
+) -> (Vec<i64>, Vec<String>) {
+    let (mut done, mut failed) = (Vec::new(), Vec::new());
+    for (id, item) in plan {
+        match trash_reward(item, boundaries) {
+            Some(why) => failed.push(why),
+            None => done.push(*id),
+        }
+    }
+    (done, failed)
+}
+
+/// A folder that may go to the recycle bin as a whole: no file anywhere inside and not
+/// a boundary. A folder with files keeps them whatever its name, they belong to
+/// something else (another reward, or something MiColl never indexed).
+fn is_empty_tree(dir: &std::path::Path, boundaries: &std::collections::HashSet<String>) -> bool {
+    dir.is_dir() && !boundaries.contains(&norm_path(dir)) && !dir_has_files(dir)
+}
+
+/// Recycle a folder only when it has no files left, then empty folders above it.
+/// Some(message) only when Windows refused.
+fn trash_if_empty(
+    dir: &std::path::Path,
+    boundaries: &std::collections::HashSet<String>,
+) -> Option<String> {
+    if !is_empty_tree(dir, boundaries) {
+        return None;
+    }
+    if let Some(why) = trash_dir(dir) {
+        return Some(why);
+    }
+    if let Some(parent) = dir.parent() {
+        prune_empty_dirs(parent.to_path_buf(), boundaries);
+    }
+    None
 }
 
 /// A rename request from the UI: which item and the new name.
@@ -4044,23 +4182,15 @@ async fn delete_platform(
     let mut failed: Vec<String> = Vec::new();
     if also_files {
         let boundaries = delete_boundaries(&conn);
-        // trash each reward folder of this platform first
-        for folder in db::artist_reward_folders(&conn, artist_id).map_err(map_err)? {
-            let path = std::path::PathBuf::from(&folder);
-            // only folders inside this platform's folder
-            let plat_seg = format!("\\{}\\", sanitize_name(&platform).to_lowercase());
-            let norm = folder.replace('/', "\\").to_lowercase();
-            if norm.contains(&plat_seg) {
-                if let Some(why) = trash_dir(&path) {
-                    failed.push(why);
-                    continue;
-                }
-                if let Some(parent) = path.parent() {
-                    prune_empty_dirs(parent.to_path_buf(), &boundaries);
-                }
-            }
+        // this platform's rewards as the library files them
+        let ids = db::platform_reward_ids(&conn, artist_id, platform.trim()).map_err(map_err)?;
+        let plan = plan_reward_trash(&conn, &ids).map_err(map_err)?;
+        let (done, trash_failed) = trash_rewards(&plan, &boundaries);
+        if !trash_failed.is_empty() {
+            db::delete_rewards(&conn, &done).map_err(map_err)?;
+            return Err(trash_failure_message(&trash_failed));
         }
-        // trash the platform folder itself (also for an empty platform)
+        // the platform folder itself only when nothing is left in it
         if let Some(name) = &name {
             let managed = db::get_setting(&conn, "managed_enabled")
                 .map_err(map_err)?
@@ -4079,10 +4209,8 @@ async fn delete_platform(
             };
             if let Some(base) = base {
                 let pdir = base.join(sanitize_name(&platform));
-                if !boundaries.contains(&norm_path(&pdir)) {
-                    if let Some(why) = trash_dir(&pdir) {
-                        failed.push(why);
-                    }
+                if let Some(why) = trash_if_empty(&pdir, &boundaries) {
+                    failed.push(why);
                 }
             }
         }
@@ -4111,23 +4239,16 @@ async fn delete_rewards(
             let _ = trash::delete(&vp);
         }
     }
-    // only rewards whose folder really left the disk leave the library
+    // only rewards whose files really left the disk leave the library
     let mut removable = reward_ids.clone();
     let mut failed: Vec<String> = Vec::new();
     if also_files {
         let boundaries = delete_boundaries(&conn);
-        for id in &reward_ids {
-            if let Some(folder) = db::reward_folder(&conn, *id).map_err(map_err)? {
-                let path = std::path::PathBuf::from(&folder);
-                if let Some(why) = trash_dir(&path) {
-                    failed.push(why);
-                    removable.retain(|r| r != id);
-                    continue;
-                }
-                // clean up empty parent folders, stop at a root / the collection root
-                if let Some(parent) = path.parent() {
-                    prune_empty_dirs(parent.to_path_buf(), &boundaries);
-                }
+        let plan = plan_reward_trash(&conn, &reward_ids).map_err(map_err)?;
+        for (id, item) in &plan {
+            if let Some(why) = trash_reward(item, &boundaries) {
+                failed.push(why);
+                removable.retain(|r| r != id);
             }
         }
     }
@@ -4186,16 +4307,10 @@ async fn delete_artist(
         for p in &own_root_paths {
             boundaries.remove(p);
         }
-        for folder in db::artist_reward_folders(&conn, artist_id).map_err(map_err)? {
-            let path = std::path::PathBuf::from(&folder);
-            if let Some(why) = trash_dir(&path) {
-                failed.push(why);
-                continue;
-            }
-            if let Some(parent) = path.parent() {
-                prune_empty_dirs(parent.to_path_buf(), &boundaries);
-            }
-        }
+        // another creator's reward inside one of these folders keeps its files
+        let ids = db::artist_reward_ids(&conn, artist_id).map_err(map_err)?;
+        let plan = plan_reward_trash(&conn, &ids).map_err(map_err)?;
+        failed.extend(trash_rewards(&plan, &boundaries).1);
         // also trash the artist's base folder
         if let Some(name) = &name {
             let managed = db::get_setting(&conn, "managed_enabled")
@@ -8427,6 +8542,110 @@ mod tests {
         staging_dir_of, stage_beside_source, sweep_orphan_covers, sweep_staging_folders,
         undo_staged, Staged, COVER_MAX_EDGE, STAGING_PREFIX,
     };
+    use super::{is_empty_tree, period_month_dir, period_own_dir, plan_reward_trash, RewardTrash};
+    use std::path::PathBuf;
+
+    /// the tables the delete plans read
+    fn delete_db() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE settings (key TEXT, value TEXT);
+             CREATE TABLE artists (id INTEGER, name TEXT, graveyard INTEGER DEFAULT 0);
+             CREATE TABLE periods (id INTEGER, artist_id INTEGER, platform TEXT, year INTEGER,
+                                   month INTEGER, number INTEGER);
+             CREATE TABLE rewards (id INTEGER, period_id INTEGER, folder_path TEXT);
+             CREATE TABLE images (reward_id INTEGER, file_path TEXT);
+             INSERT INTO settings VALUES ('collection_root', 'C:\\coll');
+             INSERT INTO artists (id, name) VALUES (1, 'A');",
+        )
+        .unwrap();
+        conn
+    }
+
+    /// deleting the empty "Unsorted" tab took Twitter\Unsorted\Gifs with it, the
+    /// folders were picked by name
+    #[test]
+    fn deleting_a_platform_never_picks_folders_by_name() {
+        let conn = delete_db();
+        conn.execute_batch(
+            "INSERT INTO periods VALUES (1, 1, 'Twitter', NULL, NULL, NULL), (2, 1, NULL, NULL, NULL, NULL);
+             INSERT INTO rewards VALUES (10, 1, 'C:\\coll\\MiColl\\A\\Twitter\\Unsorted\\Gifs');",
+        )
+        .unwrap();
+        let unsorted = crate::db::platform_reward_ids(&conn, 1, "Unsorted").unwrap();
+        assert!(unsorted.is_empty());
+        assert!(plan_reward_trash(&conn, &unsorted).unwrap().is_empty());
+
+        let twitter = crate::db::platform_reward_ids(&conn, 1, "Twitter").unwrap();
+        assert_eq!(
+            plan_reward_trash(&conn, &twitter).unwrap(),
+            vec![(10, RewardTrash::Folder(PathBuf::from(r"C:\coll\MiColl\A\Twitter\Unsorted\Gifs")))]
+        );
+    }
+
+    /// a root reward's folder is the month folder, the other rewards live in it
+    #[test]
+    fn a_root_reward_only_takes_its_own_files() {
+        let conn = delete_db();
+        conn.execute_batch(
+            "INSERT INTO periods VALUES (1, 1, 'Patreon', 2026, 3, NULL);
+             INSERT INTO rewards VALUES
+                (20, 1, 'C:\\coll\\MiColl\\A\\Patreon\\2026\\03'),
+                (21, 1, 'C:\\Coll\\MiColl\\a\\Patreon\\2026\\03\\Sub'),
+                (22, 1, 'A' || char(1) || 'Patreon' || char(1) || '2026' || char(1) || 'placeholder');
+             INSERT INTO images VALUES (20, 'C:\\coll\\MiColl\\A\\Patreon\\2026\\03\\a.jpg');",
+        )
+        .unwrap();
+        // another reward stays inside (case doesn't matter on Windows): only its file
+        assert_eq!(
+            plan_reward_trash(&conn, &[20]).unwrap(),
+            vec![(20, RewardTrash::Files(vec![PathBuf::from(r"C:\coll\MiColl\A\Patreon\2026\03\a.jpg")]))]
+        );
+        // both go: the folder can go whole. The placeholder has no folder
+        let plan = plan_reward_trash(&conn, &[20, 21, 22]).unwrap();
+        assert_eq!(plan.len(), 2);
+        assert!(plan.iter().all(|(_, t)| matches!(t, RewardTrash::Folder(_))));
+    }
+
+    /// a period without a date rebuilt its folder as the platform's, or the whole creator's
+    #[test]
+    fn a_period_without_a_date_has_no_own_folder() {
+        let conn = delete_db();
+        conn.execute_batch(
+            "INSERT INTO periods VALUES
+                (1, 1, NULL, NULL, NULL, NULL),
+                (2, 1, 'Twitter', NULL, NULL, NULL),
+                (3, 1, 'Patreon', 2026, 3, NULL);",
+        )
+        .unwrap();
+        // what delete_period used to send to the recycle bin
+        assert_eq!(period_month_dir(&conn, 1), Some(PathBuf::from(r"C:\coll\MiColl\A")));
+        assert_eq!(period_own_dir(&conn, 1), None);
+        assert_eq!(period_own_dir(&conn, 2), None);
+        assert_eq!(
+            period_own_dir(&conn, 3),
+            Some(PathBuf::from(r"C:\coll\MiColl\A\Patreon\2026\03"))
+        );
+    }
+
+    /// a folder only goes whole when no file is left anywhere inside
+    #[test]
+    fn folders_with_files_never_go_whole() {
+        let base = std::env::temp_dir().join(format!("micoll_emptytree_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("Unsorted").join("Unsorted")).unwrap();
+        let none = std::collections::HashSet::new();
+        assert!(is_empty_tree(&base.join("Unsorted"), &none));
+        std::fs::create_dir_all(base.join("Unsorted").join("2026").join("Gifs")).unwrap();
+        std::fs::write(base.join("Unsorted").join("2026").join("Gifs").join("a.gif"), b"x").unwrap();
+        assert!(!is_empty_tree(&base.join("Unsorted"), &none));
+        // a boundary never goes, even empty
+        let bound: std::collections::HashSet<String> =
+            [super::norm_path(&base.join("Unsorted").join("Unsorted"))].into_iter().collect();
+        assert!(!is_empty_tree(&base.join("Unsorted").join("Unsorted"), &bound));
+        assert!(!is_empty_tree(&base.join("missing"), &none));
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     /// only covers whose file is really gone are reset, not ones on a missing drive
     #[test]

@@ -211,12 +211,19 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
     await refresh();
   };
 
-  // right-click a platform tab -> delete it (asks if it still has rewards)
+  // right-click a platform tab -> delete it (asks if it still has rewards).
+  // An empty one goes right away: the backend only throws away folders with no files left
   const removePlatform = (p: Platform) => {
     if (!artist || !backed) return;
     const hasContent = p.months.some((m) => ownRewards(m).length > 0);
     if (!hasContent) {
-      void api.deletePlatform(artist.id, p.name, true).then(() => refresh());
+      void api
+        .deletePlatform(artist.id, p.name, true)
+        .then(() => refresh())
+        .catch((e) => {
+          void refresh();
+          showToast({ tone: "error", title: t("Couldn’t delete everything"), problem: String(e) });
+        });
     } else {
       requestDelete({
         title: `${p.name} — ${artist.name}`,

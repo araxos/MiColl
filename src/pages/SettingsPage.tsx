@@ -384,10 +384,12 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
    * the theme default, "Shader still" is its own saved choice.
    */
   const themeWalls = themeWallpapers(accent);
-  const presetLabel = !wallpaper
-    ? t(themeWalls.list.find((p) => p.id === themeWalls.fallback)?.label ?? "Custom picture")
-    : (themeWalls.list.find((p) => wallpaper === `${WALLPAPER_PRESET_PREFIX}${p.id}`)?.label ??
-       "Custom picture");
+  const presetLabel = t(
+    !wallpaper
+      ? (themeWalls.list.find((p) => p.id === themeWalls.fallback)?.label ?? "Custom picture")
+      : (themeWalls.list.find((p) => wallpaper === `${WALLPAPER_PRESET_PREFIX}${p.id}`)?.label ??
+          "Custom picture"),
+  );
 
   const pickWallpaper = async () => {
     const picked = await open({
@@ -1233,7 +1235,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                           wallpaper === value ||
                           (!wallpaper && p.id === themeWalls.fallback);
                         return {
-                          label: p.label,
+                          label: t(p.label),
                           hint: current ? "Current" : undefined,
                           icon: current ? (
                             <Check className="h-4 w-4" />
@@ -1245,7 +1247,13 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                       }),
                     )
                   }
-                  title={t(cyber ? "The cyberpunk theme’s own backgrounds" : "The iridescent theme’s own backgrounds")}
+                  title={t(
+                    cyber
+                      ? "The cyberpunk theme’s own backgrounds"
+                      : sak
+                        ? "The sakura theme’s own backgrounds"
+                        : "The iridescent theme’s own backgrounds",
+                  )}
                   className={cn(
                     "flex h-9 items-center gap-2 rounded-lg border border-zinc-800 px-3 text-sm font-medium transition-colors",
                     "appearance-chip",

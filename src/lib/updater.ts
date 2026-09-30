@@ -7,6 +7,8 @@
  *
  * Checks shortly after start and then every 6 hours (because of close-to-tray,
  * some people never restart the app). Can be turned off in Settings -> Version.
+ * A found update never pops up on its own: it lights the update button in the top
+ * bar, and the popup opens when that (or "Update now" in Settings) is clicked.
  */
 
 import { useEffect, useState } from "react";
@@ -34,8 +36,6 @@ interface Store {
 
 let store: Store = { state: { kind: "idle" }, prompt: false };
 let pending: Update | null = null;
-/** version the user clicked "Later" on, auto checks won't show it again this session */
-let laterVersion: string | null = null;
 const subs = new Set<() => void>();
 
 function set(next: Partial<Store>): void {
@@ -81,6 +81,7 @@ export async function checkForUpdates({ manual }: { manual: boolean }): Promise<
       set({ state: { kind: "current" } });
       return;
     }
+    // the popup stays as it is: it only opens from a click
     set({
       state: {
         kind: "available",
@@ -88,7 +89,6 @@ export async function checkForUpdates({ manual }: { manual: boolean }): Promise<
         notes: found.body?.trim() || undefined,
         date: found.date,
       },
-      prompt: manual || found.version !== laterVersion,
     });
   } catch (e) {
     if (manual) set({ state: { kind: "error", detail: `${e}`, during: "check" } });
@@ -138,10 +138,9 @@ export function showUpdatePrompt(): void {
   if (pending) set({ prompt: true });
 }
 
-/** "Later" button: close the popup, don't show this version again this session. */
+/** "Later" button: close the popup, the top bar button stays. */
 export function dismissUpdatePrompt(): void {
   if (busy()) return;
-  if (pending) laterVersion = pending.version;
   set({
     prompt: false,
     // after a failed install go back to "update available"
