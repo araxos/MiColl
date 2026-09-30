@@ -1650,4 +1650,11 @@ export const dict: Dict = {
   "{rewards} are copied to “{disk}” and stay here as well.": "{rewards} zostaną skopiowane na „{disk}” i zostaną też tutaj.",
   "and {n} more": "i jeszcze {n}",
   "{n} more matches — keep typing to narrow it down": "Jeszcze {n} wyników — pisz dalej, aby zawęzić",
+  "Reset covers": "Zresetuj okładki",
+  "Reset missing covers": "Zresetuj brakujące okładki",
+  "Covers whose image file is gone go back to the automatic image": "Okładki, których plik zniknął, wracają do automatycznego obrazu",
+  "Reset missing covers?": "Zresetować brakujące okładki?",
+  "Creators, months and rewards whose cover image no longer exists go back to the automatic image. Covers on a disk that isn’t connected right now stay as they are. Your files aren’t touched.": "Twórcy, miesiące i nagrody, których obraz okładki już nie istnieje, wracają do automatycznego obrazu. Okładki na dysku, który nie jest teraz podłączony, zostają bez zmian. Twoje pliki nie są ruszane.",
+  "Missing covers reset.": "Brakujące okładki zresetowane.",
+  "No missing covers found.": "Nie znaleziono brakujących okładek.",
 };

@@ -31,6 +31,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useT, useTf } from "@/lib/i18n";
 import { isTauri } from "@/lib/tauri";
+import { queuePrefsSync } from "@/lib/prefs";
 import {
   readImage,
   editInpaint,
@@ -237,6 +238,7 @@ export function ImageEditor({
   const setRemoveMode = (m: "classic" | "ai") => {
     setRemoveModeState(m);
     localStorage.setItem("micoll.removeMode", m);
+    queuePrefsSync();
   };
 
   /* ---- AI model availability + download progress ------------------------ */

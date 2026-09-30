@@ -1650,4 +1650,11 @@ export const dict: Dict = {
   "{rewards} are copied to “{disk}” and stay here as well.": "{rewards} будут скопированы на «{disk}» и останутся также здесь.",
   "and {n} more": "и ещё {n}",
   "{n} more matches — keep typing to narrow it down": "Ещё {n} совпадений — продолжайте вводить, чтобы сузить",
+  "Reset covers": "Сбросить обложки",
+  "Reset missing covers": "Сбросить отсутствующие обложки",
+  "Covers whose image file is gone go back to the automatic image": "Обложки, файл которых пропал, возвращаются к автоматическому изображению",
+  "Reset missing covers?": "Сбросить отсутствующие обложки?",
+  "Creators, months and rewards whose cover image no longer exists go back to the automatic image. Covers on a disk that isn’t connected right now stay as they are. Your files aren’t touched.": "Авторы, месяцы и награды, изображение обложки которых больше не существует, снова получают автоматическое изображение. Обложки на диске, который сейчас не подключён, не меняются. Ваши файлы не затрагиваются.",
+  "Missing covers reset.": "Отсутствующие обложки сброшены.",
+  "No missing covers found.": "Отсутствующих обложек не найдено.",
 };

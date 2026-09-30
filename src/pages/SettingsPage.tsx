@@ -230,6 +230,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
   const [collectionRoot, setCollectionRoot] = useState("");
   const [confirmOrganize, setConfirmOrganize] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmCovers, setConfirmCovers] = useState(false);
   const [healthOpen, setHealthOpen] = useState(false);
   // a newly picked collection folder waiting for "move / just switch"
   const [pendingRoot, setPendingRoot] = useState<string | null>(null);
@@ -733,6 +734,21 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
       await Promise.all([loadRoots(), refresh()]);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const doResetCovers = async () => {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const n = await api.resetMissingCovers();
+      await refresh();
+      setStatus(n > 0 ? t("Missing covers reset.") : t("No missing covers found."));
+    } catch (e) {
+      setStatus(`Error: ${e}`);
+    } finally {
+      setBusy(false);
+      setConfirmCovers(false);
     }
   };
 
@@ -1852,6 +1868,15 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                 {t("Reset warnings")}
               </Button>
               <Button
+                variant="outline"
+                onClick={() => setConfirmCovers(true)}
+                disabled={busy}
+                title={t("Covers whose image file is gone go back to the automatic image")}
+              >
+                <RotateCcw className="h-4 w-4" />
+                {t("Reset missing covers")}
+              </Button>
+              <Button
                 variant="ghost"
                 onClick={() => setConfirmClear(true)}
                 disabled={busy}
@@ -2140,6 +2165,19 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
           }
           onConfirm={() => void doMoveCollection()}
           onCancel={() => setPendingRoot(null)}
+        />
+      )}
+
+      {confirmCovers && (
+        <ConfirmDialog
+          title={t("Reset missing covers?")}
+          confirmLabel={t("Reset covers")}
+          busy={busy}
+          body={t(
+            "Creators, months and rewards whose cover image no longer exists go back to the automatic image. Covers on a disk that isn’t connected right now stay as they are. Your files aren’t touched.",
+          )}
+          onConfirm={() => void doResetCovers()}
+          onCancel={() => setConfirmCovers(false)}
         />
       )}
 

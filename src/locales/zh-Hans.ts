@@ -1590,4 +1590,11 @@ export const dict: Dict = {
   "{rewards} are copied to “{disk}” and stay here as well.": "{rewards} 将被复制到“{disk}”，并且也留在这里。",
   "and {n} more": "另外 {n} 位",
   "{n} more matches — keep typing to narrow it down": "还有 {n} 个结果 — 继续输入以缩小范围",
+  "Reset covers": "重置封面",
+  "Reset missing covers": "重置缺失的封面",
+  "Covers whose image file is gone go back to the automatic image": "图片文件已不存在的封面恢复为自动图片",
+  "Reset missing covers?": "重置缺失的封面？",
+  "Creators, months and rewards whose cover image no longer exists go back to the automatic image. Covers on a disk that isn’t connected right now stay as they are. Your files aren’t touched.": "封面图片已不存在的创作者、月份和奖励会恢复为自动图片。当前未连接的磁盘上的封面保持不变。不会改动你的文件。",
+  "Missing covers reset.": "已重置缺失的封面。",
+  "No missing covers found.": "没有缺失的封面。",
 };

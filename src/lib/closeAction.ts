@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { queuePrefsSync } from "@/lib/prefs";
 
 /**
  * What the window button in the header does on single click (the other action is
@@ -23,6 +24,7 @@ export function setCloseAction(v: CloseAction) {
   } catch {
     /* ignore */
   }
+  queuePrefsSync();
   window.dispatchEvent(new CustomEvent(CLOSE_ACTION_EVENT));
 }
 

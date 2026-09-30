@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { queuePrefsSync } from "@/lib/prefs";
 
 const STORAGE_KEY = "micoll.optimizeLargeImages";
 
@@ -25,6 +26,7 @@ export function setOptimizeLargeImages(on: boolean): void {
   } catch {
     /* ignore */
   }
+  queuePrefsSync();
   listeners.forEach((l) => l());
 }
 

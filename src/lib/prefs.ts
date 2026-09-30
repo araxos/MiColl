@@ -61,15 +61,21 @@ const SYNCED = [
   "micoll.modeHotkey",
   "micoll.homeDblToggle",
   "micoll.autoUpdateCheck",
+  "micoll.windowButtons",
+  "micoll.closeAction",
+  "micoll.optimizeLargeImages",
+  "micoll.slideshowSpeed",
+  "micoll.loop",
+  "micoll.removeMode",
+  "micoll.classFilter",
+  "micoll.typeFilter",
 ] as const;
 
 /** Key prefixes (one key per creator/page). */
 const SYNCED_PREFIXES = ["micoll.tileShape.for."] as const;
 
 /* Not synced on purpose:
-     · sfwMode, classFilter, typeFilter, removeMode, loop, slideshowSpeed - just the
-       current view, would write the DB on every click
-     · optimizeLargeImages, closeAction, windowButtons - about this machine
+     · sfwMode - per device on purpose
      · premiumUnlocked, licensee, trialUntil - come from the licence in the DB anyway
      · needsReviewDismissed, quickImportWarned, iridSnapshot - one-time stuff
    micoll.tileShape (old key, migrated once) and micoll.viewerGrid (removed) aren't

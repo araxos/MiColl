@@ -1590,4 +1590,11 @@ export const dict: Dict = {
   "{rewards} are copied to “{disk}” and stay here as well.": "{rewards} を「{disk}」へコピーし、ここにも残します。",
   "and {n} more": "ほか {n} 人",
   "{n} more matches — keep typing to narrow it down": "他に {n} 件 — 入力を続けて絞り込んでください",
+  "Reset covers": "カバーをリセット",
+  "Reset missing covers": "見つからないカバーをリセット",
+  "Covers whose image file is gone go back to the automatic image": "画像ファイルがなくなったカバーを自動の画像に戻す",
+  "Reset missing covers?": "見つからないカバーをリセットしますか？",
+  "Creators, months and rewards whose cover image no longer exists go back to the automatic image. Covers on a disk that isn’t connected right now stay as they are. Your files aren’t touched.": "カバー画像が存在しなくなったクリエイター・月・リワードは自動の画像に戻ります。今接続されていないディスク上のカバーはそのままです。ファイルには手を加えません。",
+  "Missing covers reset.": "見つからないカバーをリセットしました。",
+  "No missing covers found.": "見つからないカバーはありません。",
 };

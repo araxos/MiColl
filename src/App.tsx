@@ -49,6 +49,8 @@ import { getModeHotkey, eventToCombo, toggleSfwMode } from "@/lib/contentMode";
 export default function App() {
   const [locked, setLocked] = useState(false);
   const [booted, setBooted] = useState(false); // gate the first paint until we know
+  // the saved settings are in localStorage; nothing that reads them mounts before this
+  const [prefsReady, setPrefsReady] = useState(false);
   // only set on a portable copy's first start when there's an installed library to adopt
   const [portableOffer, setPortableOffer] = useState<PortableOffer | null>(null);
   // new library: show the first-run questions first
@@ -120,16 +122,22 @@ export default function App() {
   useEffect(() => {
     let alive = true;
     if (!isTauri()) {
+      setPrefsReady(true);
       setBooted(true);
       return;
     }
     (async () => {
-      // load the library's saved settings first, lots of code reads them from localStorage
-      await loadPrefs();
-      // then the license, then the accent. applyAccent would downgrade a premium accent
-      // if the license isn't known yet.
-      await reconcileLicence();
-      applyAccent(getAccent());
+      try {
+        // load the library's saved settings first, lots of code reads them from localStorage
+        await loadPrefs();
+        // then the license, then the accent. applyAccent would downgrade a premium accent
+        // if the license isn't known yet.
+        await reconcileLicence();
+        applyAccent(getAccent());
+      } finally {
+        // also on an error, so the app never stays empty
+        if (alive) setPrefsReady(true);
+      }
       try {
         const offer = await portableFirstRun();
         if (!alive) return;
@@ -274,6 +282,10 @@ export default function App() {
   return (
     <DataProvider>
       <ActionsProvider>
+        {/* the providers already load the library; the rest waits for the settings */}
+        {!prefsReady ? (
+          <div className="h-screen bg-zinc-950" />
+        ) : (
         <div className="flex h-screen flex-col overflow-hidden bg-zinc-950">
           <div className="relative flex-1 overflow-hidden">
             {/* wallpaper + premium FX, mounted once behind everything so WebGL isn't
@@ -321,6 +333,7 @@ export default function App() {
             </div>
           </div>
         </div>
+        )}
       </ActionsProvider>
     </DataProvider>
   );

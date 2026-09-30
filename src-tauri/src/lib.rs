@@ -527,17 +527,114 @@ async fn migrate_cover_crops(app: AppHandle) -> Result<CoverMigration, String> {
     Ok(out)
 }
 
+/// Columns that can hold a cover crop path.
+const COVER_COLUMNS: &[(&str, &str)] = &[
+    ("rewards", "cover_image"),
+    ("periods", "preview_image"),
+    ("artists", "preview_image"),
+];
+
+/// Point stored paths back into this app data folder.
+/// Versions and cover crops are saved with absolute paths. After the app folder moved
+/// (old identifier, portable copy with its own data folder) they still point at the old
+/// place. A path outside `dir` is rewritten when it was in a folder of the same name
+/// (versions, covers) and `dir` has a file with the same name. The folder check keeps
+/// a missing reward image like "25.png" from being taken for a version.
+/// Returns how many were fixed. Errors skip the column, it runs again next start.
+fn heal_moved_paths(
+    conn: &rusqlite::Connection,
+    dir: &std::path::Path,
+    columns: &[(&str, &str)],
+) -> usize {
+    let norm = |p: &str| p.replace('/', "\\").to_lowercase();
+    let dir_key = format!("{}\\", norm(&dir.to_string_lossy()).trim_end_matches('\\'));
+    let Some(dir_name) = dir.file_name().map(|n| n.to_string_lossy().to_lowercase()) else {
+        return 0;
+    };
+    let mut fixed = 0;
+    for (table, col) in columns {
+        let Ok(mut stmt) = conn.prepare(&format!(
+            "SELECT DISTINCT {col} FROM {table} WHERE {col} IS NOT NULL AND {col} <> ''"
+        )) else {
+            continue;
+        };
+        let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) else { continue };
+        let paths: Vec<String> = rows.flatten().collect();
+        for old in paths {
+            if norm(&old).starts_with(&dir_key) {
+                continue;
+            }
+            let old_path = old.replace('/', "\\");
+            let old_path = std::path::Path::new(&old_path);
+            let Some(name) = old_path.file_name() else { continue };
+            let same_folder = old_path
+                .parent()
+                .and_then(|p| p.file_name())
+                .is_some_and(|p| p.to_string_lossy().to_lowercase() == dir_name);
+            if !same_folder {
+                continue;
+            }
+            let new = dir.join(name);
+            if !new.is_file() {
+                continue;
+            }
+            if let Ok(n) = conn.execute(
+                &format!("UPDATE {table} SET {col} = ?2 WHERE {col} = ?1"),
+                rusqlite::params![old, new.to_string_lossy()],
+            ) {
+                fixed += n;
+            }
+        }
+    }
+    fixed
+}
+
+/// Is the file really gone? False when its drive isn't there (unplugged MiSD disk,
+/// network path): the cover is only offline then and must stay.
+fn cover_file_gone(path: &str) -> bool {
+    let p = std::path::Path::new(path);
+    if p.exists() {
+        return false;
+    }
+    let b = path.as_bytes();
+    let drive_letter = b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':';
+    drive_letter && std::path::Path::new(&path[..3]).exists()
+}
+
+/// Covers (creator, month, reward) whose file is gone go back to the automatic image,
+/// like "Reset cover" on each one. Returns how many were reset.
+fn clear_missing_covers(conn: &rusqlite::Connection) -> usize {
+    let mut reset = 0;
+    for (table, col) in COVER_COLUMNS {
+        let Ok(mut stmt) = conn.prepare(&format!(
+            "SELECT DISTINCT {col} FROM {table} WHERE {col} IS NOT NULL AND {col} <> ''"
+        )) else {
+            continue;
+        };
+        let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) else { continue };
+        let gone: Vec<String> = rows.flatten().filter(|p| cover_file_gone(p)).collect();
+        // a reward also drops its "chosen by hand" mark, like setting ""
+        let extra = if *table == "rewards" { ", cover_custom = 0" } else { "" };
+        for p in gone {
+            if let Ok(n) = conn.execute(
+                &format!("UPDATE {table} SET {col} = NULL{extra} WHERE {col} = ?1"),
+                [&p],
+            ) {
+                reset += n;
+            }
+        }
+    }
+    reset
+}
+
 /// Remove cover crops nothing uses anymore (replaced, reset or deleted).
 /// Only cover_* files directly in the covers folder. If a query fails nothing is removed.
 fn sweep_orphan_covers(conn: &rusqlite::Connection, dir: &std::path::Path) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut used = std::collections::HashSet::new();
-    for sql in [
-        "SELECT cover_image FROM rewards WHERE cover_image IS NOT NULL",
-        "SELECT preview_image FROM periods WHERE preview_image IS NOT NULL",
-        "SELECT preview_image FROM artists WHERE preview_image IS NOT NULL",
-    ] {
-        let Ok(mut stmt) = conn.prepare(sql) else { return };
+    for (table, col) in COVER_COLUMNS {
+        let sql = format!("SELECT {col} FROM {table} WHERE {col} IS NOT NULL");
+        let Ok(mut stmt) = conn.prepare(&sql) else { return };
         let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) else { return };
         for p in rows.flatten() {
             used.insert(p.replace('/', "\\").to_lowercase());
@@ -928,6 +1025,13 @@ fn clear_broken_collabs(db: State<Db>) -> Result<u32, String> {
 fn set_period_platform(db: State<Db>, period_id: i64, platform: String) -> Result<(), String> {
     let conn = db.lock().map_err(map_err)?;
     db::set_period_platform(&conn, period_id, &platform).map_err(map_err)
+}
+
+/// Settings -> "Reset missing covers". Returns how many were reset.
+#[tauri::command]
+fn reset_missing_covers(db: State<Db>) -> Result<usize, String> {
+    let conn = db.lock().map_err(map_err)?;
+    Ok(clear_missing_covers(&conn))
 }
 
 #[tauri::command]
@@ -8074,6 +8178,7 @@ pub fn run() {
             // first, so the first library read still sees the result.
             let handle = app.handle().clone();
             let covers = covers_dir(app).ok();
+            let versions = dir.join("versions");
             std::thread::spawn(move || {
                 let db = handle.state::<Db>();
                 let Ok(conn) = db.lock() else { return };
@@ -8097,6 +8202,19 @@ pub fn run() {
                         fill_sd_previews(&handle, &conn, None, None)
                     });
                 }
+                // versions and cover crops saved under an older app folder. Has to run
+                // before the orphan cover sweep, which would take them for unused.
+                startup_step("moved path repair", || {
+                    let mut n = heal_moved_paths(&conn, &versions, &[("image_versions", "file_path")]);
+                    // a cover can also be an edited version of an image
+                    n += heal_moved_paths(&conn, &versions, COVER_COLUMNS);
+                    if let Some(dir) = &covers {
+                        n += heal_moved_paths(&conn, dir, COVER_COLUMNS);
+                    }
+                    if n > 0 {
+                        eprintln!("micoll: pointed {n} moved path(s) at this app folder");
+                    }
+                });
                 // remove staging folders from earlier sessions
                 startup_step("import staging sweep", || sweep_import_staging(&conn));
                 if let Some(dir) = &covers {
@@ -8149,6 +8267,7 @@ pub fn run() {
             find_duplicates,
             storage_breakdown,
             set_artist_preview,
+            reset_missing_covers,
             set_reward_cover,
             set_period_preview,
             rename_rewards,
@@ -8302,11 +8421,95 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        common_parent, encode_cover, forget_staged, is_legacy_cover_crop,
+        clear_missing_covers, common_parent, encode_cover, forget_staged, heal_moved_paths,
+        is_legacy_cover_crop,
         migrate_cover_crops_in, remember_staged, staged_here,
         staging_dir_of, stage_beside_source, sweep_orphan_covers, sweep_staging_folders,
         undo_staged, Staged, COVER_MAX_EDGE, STAGING_PREFIX,
     };
+
+    /// only covers whose file is really gone are reset, not ones on a missing drive
+    #[test]
+    fn only_really_missing_covers_are_reset() {
+        let dir = std::env::temp_dir().join(format!("micoll_missing_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let there = dir.join("there.jpg");
+        std::fs::write(&there, b"x").unwrap();
+        let there = there.to_string_lossy().to_string();
+        let gone = dir.join("gone.jpg").to_string_lossy().to_string();
+        // a drive letter that isn't mounted, like an unplugged disk
+        let offline_drive = ('D'..='Z')
+            .rev()
+            .find(|c| !std::path::Path::new(&format!("{c}:\\")).exists())
+            .expect("a free drive letter");
+        let offline = format!("{offline_drive}:\\Creator\\cover.jpg");
+
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE artists (id INTEGER, preview_image TEXT);
+             CREATE TABLE periods (id INTEGER, preview_image TEXT);
+             CREATE TABLE rewards (id INTEGER, cover_image TEXT, cover_custom INTEGER);",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO artists VALUES (1, ?1), (2, ?2), (3, ?3), (4, NULL)",
+            [&there, &gone, &offline],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO rewards VALUES (1, ?1, 1)", [&gone]).unwrap();
+
+        assert_eq!(clear_missing_covers(&conn), 2);
+        let artist = |id: i64| -> Option<String> {
+            conn.query_row("SELECT preview_image FROM artists WHERE id = ?1", [id], |r| r.get(0))
+                .unwrap()
+        };
+        assert_eq!(artist(1), Some(there));
+        assert_eq!(artist(2), None);
+        assert_eq!(artist(3), Some(offline));
+        let (cover, custom): (Option<String>, i64) = conn
+            .query_row("SELECT cover_image, cover_custom FROM rewards", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!((cover, custom), (None, 0));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// paths from an old app folder move to the new one, but only when the file is there
+    #[test]
+    fn moved_paths_point_at_the_current_folder() {
+        let root = std::env::temp_dir().join(format!("micoll_heal_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("versions");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("3.png"), b"v").unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE image_versions (id INTEGER, file_path TEXT);").unwrap();
+        let here = dir.join("3.png").to_string_lossy().to_string();
+        conn.execute(
+            r"INSERT INTO image_versions VALUES (1, 'C:\old\app\versions\3.png'),
+                                               (2, 'C:\old\app\versions\4.png'),
+                                               (3, ?1),
+                                               (4, 'F:\Creator\2024\3.png')",
+            [&here],
+        )
+        .unwrap();
+
+        let n = heal_moved_paths(&conn, &dir, &[("image_versions", "file_path")]);
+
+        assert_eq!(n, 1);
+        let get = |id: i64| -> String {
+            conn.query_row("SELECT file_path FROM image_versions WHERE id = ?1", [id], |r| r.get(0))
+                .unwrap()
+        };
+        assert_eq!(get(1), here);
+        assert_eq!(get(2), r"C:\old\app\versions\4.png"); // no file here, left alone
+        assert_eq!(get(3), here);
+        // same file name, but not from a versions folder (a reward image on a disk)
+        assert_eq!(get(4), r"F:\Creator\2024\3.png");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     /// the path check before a recursive delete, only the last case may be deleted
     #[test]

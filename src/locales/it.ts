@@ -1608,4 +1608,11 @@ export const dict: Dict = {
   "{rewards} are copied to “{disk}” and stay here as well.": "{rewards} vengono copiati su “{disk}” e restano anche qui.",
   "and {n} more": "e altri {n}",
   "{n} more matches — keep typing to narrow it down": "Altri {n} risultati — continua a scrivere per restringere",
+  "Reset covers": "Reimposta copertine",
+  "Reset missing covers": "Reimposta le copertine mancanti",
+  "Covers whose image file is gone go back to the automatic image": "Le copertine il cui file non esiste più tornano all’immagine automatica",
+  "Reset missing covers?": "Reimpostare le copertine mancanti?",
+  "Creators, months and rewards whose cover image no longer exists go back to the automatic image. Covers on a disk that isn’t connected right now stay as they are. Your files aren’t touched.": "Creator, mesi e reward la cui immagine di copertina non esiste più tornano all’immagine automatica. Le copertine su un disco non collegato in questo momento restano come sono. I tuoi file non vengono toccati.",
+  "Missing covers reset.": "Copertine mancanti reimpostate.",
+  "No missing covers found.": "Nessuna copertina mancante.",
 };

@@ -527,6 +527,11 @@ export async function setArtistPreview(artistId: string, image: string): Promise
   await invoke("set_artist_preview", { artistId: Number(artistId), image });
 }
 
+/** Covers whose file is gone go back to the automatic image, returns how many. */
+export async function resetMissingCovers(): Promise<number> {
+  return invoke<number>("reset_missing_covers");
+}
+
 /** Set (or clear, with "") a reward's cover image (raw absolute path). */
 export async function setRewardCover(rewardId: string, image: string): Promise<void> {
   await invoke("set_reward_cover", { rewardId: Number(rewardId), image });

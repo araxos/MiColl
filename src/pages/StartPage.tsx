@@ -280,6 +280,7 @@ export function StartPage({ onLock }: { onLock: () => void }) {
     } catch {
       /* ignore */
     }
+    queuePrefsSync();
   }, [classFilter]);
   const toggleClass = (key: string) =>
     setClassFilter((prev) => {
@@ -332,6 +333,7 @@ export function StartPage({ onLock }: { onLock: () => void }) {
     } catch {
       /* ignore */
     }
+    queuePrefsSync();
   }, [typeFilter]);
   const toggleType = (key: string) =>
     setTypeFilter((prev) => {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { queuePrefsSync } from "@/lib/prefs";
 
 /**
  * How many window buttons the header shows.
@@ -25,6 +26,7 @@ export function setWindowButtons(v: WindowButtons) {
   } catch {
     /* ignore */
   }
+  queuePrefsSync();
   window.dispatchEvent(new CustomEvent(WINDOW_BUTTONS_EVENT));
 }
 

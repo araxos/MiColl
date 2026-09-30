@@ -409,6 +409,7 @@ export function ImageViewer({
     } catch {
       /* ignore */
     }
+    queuePrefsSync();
   };
   // right-click menu of the slideshow button (speed + transition)
   const [ssMenu, setSsMenu] = useState<{ x: number; y: number } | null>(null);
@@ -773,6 +774,7 @@ export function ImageViewer({
     } catch {
       /* ignore */
     }
+    queuePrefsSync();
   };
 
   // in comfy mode a click on the image toggles the bars
