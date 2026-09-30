@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Lock, Search, Settings, Tv, TvMinimal, Gift, Eye, EyeOff } from "lucide-react";
@@ -7,6 +7,7 @@ import { GlobeSearchIcon } from "@/lib/globeSearchIcon";
 import { BrandMark } from "@/components/BrandMark";
 import { WindowControls } from "@/components/WindowControls";
 import { SdTransportButton } from "@/components/SdTransportButton";
+import { UpdateButton } from "@/components/UpdateButton";
 import { SakuraMark } from "@/components/SakuraMark";
 import { useNavigate, useLocation } from "react-router-dom";
 import { isTauri } from "@/lib/tauri";
@@ -53,8 +54,41 @@ interface LayoutProps {
   toolbar?: React.ReactNode;
 }
 
-export function Layout({ children, search, onLock, titleSlot, toolbar }: LayoutProps) {
+/* ---- what the current page wants in the top bar ----------------------- */
+// The top bar lives once in App (so it isn't rebuilt on every page change).
+// Each page's Layout tells it its search box and title.
+
+interface TopbarSlots {
+  search?: LayoutProps["search"];
+  titleSlot?: React.ReactNode;
+}
+let slots: TopbarSlots = {};
+const slotSubs = new Set<() => void>();
+function setTopbarSlots(next: TopbarSlots) {
+  slots = next;
+  slotSubs.forEach((l) => l());
+}
+function useTopbarSlots(): TopbarSlots {
+  return useSyncExternalStore(
+    (cb) => {
+      slotSubs.add(cb);
+      return () => slotSubs.delete(cb);
+    },
+    () => slots,
+  );
+}
+/** The current page's scroll area (Home on the dashboard scrolls it to the top). */
+let activeMain: HTMLElement | null = null;
+
+/** The top bar, mounted once in App. */
+export function TopBar({ onLock }: { onLock?: () => void }) {
   const navigate = useNavigate();
+  // what the current page wants in the bar (set by its Layout)
+  const { search, titleSlot } = useTopbarSlots();
+  const [searchValue, setSearchValue] = useState(search?.value ?? "");
+  useEffect(() => {
+    setSearchValue(search?.value ?? "");
+  }, [search?.value]);
   const location = useLocation();
   const accent = useAccent();
   const sfw = useSfwMode();
@@ -92,86 +126,19 @@ export function Layout({ children, search, onLock, titleSlot, toolbar }: LayoutP
   // only on the dashboard and not in cinema mode
   const showTopbarHint = !topbarHintSeen && hideableShown && onDashboard && !minimal;
 
-  // scroll restore: save the scroll all the time, restore it on Back
-  const mainRef = useRef<HTMLElement | null>(null);
-  const scrollKey = location.key;
-  /** True while we are restoring the scroll. */
-  const restoringRef = useRef(false);
-  // remember which page each history entry is (for the back buttons)
-  useEffect(() => {
-    recordHistoryEntry(location.pathname);
-  }, [location.pathname, scrollKey]);
-  useEffect(() => {
-    const main = mainRef.current;
-    if (!main) return;
-    const onScroll = () => {
-      // don't save positions while we are restoring (they're clamped)
-      if (restoringRef.current) return;
-      scrollPositions.set(scrollKey, main.scrollTop);
-    };
-    main.addEventListener("scroll", onScroll, { passive: true });
-    return () => main.removeEventListener("scroll", onScroll);
-  }, [scrollKey]);
-  useLayoutEffect(() => {
-    const main = mainRef.current;
-    if (!main) return;
-    const saved = scrollPositions.get(scrollKey);
-    if (!saved) return;
-    // set it right away, then keep setting it while the page is still growing.
-    // (the virtual grid starts too tall, then shrinks and would clamp the scroll)
-    restoringRef.current = true;
-    const apply = () => {
-      if (Math.abs(main.scrollTop - saved) > 1) main.scrollTop = saved;
-    };
-    apply();
-    let raf = 0;
-    let tries = 0;
-    const tick = () => {
-      apply();
-      if (++tries < 30) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    // later changes (grid, covers, sections) show up as resize
-    const ro = new ResizeObserver(apply);
-    if (main.firstElementChild) ro.observe(main.firstElementChild);
-    let giveUp: ReturnType<typeof setTimeout> | undefined;
-    const stop = () => {
-      restoringRef.current = false;
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-      clearTimeout(giveUp);
-      main.removeEventListener("wheel", stop);
-      main.removeEventListener("touchstart", stop);
-      main.removeEventListener("pointerdown", stop);
-      window.removeEventListener("keydown", stop);
-    };
-    // stop restoring as soon as the user scrolls
-    main.addEventListener("wheel", stop, { passive: true });
-    main.addEventListener("touchstart", stop, { passive: true });
-    main.addEventListener("pointerdown", stop, { passive: true }); // scrollbar drag
-    window.addEventListener("keydown", stop);
-    giveUp = setTimeout(stop, 3000);
-    return stop;
-  }, [scrollKey]);
-
   // Home button: on the dashboard already -> scroll to the top instead
   const goHome = () => {
     if (location.pathname !== "/") {
       navigate("/");
       return;
     }
-    const main = mainRef.current;
+    const main = activeMain;
     if (!main || main.scrollTop === 0) return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     main.scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" });
   };
 
   return (
-    <div className="app-content relative z-10 flex h-full flex-col">
-      {/* wallpaper + FX live in App (AppWallpaper) behind this layer */}
-
-      {/* top bar */}
-      {/* see-through with backdrop-blur */}
       <header
         // the header is the drag region (buttons still work)
         {...(customChrome && tauri ? { "data-tauri-drag-region": true } : {})}
@@ -275,8 +242,11 @@ export function Layout({ children, search, onLock, titleSlot, toolbar }: LayoutP
                 )}
               />
               <input
-                value={search.value}
-                onChange={(e) => search.onChange(e.target.value)}
+                value={searchValue}
+                onChange={(e) => {
+                  setSearchValue(e.target.value);
+                  search.onChange(e.target.value);
+                }}
                 placeholder={search.placeholder ?? t("Search…")}
                 className={cn(
                   "h-9 w-56 rounded-lg border border-brand-500/25 bg-brand-500/10 pl-8 pr-3 text-sm text-zinc-100 placeholder:text-zinc-400 outline-none transition-colors hover:border-brand-500/40 focus:border-brand-500/60 focus:bg-brand-500/15 focus:ring-2 focus:ring-brand-500/20",
@@ -410,6 +380,8 @@ export function Layout({ children, search, onLock, titleSlot, toolbar }: LayoutP
           )}
           {/* only while MiSD has something queued (see SdTransportButton) */}
           {!safe && <SdTransportButton />}
+          {/* only while a new version is ready, can't be hidden */}
+          {!safe && <UpdateButton />}
           {/* safe mode: no settings gear (the route is guarded too) */}
           {!safe && (
             <Button
@@ -486,7 +458,90 @@ export function Layout({ children, search, onLock, titleSlot, toolbar }: LayoutP
           {tauri && <WindowControls />}
         </div>
       </header>
+  );
+}
 
+/**
+ * Page frame: the page's toolbar and its scroll area. The top bar itself is in App,
+ * this only tells it the page's search box and title.
+ */
+export function Layout({ children, search, titleSlot, toolbar }: LayoutProps) {
+  const location = useLocation();
+  // every render, so the search value and title stay current
+  useLayoutEffect(() => {
+    setTopbarSlots({ search, titleSlot });
+  });
+
+  // scroll restore: save the scroll all the time, restore it on Back
+  const mainRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    activeMain = mainRef.current;
+    return () => {
+      if (activeMain === mainRef.current) activeMain = null;
+    };
+  }, []);
+  const scrollKey = location.key;
+  /** True while we are restoring the scroll. */
+  const restoringRef = useRef(false);
+  // remember which page each history entry is (for the back buttons)
+  useEffect(() => {
+    recordHistoryEntry(location.pathname);
+  }, [location.pathname, scrollKey]);
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    const onScroll = () => {
+      // don't save positions while we are restoring (they're clamped)
+      if (restoringRef.current) return;
+      scrollPositions.set(scrollKey, main.scrollTop);
+    };
+    main.addEventListener("scroll", onScroll, { passive: true });
+    return () => main.removeEventListener("scroll", onScroll);
+  }, [scrollKey]);
+  useLayoutEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    const saved = scrollPositions.get(scrollKey);
+    if (!saved) return;
+    // set it right away, then keep setting it while the page is still growing.
+    // (the virtual grid starts too tall, then shrinks and would clamp the scroll)
+    restoringRef.current = true;
+    const apply = () => {
+      if (Math.abs(main.scrollTop - saved) > 1) main.scrollTop = saved;
+    };
+    apply();
+    let raf = 0;
+    let tries = 0;
+    const tick = () => {
+      apply();
+      if (++tries < 30) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    // later changes (grid, covers, sections) show up as resize
+    const ro = new ResizeObserver(apply);
+    if (main.firstElementChild) ro.observe(main.firstElementChild);
+    let giveUp: ReturnType<typeof setTimeout> | undefined;
+    const stop = () => {
+      restoringRef.current = false;
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      clearTimeout(giveUp);
+      main.removeEventListener("wheel", stop);
+      main.removeEventListener("touchstart", stop);
+      main.removeEventListener("pointerdown", stop);
+      window.removeEventListener("keydown", stop);
+    };
+    // stop restoring as soon as the user scrolls
+    main.addEventListener("wheel", stop, { passive: true });
+    main.addEventListener("touchstart", stop, { passive: true });
+    main.addEventListener("pointerdown", stop, { passive: true }); // scrollbar drag
+    window.addEventListener("keydown", stop);
+    giveUp = setTimeout(stop, 3000);
+    return stop;
+  }, [scrollKey]);
+
+  return (
+    <div className="relative z-10 flex min-h-0 flex-1 flex-col">
       {/* reserves the same scrollbar space as <main> so things line up */}
       {toolbar && (
         <div className="shrink-0 overflow-y-auto [scrollbar-gutter:stable]">{toolbar}</div>

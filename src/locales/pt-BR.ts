@@ -555,6 +555,8 @@ export const dict: Dict = {
   "Remove “{name}” from the list": "Tirar “{name}” da lista",
   "Add “{name}” to the list": "Adicionar “{name}” à lista",
   "Released {date}": "Lançada em {date}",
+  "MiColl {version} is ready — click to update": "O MiColl {version} está pronto — clique para atualizar",
+  "Updating…": "Atualizando…",
   "Third-party licenses": "Licenças de terceiros",
   "MiColl is built with open-source software, fonts and AI models. Here are their licenses.": "O MiColl é feito com software de código aberto, fontes e modelos de IA. Aqui estão as licenças deles.",
   "Show licenses": "Mostrar licenças",

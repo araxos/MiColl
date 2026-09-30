@@ -555,6 +555,8 @@ export const dict: Dict = {
   "Remove “{name}” from the list": "「{name}」を一覧から外す",
   "Add “{name}” to the list": "「{name}」を一覧に追加",
   "Released {date}": "リリース日 {date}",
+  "MiColl {version} is ready — click to update": "MiColl {version} の準備ができました — クリックして更新",
+  "Updating…": "更新中…",
   "Third-party licenses": "サードパーティライセンス",
   "MiColl is built with open-source software, fonts and AI models. Here are their licenses.": "MiColl はオープンソースソフトウェア、フォント、AI モデルを使って作られています。各ライセンスはこちらです。",
   "Show licenses": "ライセンスを表示",

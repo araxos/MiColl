@@ -6,6 +6,7 @@ import { CoverCropMigration } from "@/components/CoverCropMigration";
 import { UpdatePrompt } from "@/components/UpdatePrompt";
 import { ActionsProvider } from "@/actions";
 import { LockScreen } from "@/components/LockScreen";
+import { TopBar } from "@/components/Layout";
 import { AppWallpaper } from "@/components/AppWallpaper";
 import { DropZone } from "@/components/DropZone";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -299,6 +300,9 @@ export default function App() {
               )}
             </AnimatePresence>
 
+            {/* the top bar is mounted once here, the pages only fill it (see Layout) */}
+            <div className="app-content relative z-10 flex h-full flex-col">
+              <TopBar onLock={lockNow} />
             <Routes>
               <Route path="/" element={<StartPage onLock={lockNow} />} />
               <Route path="/wishlist" element={<WishlistPage onLock={lockNow} />} />
@@ -314,6 +318,7 @@ export default function App() {
                 element={safe ? <Navigate replace to="/" /> : <SettingsPage onLock={lockNow} />}
               />
             </Routes>
+            </div>
           </div>
         </div>
       </ActionsProvider>

@@ -991,7 +991,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
       {/* no top padding, the toolbar gives the gap */}
       {/* data-drop-block: nothing to import into here */}
       <div
-        className="mx-auto max-w-5xl px-6 pb-6"
+        className="settings-body mx-auto max-w-5xl px-6 pb-6"
         data-concise={concise ? "1" : undefined}
         data-drop-block=""
       >
