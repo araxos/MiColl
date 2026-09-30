@@ -108,6 +108,13 @@ export async function installUpdate(): Promise<void> {
   let done = 0;
   set({ state: { kind: "downloading", version, done, total }, prompt: true });
   try {
+    // a portable copy must not run the installer (that would install a second, normal
+    // MiColl and start it with the AppData library). It swaps its own exe instead.
+    if (await invoke<boolean>("is_portable").catch(() => false)) {
+      await invoke("prepare_for_update").catch(() => {});
+      await invoke("portable_update", { version });
+      return;
+    }
     await u.download((ev) => {
       if (ev.event === "Started") total = ev.data.contentLength ?? null;
       else if (ev.event === "Progress") done += ev.data.chunkLength;

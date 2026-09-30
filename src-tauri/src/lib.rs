@@ -6,6 +6,7 @@ mod dup;
 mod edit;
 mod indexer;
 mod organize;
+mod portable_update;
 mod props;
 mod sd;
 mod signing;
@@ -7303,6 +7304,34 @@ fn prepare_for_update(db: State<Db>) -> Result<(), String> {
     Ok(())
 }
 
+/// True for a portable copy (it has to update itself, see portable_update.rs).
+#[tauri::command]
+fn is_portable() -> bool {
+    portable_root().is_some()
+}
+
+/// Update a portable copy: swap in the new MiColl.exe, start it, quit this one.
+#[tauri::command]
+async fn portable_update(app: AppHandle, db: State<'_, Db>, version: String) -> Result<(), String> {
+    if portable_root().is_none() {
+        return Err("This isn't a portable copy.".into());
+    }
+    let exe = std::env::current_exe().map_err(map_err)?;
+    let target = exe.clone();
+    tauri::async_runtime::spawn_blocking(move || portable_update::swap_in(&target, &version))
+        .await
+        .map_err(map_err)??;
+    // save the database before the new version opens it
+    if let Ok(conn) = db.lock() {
+        db::checkpoint(&conn);
+    }
+    std::process::Command::new(&exe)
+        .spawn()
+        .map_err(|e| format!("the update is in place, but MiColl couldn't restart: {e}"))?;
+    app.exit(0);
+    Ok(())
+}
+
 /// Set up (or rename) the MiSD folder.
 #[tauri::command]
 fn sd_setup(db: State<Db>, path: String, label: String) -> Result<sd::SdStatus, String> {
@@ -7989,6 +8018,12 @@ pub fn run() {
             });
         })
         .setup(|app| {
+            // a portable update leaves the old exe behind, remove it
+            if portable_root().is_some() {
+                if let Ok(exe) = std::env::current_exe() {
+                    portable_update::clean_up_old(&exe);
+                }
+            }
             // open (or create) the database in the app data folder (next to the exe when
             // portable)
             let dir = app_data(app)?;
@@ -8255,6 +8290,8 @@ pub fn run() {
             extract_archive,
             trash_path,
             set_close_to_tray,
+            is_portable,
+            portable_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

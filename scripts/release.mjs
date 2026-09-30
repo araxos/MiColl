@@ -2,7 +2,8 @@
 //
 //   npm run release -- --version 0.1.1 --notes "What's new…" [--publish]
 //
-// Uploads: the installer, a portable zip (MiColl.exe + portable marker) and latest.json.
+// Uploads: the installer, a signed portable zip (MiColl.exe + portable marker) and latest.json.
+// Multi-line notes: use --notes-file, cmd cuts --notes at the first line break.
 //
 // --version   sets the version in tauri.conf.json, package.json and Cargo.toml.
 //             Must be higher than the last one or the updater ignores it.
@@ -119,6 +120,15 @@ const zipped = spawnSync(
 );
 if (zipped.status !== 0 || !existsSync(portablePath)) die("couldn't make the portable zip");
 console.log(`release: wrote ${portablePath}`);
+// signed with the updater key, so portable copies can check it before swapping their exe
+const signed = spawnSync("npx", ["tauri", "signer", "sign", portablePath], {
+  cwd: root,
+  env,
+  stdio: "inherit",
+  shell: process.platform === "win32",
+});
+const portableSig = `${portablePath}.sig`;
+if (signed.status !== 0 || !existsSync(portableSig)) die("couldn't sign the portable zip");
 
 /* ---- latest.json -------------------------------------------------------- */
 
@@ -152,6 +162,7 @@ const ghArgs = [
   notes || `MiColl v${version}`,
   setupPath,
   portablePath,
+  portableSig,
   manifestPath,
 ];
 if (flag("--publish")) {

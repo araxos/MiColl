@@ -58,6 +58,8 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 ort = { version = "2.0.0-rc.10", features = ["download-binaries"] }
 # Streaming download of the LaMa model file (one-time, ~200 MB).
 ureq = "2"
+# checks the signature of portable updates (same key as the installer updates)
+minisign-verify = "0.2"
 tauri-plugin-updater = "~2.12"
 tauri-plugin-process = "~2.3"
 

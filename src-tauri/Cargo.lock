@@ -2491,6 +2491,7 @@ dependencies = [
  "chacha20poly1305",
  "ed25519-dalek",
  "image",
+ "minisign-verify",
  "ort",
  "qrcode",
  "rand",
