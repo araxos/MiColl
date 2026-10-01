@@ -797,11 +797,11 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
   const fxHint = fxLive
     ? undefined
     : t("Only affects the premium themes (sakura, cyberpunk, iridescent)");
-  const iriInner = "border-white/15 bg-white/10 backdrop-blur-md";
+  const iriInner = "glass-box border-white/15 bg-white/10 backdrop-blur-md";
   // inner rows: light frosted on iridescent, dark on the others
   const cardInner = cn(
     "rounded-xl border p-4",
-    irid ? iriInner : "border-zinc-800 bg-zinc-900/40",
+    irid ? iriInner : "glass-box border-zinc-800 bg-zinc-900/40",
   );
   /** Empty/hint box: same surface with a dashed border. */
   const iriDashed = "border-white/25 bg-white/5 backdrop-blur-md";
@@ -1975,7 +1975,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
             </div>
 
             {managed ? (
-              <div className={cn("mt-5 flex items-start gap-2 rounded-xl border p-4 text-sm", irid ? iriInner + " text-white/80" : "border-zinc-800 bg-zinc-900/40 text-zinc-400")}>
+              <div className={cn("mt-5 flex items-start gap-2 rounded-xl border p-4 text-sm", irid ? iriInner + " text-white/80" : "glass-box border-zinc-800 bg-zinc-900/40 text-zinc-400")}>
                 <Boxes className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" />
                 <span>
                   {t(
@@ -1998,7 +1998,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                     roots.map((r) => (
                       <div
                         key={r.id}
-                        className={cn("flex items-center gap-3 rounded-xl border p-3", irid ? iriInner : "border-zinc-800 bg-zinc-900")}
+                        className={cn("flex items-center gap-3 rounded-xl border p-3", irid ? iriInner : "glass-box border-zinc-800 bg-zinc-900")}
                       >
                         <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", irid ? iriTile : "bg-zinc-800 text-zinc-300")}>
                           <HardDrive className="h-4 w-4" />
@@ -2027,7 +2027,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                   )}
                 </div>
 
-                <div className={cn("mt-8 flex items-start gap-2 rounded-xl border p-4 text-sm", irid ? iriInner + " text-white/80" : "border-zinc-800 bg-zinc-900/40 text-zinc-400")}>
+                <div className={cn("mt-8 flex items-start gap-2 rounded-xl border p-4 text-sm", irid ? iriInner + " text-white/80" : "glass-box border-zinc-800 bg-zinc-900/40 text-zinc-400")}>
                   <FolderOpen className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" />
                   <span>
                     {t("Tip: pick any folder — a single creator (e.g.")}{" "}
@@ -2041,7 +2041,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
             )}
 
             {/* managed collection (optional, off by default) */}
-            <div className={cn("mt-6 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4", irid && iriInner)}>
+            <div className={cn("glass-box mt-6 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4", irid && iriInner)}>
               <div className="flex items-start gap-3">
                 <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", irid ? iriTile : "bg-zinc-800 text-zinc-300")}>
                   <Boxes className="h-4 w-4" />
@@ -2069,7 +2069,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
 
                   {managed && (
                     <div className="mt-4 space-y-3">
-                      <div className={cn("flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 p-2.5", irid && iriInner)}>
+                      <div className={cn("glass-box flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 p-2.5", irid && iriInner)}>
                         <FolderInput className="h-4 w-4 shrink-0 text-zinc-500" />
                         <span
                           className={`min-w-0 flex-1 truncate text-sm ${

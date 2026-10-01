@@ -24,7 +24,7 @@ export function LanguagePanel() {
   const accent = useAccent();
   const dlg = useDialogTheme();
   const irid = accent === "iridescent";
-  const iriInner = "border-white/15 bg-white/10 backdrop-blur-md";
+  const iriInner = "glass-box border-white/15 bg-white/10 backdrop-blur-md";
 
   const active = resolveLanguage(choice);
   const def = LANGUAGES.find((l) => l.key === active);
@@ -49,7 +49,7 @@ export function LanguagePanel() {
       <div className="mt-5 space-y-3">
         <div
           className={cn(
-            "flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4",
+            "glass-box flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4",
             irid && iriInner,
           )}
         >
@@ -78,7 +78,7 @@ export function LanguagePanel() {
         {/* note that not everything is translated yet (remove once it is) */}
         <div
           className={cn(
-            "rounded-xl border border-zinc-800 bg-zinc-900 p-4",
+            "glass-box rounded-xl border border-zinc-800 bg-zinc-900 p-4",
             irid && iriInner,
           )}
         >

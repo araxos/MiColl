@@ -43,7 +43,7 @@ export function ContentPanel() {
   const accent = useAccent();
   // iridescent: light frosted cards instead of dark ones
   const irid = accent === "iridescent";
-  const iriInner = "border-white/15 bg-white/10 backdrop-blur-md";
+  const iriInner = "glass-box border-white/15 bg-white/10 backdrop-blur-md";
   const [hotkey, setHotkey] = useState(getModeHotkey);
   const [homeDbl, setHomeDbl] = useState(getHomeDblToggle);
   const [recording, setRecording] = useState(false);
@@ -82,7 +82,7 @@ export function ContentPanel() {
 
       <div className="mt-5 space-y-3">
         {/* SFW mode */}
-        <div className={cn("flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4", irid && iriInner)}>
+        <div className={cn("glass-box flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4", irid && iriInner)}>
           <div>
             <div className="text-sm font-medium text-zinc-100">{t("SFW mode")}</div>
             <div className="mt-0.5 text-xs text-zinc-500">
@@ -93,7 +93,7 @@ export function ContentPanel() {
         </div>
 
         {/* shortcut */}
-        <div className={cn("flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4", irid && iriInner)}>
+        <div className={cn("glass-box flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4", irid && iriInner)}>
           <div className="min-w-0">
             <div className="text-sm font-medium text-zinc-100">{t("Quick-switch shortcut")}</div>
             <div className="mt-0.5 text-xs text-zinc-500">
@@ -130,7 +130,7 @@ export function ContentPanel() {
         </div>
 
         {/* home double-click */}
-        <div className={cn("flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4", irid && iriInner)}>
+        <div className={cn("glass-box flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4", irid && iriInner)}>
           <div>
             <div className="text-sm font-medium text-zinc-100">{t("Double-click Home to switch")}</div>
             <div className="mt-0.5 text-xs text-zinc-500">

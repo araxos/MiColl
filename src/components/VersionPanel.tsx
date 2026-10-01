@@ -80,8 +80,8 @@ export function VersionPanel() {
   // frosted sub-card on iridescent
   const irid = accent === "iridescent";
   const inner = irid
-    ? "border-white/15 bg-white/10 backdrop-blur-md"
-    : "border-zinc-800 bg-zinc-900";
+    ? "glass-box border-white/15 bg-white/10 backdrop-blur-md"
+    : "glass-box border-zinc-800 bg-zinc-900";
   // lighter text on iridescent
   const pathInk = irid ? "text-white/75" : "text-zinc-400";
 

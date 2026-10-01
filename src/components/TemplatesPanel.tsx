@@ -390,7 +390,7 @@ export function TemplatesPanel({
                   // raise the hovered row so its popover isn't covered by the next row
                   // (iridescent rows are their own stacking context because of
                   // backdrop-blur)
-                  "relative flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-3 hover:z-10",
+                  "glass-box relative flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-3 hover:z-10",
                   irid && "border-white/12 bg-white/10 backdrop-blur-md",
                 )}
               >

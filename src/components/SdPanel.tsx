@@ -255,7 +255,7 @@ export function SdPanel({ backed }: { backed: boolean }) {
             <div
               className={cn(
                 "mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border px-4 py-3 text-sm",
-                irid ? "border-white/15 bg-white/10 backdrop-blur-md" : "border-zinc-800 bg-zinc-900/40",
+                irid ? "glass-box border-white/15 bg-white/10 backdrop-blur-md" : "glass-box border-zinc-800 bg-zinc-900/40",
               )}
             >
               <span
@@ -348,7 +348,7 @@ export function SdPanel({ backed }: { backed: boolean }) {
             <div
               className={cn(
                 "mt-3 flex items-start justify-between gap-4 rounded-xl border px-4 py-3",
-                irid ? "border-white/15 bg-white/10 backdrop-blur-md" : "border-zinc-800 bg-zinc-900/40",
+                irid ? "glass-box border-white/15 bg-white/10 backdrop-blur-md" : "glass-box border-zinc-800 bg-zinc-900/40",
               )}
             >
               <div className="min-w-0">

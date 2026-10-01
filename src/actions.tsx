@@ -530,6 +530,7 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       setImportPlan(plan);
     } catch (e) {
       console.error("analyze failed", e);
+      showToast({ tone: "error", title: t("Couldn’t analyze that folder"), detail: `${e}` });
     } finally {
       setBusy(false);
     }

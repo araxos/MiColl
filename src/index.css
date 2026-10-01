@@ -378,6 +378,35 @@
   .text-zinc-400:not([class*="hover:text-"]:hover) { color: rgb(255 255 255 / 0.85); }
 }
 
+/* The boxes in Settings (glass-box) on the premium themes: a faint tint over the glass
+   (like the editor's "Save a copy"), still dark and see-through, a tinted hairline and
+   a lit top edge. Unlayered so it beats the bg-* / border-* utilities. */
+/* iridescent: pearl */
+[data-accent="iridescent"] .glass-box {
+  background-color: rgba(255, 255, 255, 0.04);
+  background-image: linear-gradient(
+    135deg,
+    rgba(196, 181, 253, 0.2),
+    rgba(245, 194, 255, 0.14) 35%,
+    rgba(167, 243, 208, 0.1) 70%,
+    rgba(186, 230, 253, 0.18)
+  );
+  border-color: rgba(245, 194, 255, 0.3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+/* sakura: blush pink to a hint of lilac over the dark box */
+[data-accent="sakura"] .glass-box {
+  background-image: linear-gradient(
+    135deg,
+    rgba(255, 193, 218, 0.15),
+    rgba(244, 114, 182, 0.08) 40%,
+    rgba(216, 180, 254, 0.06) 75%,
+    rgba(255, 225, 238, 0.11)
+  );
+  border-color: rgba(249, 168, 212, 0.26);
+  box-shadow: inset 0 1px 0 rgba(255, 240, 247, 0.1);
+}
+
 /* Chromium draws the empty part of a slider light when the accent color is dark.
    Purple's brand-500 is dark enough for that, so its sliders use the lighter
    brand-400, then the track stays dark like on the other themes. */

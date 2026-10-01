@@ -206,10 +206,9 @@ export function StartPage({ onLock }: { onLock: () => void }) {
     : undefined;
   // Create Card keeps the primary pill, iri-lead puts the spectrum on the rim
   const iriLead = irid ? "iri-lead" : undefined;
-  // sakura: the petal-cut rose glass from the platform tabs
+  // sakura: the petal-cut rose glass from the platform tabs, with blossom for the main
+  // action
   const sakura = accent === "sakura";
-  const sakChip = "sak-chip sak-petal-cut";
-  // same with blossom, for the main action
   const sakChipLead = "sak-chip sak-chip--lead sak-petal-cut";
   const menuClass = (w: string, mt: string) =>
     cn(
@@ -931,7 +930,7 @@ export function StartPage({ onLock }: { onLock: () => void }) {
                 </Button>
               </>
             )}
-            <ImportFolderButton className={cn(iriOutline, sakura && sakChip)} />
+            <ImportFolderButton className={iriOutline} />
             <Button
               // sakura glass on outline (primary's !important would paint over it)
               variant={sakura ? "outline" : "primary"}

@@ -128,7 +128,7 @@ export function PlatformSettings({ glass, irid, iriInner }: { glass: string; iri
 
       {/* built-ins not in the list, so you don't have to type them (and misspell them) */}
       {suggestions.length > 0 && (
-        <div className={cn("mt-5 rounded-xl border p-3", irid ? iriInner : "border-zinc-800 bg-zinc-900/40")}>
+        <div className={cn("mt-5 rounded-xl border p-3", irid ? iriInner : "glass-box border-zinc-800 bg-zinc-900/40")}>
           <div className="text-xs font-medium text-zinc-400">{t("Common platforms")}</div>
           {/* one row that scrolls sideways instead of wrapping */}
           <div className="-mx-3 mt-2 flex gap-2 overflow-x-auto px-3 pb-1.5">
