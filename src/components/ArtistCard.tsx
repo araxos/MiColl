@@ -1101,7 +1101,8 @@ function ArtistCardBase({
             ? "from-black/85 via-black/40 pb-2 pt-7"
             : "from-black/65 via-black/25 pb-2.5 pt-5",
           // iridescent frame, single line: lift the name off the frame's bottom edge
-          iriFrame && !cardMeta && "pb-4",
+          // (template creators only, the others keep it low)
+          iriFrame && !cardMeta && hasTemplate && "pb-4",
           // with hidden names fade the whole shadow with the text
           hideNames &&
             "opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100 group-focus-visible:opacity-100",

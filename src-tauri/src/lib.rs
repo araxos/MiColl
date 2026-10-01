@@ -5019,14 +5019,19 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "show" => restore_window(app),
             // the normal way to quit now, so fold the WAL first (app.exit skips the
             // teardown,
-            // an unflushed WAL once lost a month of data, see db::open)
+            // an unflushed WAL once lost a month of data, see db::open). Off the
+            // window's thread: a running command (an import) is waited for first.
             "quit" => {
-                if let Some(db) = app.try_state::<Db>() {
-                    if let Ok(conn) = db.lock() {
-                        db::checkpoint(&conn);
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    drop(wait_for_command());
+                    if let Some(db) = app.try_state::<Db>() {
+                        if let Ok(conn) = db.lock() {
+                            db::checkpoint(&conn);
+                        }
                     }
-                }
-                app.exit(0);
+                    app.exit(0);
+                });
             }
             _ => {}
         })
@@ -8205,6 +8210,51 @@ async fn storage_breakdown(db: State<'_, Db>) -> Result<Vec<ArtistStorage>, Stri
     Ok(result)
 }
 
+/* ---- commands off the window's thread -------------------------------- */
+/* Tauri runs every command that isn't async on the window's thread. An import (commit +
+   organize) held it for seconds, Windows then showed the window as "Not Responding" and
+   the taskbar kept the default icon and that title even after it came back. So all
+   commands go to one thread of their own: one, so they still run one at a time and in
+   the order they came in, like before. */
+
+/// Held while the command thread runs a command, so ending the app can wait for it.
+static COMMAND_RUNNING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Wait until no command is running (and keep the next one from starting while held).
+fn wait_for_command() -> std::sync::MutexGuard<'static, ()> {
+    COMMAND_RUNNING.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Wrap generate_handler! so its commands run on the command thread.
+fn command_thread(
+    handler: impl Fn(tauri::ipc::Invoke) -> bool + Send + 'static,
+) -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
+    let (tx, rx) = std::sync::mpsc::channel::<tauri::ipc::Invoke>();
+    std::thread::Builder::new()
+        .name("micoll-commands".into())
+        .spawn(move || {
+            for invoke in rx {
+                let resolver = invoke.resolver.clone();
+                let command = invoke.message.command().to_string();
+                let _running = wait_for_command();
+                // a panic fails that one call instead of ending the thread (and with it
+                // every later command)
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler(invoke))) {
+                    Ok(true) => {}
+                    Ok(false) => resolver.reject(format!("Command {command} not found")),
+                    Err(_) => {
+                        // reject panics itself if the call was already answered
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            resolver.reject(format!("{command} failed with an internal error."))
+                        }));
+                    }
+                }
+            }
+        })
+        .expect("couldn't start the command thread");
+    move |invoke| tx.send(invoke).is_ok()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -8338,7 +8388,7 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(command_thread(tauri::generate_handler![
             list_roots,
             add_root,
             remove_root,
@@ -8526,9 +8576,28 @@ pub fn run() {
             set_close_to_tray,
             is_portable,
             portable_update,
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        ]))
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // never end in the middle of a command (closing the window during an import):
+            // wait for it off the window's thread, then end the way it was asked to
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+                match COMMAND_RUNNING.try_lock() {
+                    // nothing running: keep it locked so no command starts while ending
+                    Ok(idle) => std::mem::forget(idle),
+                    Err(std::sync::TryLockError::Poisoned(idle)) => std::mem::forget(idle),
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        api.prevent_exit();
+                        let app = app.clone();
+                        std::thread::spawn(move || {
+                            drop(wait_for_command());
+                            app.exit(code.unwrap_or(0));
+                        });
+                    }
+                }
+            }
+        });
 }
 
 /* ---- integration test against the real sample data ------------------- */

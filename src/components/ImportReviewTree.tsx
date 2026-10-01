@@ -1008,7 +1008,7 @@ export function ImportReviewTree({
           initial={{ opacity: 0, y: 12, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           className={cn(
-            "flex max-h-[90vh] w-[46rem] max-w-full flex-col overflow-hidden shadow-2xl",
+            "import-review flex max-h-[90vh] w-[46rem] max-w-full flex-col overflow-hidden shadow-2xl",
             panelClass,
           )}
         >
@@ -1159,10 +1159,11 @@ export function ImportReviewTree({
                             ...(groupPlatform === ""
                               ? [{ value: "", label: t("(mixed)"), muted: true }]
                               : []),
-                            { value: UNSORTED, label: t("Unsorted — decide later") },
-                            { value: MISC, label: t("Misc") },
                             ...platformOptions.map((p) => ({ value: p, label: p })),
                             { value: "__add__", label: t("+ Platform…"), muted: true },
+                            // always the last two: Misc, then Unsorted at the very bottom
+                            { value: MISC, label: t("Misc") },
+                            { value: UNSORTED, label: t("Unsorted") },
                           ]}
                           title={t("Platform for every reward of this creator")}
                           className={cn("h-8 w-32 shrink-0", inputCls)}
@@ -1572,7 +1573,7 @@ export function ImportReviewTree({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             // amber border stays, the surface follows the theme
             className={cn(
-              "w-[26rem] max-w-full overflow-hidden shadow-2xl !border-amber-500/30",
+              "import-review w-[26rem] max-w-full overflow-hidden shadow-2xl !border-amber-500/30",
               panelClass,
             )}
           >

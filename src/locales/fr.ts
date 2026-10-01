@@ -1627,7 +1627,6 @@ export const dict: Dict = {
   "If you forget it, MiColl can’t get you back in. Save it somewhere safe — for example as a text file.": "Si tu l’oublies, MiColl ne pourra pas te faire entrer. Garde-le en lieu sûr — par exemple dans un fichier texte.",
   "Saved": "Enregistré",
   "Download pw.txt": "Télécharger pw.txt",
-  "Unsorted — decide later": "Non trié — décider plus tard",
   "These fill the platform menus. Pick the ones you actually buy from — the list stays short and useful that way. Anything without a platform waits in": "Elles remplissent les menus de plateformes. Choisis celles où tu achètes vraiment — la liste reste courte et utile. Tout ce qui n’a pas de plateforme attend dans",
   " until you pick one;": " jusqu’à ce que tu en choisisses une ;",
   " is for the ones you’ll never know. You can add more platforms whenever.": " est pour ce que tu ne sauras jamais. Tu peux ajouter d’autres plateformes quand tu veux.",

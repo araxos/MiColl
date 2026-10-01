@@ -1609,7 +1609,6 @@ export const dict: Dict = {
   "If you forget it, MiColl can’t get you back in. Save it somewhere safe — for example as a text file.": "忘れてしまうと、MiColl に入れなくなります。テキストファイルなど、安全な場所に保管してください。",
   "Saved": "保存しました",
   "Download pw.txt": "pw.txt をダウンロード",
-  "Unsorted — decide later": "未分類 — 後で決める",
   "These fill the platform menus. Pick the ones you actually buy from — the list stays short and useful that way. Anything without a platform waits in": "これらはプラットフォームのメニューに表示されます。実際に購入しているものだけを選ぶと、リストが短く使いやすくなります。プラットフォームのないものは",
   " until you pick one;": "で選ぶまで待機します。",
   " is for the ones you’ll never know. You can add more platforms whenever.": "は、出どころが分からないままのもの用です。プラットフォームはいつでも追加できます。",

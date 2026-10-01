@@ -59,9 +59,10 @@ export const ACCENTS: AccentDef[] = [
     tier: "premium",
     from: "#fcee0a",
     to: "#00e5ff",
-    // hard stops, a soft yellow->cyan blend would turn green in the middle
+    // yellow, a thin cyan band, black. Hard stops, a soft yellow->cyan blend would turn
+    // green in the middle (the round swatch only shows ~15-85% of the line)
     swatch:
-      "linear-gradient(135deg,#fcee0a 0%,#fcee0a 44%,#0a0a0a 44%,#0a0a0a 56%,#00e5ff 56%,#00b8d4 100%)",
+      "linear-gradient(135deg,#fcee0a 0%,#fcee0a 44%,#00e5ff 44%,#00b8d4 56%,#0a0a0a 56%,#0a0a0a 100%)",
   },
 ];
 

@@ -1669,7 +1669,6 @@ export const dict: Dict = {
   "If you forget it, MiColl can’t get you back in. Save it somewhere safe — for example as a text file.": "Если вы его забудете, MiColl не сможет вас впустить. Сохраните его в надёжном месте — например, в текстовом файле.",
   "Saved": "Сохранено",
   "Download pw.txt": "Скачать pw.txt",
-  "Unsorted — decide later": "Без сортировки — решить позже",
   "These fill the platform menus. Pick the ones you actually buy from — the list stays short and useful that way. Anything without a platform waits in": "Они заполняют меню платформ. Выберите те, где вы действительно покупаете, — так список останется коротким и полезным. Всё без платформы ждёт в разделе",
   " until you pick one;": ", пока вы её не выберете;",
   " is for the ones you’ll never know. You can add more platforms whenever.": " — для того, что вы никогда не узнаете. Другие платформы можно добавить в любой момент.",

@@ -1609,7 +1609,6 @@ export const dict: Dict = {
   "If you forget it, MiColl can’t get you back in. Save it somewhere safe — for example as a text file.": "如果你忘记了它，MiColl 将无法让你进入。请把它保存在安全的地方——例如保存为文本文件。",
   "Saved": "已保存",
   "Download pw.txt": "下载 pw.txt",
-  "Unsorted — decide later": "未分类 — 稍后决定",
   "These fill the platform menus. Pick the ones you actually buy from — the list stays short and useful that way. Anything without a platform waits in": "这些会出现在平台菜单中。只选你真正购买的平台，列表就会简短好用。没有平台的内容会在",
   " until you pick one;": "中等你选择；",
   " is for the ones you’ll never know. You can add more platforms whenever.": "用于你永远不会知道来源的内容。你随时可以添加更多平台。",

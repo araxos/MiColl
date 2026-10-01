@@ -368,6 +368,16 @@
   .text-zinc-400:not(:hover) { color: var(--color-zinc-300); }
 }
 
+/* Import review on iridescent: its grays ("1 reward", Creator, Releases, the row buttons
+   and file counts) were hard to read on the frosted panel, so they're near white there.
+   Buttons keep their own hover color. */
+[data-accent="iridescent"] .import-review {
+  .text-zinc-700:not([class*="hover:text-"]:hover) { color: rgb(255 255 255 / 0.5); }
+  .text-zinc-600:not([class*="hover:text-"]:hover) { color: rgb(255 255 255 / 0.65); }
+  .text-zinc-500:not([class*="hover:text-"]:hover) { color: rgb(255 255 255 / 0.75); }
+  .text-zinc-400:not([class*="hover:text-"]:hover) { color: rgb(255 255 255 / 0.85); }
+}
+
 /* Chromium draws the empty part of a slider light when the accent color is dark.
    Purple's brand-500 is dark enough for that, so its sliders use the lighter
    brand-400, then the track stays dark like on the other themes. */
