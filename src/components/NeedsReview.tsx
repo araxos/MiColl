@@ -88,16 +88,18 @@ export function NeedsReviewBanner() {
     <>
       <div
         className={cn(
-          "mb-5 flex w-full items-stretch gap-1 overflow-hidden rounded-xl border transition-colors",
+          "mb-5 flex w-full items-stretch overflow-hidden rounded-xl border transition-colors",
           irid
             ? "border-amber-400/50 bg-zinc-900/40 backdrop-blur-xl"
             : "border-amber-500/40 bg-amber-500/10",
         )}
       >
+        {/* square hover, so it meets the square X button (the banner rounds the outer
+            corners) */}
         <button
           onClick={() => setOpen(true)}
           className={cn(
-            "flex min-w-0 flex-1 items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors",
+            "flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left transition-colors",
             irid ? "hover:bg-zinc-900/40" : "hover:bg-amber-500/10",
           )}
         >

@@ -407,6 +407,38 @@
   box-shadow: inset 0 1px 0 rgba(255, 240, 247, 0.1);
 }
 
+/* Settings section titles on the premium themes. iridescent / sakura: white that runs
+   into the theme's color, with a soft glow. The icon keeps its own color. */
+:is([data-accent="iridescent"], [data-accent="sakura"]) .settings-title {
+  width: fit-content;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+[data-accent="iridescent"] .settings-title {
+  /* pale, only a touch of pearl */
+  background-image: linear-gradient(90deg, #fff 0%, #f7f3ff 30%, #e9e1ff 58%, #fbe9ff 80%, #e2f9ef 100%);
+  filter: drop-shadow(0 0 10px rgba(196, 181, 253, 0.16));
+}
+[data-accent="sakura"] .settings-title {
+  background-image: linear-gradient(90deg, #fff 0%, #ffd9ea 32%, #ffa6cc 68%, #f472b6 100%);
+  filter: drop-shadow(0 0 10px rgba(244, 114, 182, 0.3));
+}
+/* cyberpunk: yellow, extruded with a cyan and a black layer behind it (3D print look) */
+[data-accent="cyberpunk"] .settings-title {
+  color: #fcee0a;
+  text-shadow:
+    1px 1px 0 #00e5ff,
+    2px 2px 0 #0a0a0a;
+}
+[data-accent="cyberpunk"] .settings-title svg {
+  filter: drop-shadow(1px 1px 0 #00e5ff) drop-shadow(1px 1px 0 #0a0a0a);
+}
+/* the small "MiColl" in the version box: only the cyan layer */
+[data-accent="cyberpunk"] .settings-version .settings-title {
+  text-shadow: 1px 1px 0 #00e5ff;
+}
+
 /* Chromium draws the empty part of a slider light when the accent color is dark.
    Purple's brand-500 is dark enough for that, so its sliders use the lighter
    brand-400, then the track stays dark like on the other themes. */

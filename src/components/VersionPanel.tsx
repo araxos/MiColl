@@ -118,7 +118,7 @@ export function VersionPanel() {
 
   return (
     <div>
-      <h2 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-zinc-50">
+      <h2 className="flex items-center gap-2 settings-title text-2xl font-bold tracking-tight text-zinc-50">
         <Info className="h-6 w-6 text-brand-300" />
         {t("Version")}
       </h2>

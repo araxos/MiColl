@@ -226,7 +226,7 @@ export function SecurityPanel({ backed }: { backed: boolean }) {
     <section>
       <div className="flex items-center gap-2">
         <ShieldCheck className="h-5 w-5 text-brand-300" />
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-50">{t("Security & lock")}</h1>
+        <h1 className="settings-title text-2xl font-bold tracking-tight text-zinc-50">{t("Security & lock")}</h1>
       </div>
       <p className="settings-desc mt-1 text-sm text-zinc-400">
         {t("Protect MiColl with a password and lock it automatically when you step away.")}

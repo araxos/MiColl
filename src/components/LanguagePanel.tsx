@@ -38,7 +38,7 @@ export function LanguagePanel() {
     <div>
       <div className="flex items-center gap-2">
         <Languages className="h-6 w-6 text-brand-300" />
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-50">{t("Language")}</h1>
+        <h1 className="settings-title text-2xl font-bold tracking-tight text-zinc-50">{t("Language")}</h1>
       </div>
       <p className="settings-desc mt-1 text-sm text-zinc-400">
         {t(

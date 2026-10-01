@@ -316,7 +316,7 @@ export function TemplatesPanel({
     <div>
       <div className="mb-1 flex items-center gap-2">
         <Sparkles className="h-6 w-6 text-brand-300" />
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-50">{t("Templates")}</h1>
+        <h1 className="settings-title text-2xl font-bold tracking-tight text-zinc-50">{t("Templates")}</h1>
       </div>
       <p className="settings-desc mt-1 text-sm text-zinc-400">
         {t("Apply a creator template to turn MiColl into a")}{" "}

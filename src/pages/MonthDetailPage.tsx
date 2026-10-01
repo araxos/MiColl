@@ -47,7 +47,7 @@ export function MonthDetailPage({ onLock }: { onLock: () => void }) {
           : "rounded-2xl border border-zinc-800 bg-zinc-900/60";
 
   // iridescent "Add rewards": same iri-lead rim as Create Card (index.css)
-  const iriLeadBtn = irid ? "iri-lead" : undefined;
+  const iriLeadBtn = irid ? "iri-lead rounded-lg" : undefined;
 
   // the two count badges under the title, colored per theme.
   // Owned uses the theme's "collected" color (mint / neon green / blossom),

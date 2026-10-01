@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { open } from "@tauri-apps/plugin-dialog";
+import { getVersion } from "@tauri-apps/api/app";
 import {
   ChevronLeft,
   FolderPlus,
@@ -53,6 +54,8 @@ import * as api from "@/api/library";
 import { ACCENTS, applyAccent, getAccent, useAccent, useLicensee, useTrialUntil, toggleOnClass, isPremium, premiumUnlocked, THEME_PACKS, type AccentDef, type AccentKey } from "@/lib/theme";
 import { SALES_OPEN } from "@/lib/sales";
 import { cn } from "@/lib/utils";
+import { isTauri } from "@/lib/tauri";
+import { version as PKG_VERSION } from "../../package.json";
 import { useT, useTf } from "@/lib/i18n";
 import { getCardFx, setCardFx } from "@/lib/fx";
 import { getHoloFreq, setHoloFreq, HOLO_FREQ_LABELS, type HoloFreq } from "@/lib/holoFreq";
@@ -818,6 +821,14 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
   // "No descriptions" (see lib/concise.ts): data-concise on the page + settings-desc on
   // texts
   const concise = useConcise();
+  // the installed version for the box under the quick links (package.json in the browser)
+  const [appVersion, setAppVersion] = useState(PKG_VERSION);
+  useEffect(() => {
+    if (!isTauri()) return;
+    getVersion()
+      .then(setAppVersion)
+      .catch(() => {});
+  }, []);
 
   /* ---- search + quick-links ------------------------------------------ */
 
@@ -1025,8 +1036,9 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
         data-drop-block=""
       >
         <div className="flex gap-6">
-        {/* quick links, sticky, hidden on narrow windows */}
-        <nav className="sticky top-4 hidden h-fit w-52 shrink-0 rounded-2xl border border-white/10 bg-zinc-900/55 p-2 shadow-xl shadow-black/20 backdrop-blur-lg lg:block">
+        {/* quick links + the installed version below, sticky, hidden on narrow windows */}
+        <div className="sticky top-4 hidden h-fit w-52 shrink-0 space-y-3 lg:block">
+        <nav className="rounded-2xl border border-white/10 bg-zinc-900/55 p-2 shadow-xl shadow-black/20 backdrop-blur-lg">
           {shown.length === 0 ? (
             <p className="px-2.5 py-1.5 text-sm text-zinc-500">{t("No matches")}</p>
           ) : (
@@ -1051,6 +1063,16 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
             </ul>
           )}
         </nav>
+        {/* the installed version at a glance, a click jumps to Version */}
+        <button
+          onClick={() => goTo("version")}
+          title={t("Version")}
+          className="settings-version flex w-full items-baseline justify-between gap-2 rounded-2xl border border-white/10 bg-zinc-900/55 px-4 py-3 text-left shadow-xl shadow-black/20 backdrop-blur-lg transition-colors hover:bg-zinc-900/70"
+        >
+          <span className="settings-title text-sm font-bold tracking-tight text-zinc-50">MiColl</span>
+          <span className="font-mono text-xs text-zinc-400">v{appVersion}</span>
+        </button>
+        </div>
 
         <div className="min-w-0 flex-1 space-y-6">
         {searching && shown.length === 0 && (
@@ -1061,14 +1083,15 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
         {/* appearance */}
         {(
         <section id="appearance" className={cn(glass, "scroll-mt-4")}>
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-zinc-50">
+        <h1 className="flex items-center gap-2 settings-title text-2xl font-bold tracking-tight text-zinc-50">
           <Palette className="h-6 w-6 text-brand-300" />
           {t("Appearance")}
         </h1>
         <p className="settings-desc mt-1 text-sm text-zinc-400">
           {t("Pick an accent color — it recolors the whole app instantly.")}
         </p>
-        <div className="mt-4 flex flex-wrap gap-3">
+        {/* the basic accents get their own box too, like the pack below */}
+        <div className={cn("mt-4 flex flex-wrap gap-3", cardInner, "p-3")}>
           {ACCENTS.filter((a) => a.tier === "basic").map(renderSwatch)}
         </div>
         {/* The premium themes are sold together, so they're one box with their name,
@@ -1667,8 +1690,8 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
         {/* performance */}
         {(
           <section id="performance" className={cn(glass, "scroll-mt-4")}>
-            <h1 className="mb-3 flex items-center gap-2 text-base font-semibold text-zinc-100">
-              <Activity className="h-4 w-4 text-brand-400" />
+            <h1 className="settings-title mb-4 flex items-center gap-2 text-2xl font-bold tracking-tight text-zinc-50">
+              <Activity className="h-6 w-6 text-brand-300" />
               {t("Performance")}
             </h1>
             {/* dropdown next to the heading, the selected hint is shown below */}
@@ -1860,7 +1883,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
 
         {(
         <section id="library" className={cn(glass, "scroll-mt-4")}>
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-zinc-50">
+        <h1 className="flex items-center gap-2 settings-title text-2xl font-bold tracking-tight text-zinc-50">
           <FolderOpen className="h-6 w-6 text-brand-300" />
           {t("Library")}
         </h1>
@@ -2123,7 +2146,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
         {/* sharing: original or newest version for MEGA uploads */}
         {backed && (
           <section id="sharing" className={cn(glass, "scroll-mt-4")}>
-            <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-zinc-50">
+            <h1 className="flex items-center gap-2 settings-title text-2xl font-bold tracking-tight text-zinc-50">
               <CloudUpload className="h-6 w-6 text-brand-300" />
               {t("Sharing")}
             </h1>

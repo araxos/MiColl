@@ -204,8 +204,9 @@ export function StartPage({ onLock }: { onLock: () => void }) {
   const iriOutline = irid
     ? "iri-frost border-white/20 bg-white/10 text-zinc-100 hover:bg-white/20"
     : undefined;
-  // Create Card keeps the primary pill, iri-lead puts the spectrum on the rim
-  const iriLead = irid ? "iri-lead" : undefined;
+  // Create Card: iri-lead puts the spectrum on the rim, square corners like the icon
+  // buttons next to it (not the primary pill)
+  const iriLead = irid ? "iri-lead rounded-lg" : undefined;
   // sakura: the petal-cut rose glass from the platform tabs, with blossom for the main
   // action
   const sakura = accent === "sakura";
