@@ -27,6 +27,7 @@ import {
   Sun,
   Contrast,
   Droplet,
+  Expand,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useT, useTf } from "@/lib/i18n";
@@ -37,6 +38,7 @@ import {
   editInpaint,
   editInpaintAi,
   editResize,
+  editExpand,
   editUpscale,
   editCutout,
   editDetect,
@@ -50,7 +52,7 @@ import {
 } from "@/api/library";
 import { ModelDownloadDialog } from "@/components/ModelDownloadDialog";
 
-type Tool = "erase" | "cutout" | "crop" | "transform" | "resize" | "adjust";
+type Tool = "erase" | "cutout" | "crop" | "transform" | "resize" | "expand" | "adjust";
 
 /** The tools in the left bar, in order (also used for the options bar badge). */
 const TOOLS: {
@@ -95,6 +97,13 @@ const TOOLS: {
       "Set a new size — the ratio stays locked, and going above 100% switches to AI on its own",
   },
   {
+    id: "expand",
+    label: "Expand",
+    Icon: Expand,
+    title: "Expand — a wider or taller canvas, the new border gets filled in",
+    hintAdd: "Pick a format and drag the picture into place — AI fill grows the border out of it",
+  },
+  {
     id: "adjust",
     label: "Adjust",
     Icon: SlidersHorizontal,
@@ -104,7 +113,7 @@ const TOOLS: {
 ];
 
 /** All AI models the editor uses. */
-const MODELS: AiModel[] = ["lama", "esrgan", "isnet"];
+const MODELS: AiModel[] = ["lama", "esrgan", "isnet", "sd15"];
 
 /**
  * One undo step = the whole edit state (image, selection mask, crop box...).
@@ -118,6 +127,37 @@ interface Snapshot {
 
 /** Max undo steps (strokes share the working image string, but big images add up). */
 const HISTORY_LIMIT = 60;
+
+/** Expand formats (width : height). The canvas grows on one axis until it has this shape. */
+const EXPAND_RATIOS: { id: string; w: number; h: number }[] = [
+  { id: "16:9", w: 16, h: 9 },
+  { id: "21:9", w: 21, h: 9 },
+  { id: "16:10", w: 16, h: 10 },
+  { id: "3:2", w: 3, h: 2 },
+  { id: "4:3", w: 4, h: 3 },
+  { id: "1:1", w: 1, h: 1 },
+  { id: "9:16", w: 9, h: 16 },
+];
+
+/**
+ * The expanded canvas for an image of w×h at ratio rw:rh, the picture placed at pos
+ * (0 = left/top, 1 = right/bottom). null when it already has that shape.
+ */
+function expandPlan(w: number, h: number, rw: number, rh: number, pos: number) {
+  const r = rw / rh;
+  if (Math.abs(w / h - r) < 0.005) return null;
+  const wider = w / h < r;
+  const W = wider ? Math.round(h * r) : w;
+  const H = wider ? h : Math.round(w / r);
+  if (W > 16000 || H > 16000) return null;
+  return {
+    W,
+    H,
+    wider,
+    x: wider ? Math.round((W - w) * pos) : 0,
+    y: wider ? 0 : Math.round((H - h) * pos),
+  };
+}
 
 /** Brightness / contrast / saturation in percent (100 = unchanged). */
 interface Adjust {
@@ -198,6 +238,7 @@ export function ImageEditor({
     lama: null,
     esrgan: null,
     isnet: null,
+    sd15: null,
   });
   const [dl, setDl] = useState<Partial<Record<AiModel, { done: number; total: number }>>>({});
   // model info from the backend (URL + folder) for the download dialog
@@ -216,6 +257,18 @@ export function ImageEditor({
   const [adjust, setAdjust] = useState<Adjust>(NO_ADJUST);
   // cutout tool: edge softness in px
   const [feather, setFeather] = useState(2);
+  // expand tool: format, where the picture sits (0..1) and how the border is filled
+  const [exRatio, setExRatio] = useState("16:9");
+  const [exPos, setExPos] = useState(0.5);
+  const [exMode, setExModeState] = useState<"ai" | "hq" | "blur">(() => {
+    const m = localStorage.getItem("micoll.expandMode");
+    return m === "blur" || m === "hq" ? m : "ai";
+  });
+  const setExMode = (m: "ai" | "hq" | "blur") => {
+    setExModeState(m);
+    localStorage.setItem("micoll.expandMode", m);
+    queuePrefsSync();
+  };
   // displayed image size (fits the stage)
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
 
@@ -777,6 +830,60 @@ export function ImageEditor({
     }
   };
 
+  /* ---- expand: a wider / taller canvas, the border filled in ----------- */
+  const exDef = EXPAND_RATIOS.find((r) => r.id === exRatio) ?? EXPAND_RATIOS[0];
+  const exPlan = dims ? expandPlan(dims.w, dims.h, exDef.w, exDef.h, exPos) : null;
+
+  // AI fill needs LaMa, HQ needs LaMa (the layout) and Stable Diffusion (the detail)
+  const exModelsReady =
+    exMode === "blur" ||
+    (ready.lama === true && (exMode === "ai" || ready.sd15 === true));
+
+  const doExpand = async () => {
+    if (busy || !working || !exPlan || !exModelsReady) return;
+    setBusyMsg(exMode === "blur" ? t("Expanding…") : t("Expanding (AI)…"));
+    setBusy(true);
+    // AI fill grows in strips, a big picture takes a while: show "3 / 8". HQ then adds the
+    // detail on the graphics card (its own count).
+    const off = await listen<{ phase?: string; done: number; total: number }>(
+      "expand-progress",
+      (e) =>
+        setBusyMsg(
+          `${e.payload.phase === "detail" ? t("Adding detail (HQ)…") : t("Expanding (AI)…")} ${e.payload.done} / ${e.payload.total}`,
+        ),
+    );
+    try {
+      pushWorking(await editExpand(working, exPlan.W, exPlan.H, exPlan.x, exPlan.y, exMode));
+    } catch (err) {
+      console.error("expand failed", err);
+    } finally {
+      off();
+      setBusy(false);
+      setBusyMsg(t("Working…"));
+    }
+  };
+
+  // drag the picture along the new canvas in the preview
+  const exDragRef = useRef<{ px: number; py: number; pos: number; span: number } | null>(null);
+  const onExpandDown = (e: React.PointerEvent, span: number) => {
+    if (e.button !== 0 || busy || span <= 0) return;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* pointer already gone */
+    }
+    exDragRef.current = { px: e.clientX, py: e.clientY, pos: exPos, span };
+  };
+  const onExpandMove = (e: React.PointerEvent) => {
+    const d = exDragRef.current;
+    if (!d || !exPlan) return;
+    const delta = exPlan.wider ? e.clientX - d.px : e.clientY - d.py;
+    setExPos(Math.min(1, Math.max(0, d.pos + delta / d.span)));
+  };
+  const onExpandUp = () => {
+    exDragRef.current = null;
+  };
+
   /* ---- cutout: drop the background, keep the subject -------------------- */
   const doCutout = async () => {
     if (busy || !working || ready.isnet !== true) return;
@@ -1207,6 +1314,40 @@ export function ImageEditor({
           </>
         )}
 
+        {tool === "expand" && (
+          <>
+            <div className="flex h-9 items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-900/70 p-1">
+              {EXPAND_RATIOS.map((r) => (
+                <ToolBtn
+                  key={r.id}
+                  active={exRatio === r.id}
+                  onClick={() => setExRatio(r.id)}
+                  title={r.id === "9:16" ? t("Phone wallpaper") : undefined}
+                >
+                  {r.id}
+                </ToolBtn>
+              ))}
+            </div>
+            <label
+              className="viewer-chip flex h-9 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 text-xs text-zinc-300"
+              title={t("Where the picture sits on the new canvas — you can also drag it")}
+            >
+              {exPlan && !exPlan.wider ? t("Top") : t("Left")}
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={Math.round(exPos * 100)}
+                disabled={!exPlan}
+                onChange={(e) => setExPos(Number(e.target.value) / 100)}
+                onDoubleClick={() => setExPos(0.5)}
+                className="accent-brand-500"
+              />
+              {exPlan && !exPlan.wider ? t("Bottom") : t("Right")}
+            </label>
+          </>
+        )}
+
         {/* crop shows the current selection instead of options */}
         {tool === "crop" && (
           <>
@@ -1336,6 +1477,58 @@ export function ImageEditor({
               <SlidersHorizontal className="h-4 w-4" />
               {t("Apply adjustments")}
             </ActionBtn>
+          ) : tool === "expand" ? (
+            <>
+              <span className="mr-1 text-[11px] tabular-nums text-zinc-500">
+                {exPlan
+                  ? `${dims?.w} × ${dims?.h} → ${exPlan.W} × ${exPlan.H} px`
+                  : t("Already this shape")}
+              </span>
+              <div className="flex h-9 items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-900/70 p-1">
+                <ToolBtn
+                  active={exMode === "ai"}
+                  onClick={() => setExMode("ai")}
+                  title={t(
+                    "AI fill — grows the new border out of the picture with the local LaMa model (nothing leaves your PC). Big pictures take a little while",
+                  )}
+                >
+                  <Bot className="h-4 w-4" />
+                  {t("AI fill")}
+                </ToolBtn>
+                <ToolBtn
+                  active={exMode === "hq"}
+                  onClick={() => setExMode("hq")}
+                  title={t(
+                    "AI fill HQ — AI fill lays out the border, then Stable Diffusion redraws it with real detail on your graphics card (one-time ~1.9 GB download, nothing leaves your PC)",
+                  )}
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {t("AI fill HQ")}
+                </ToolBtn>
+                <ToolBtn
+                  active={exMode === "blur"}
+                  onClick={() => setExMode("blur")}
+                  title={t("Blur fill — a soft, darker copy of the picture behind it, instant")}
+                >
+                  <Droplet className="h-4 w-4" />
+                  {t("Blur fill")}
+                </ToolBtn>
+              </div>
+              {exMode !== "blur" && ready.lama === false ? (
+                <DownloadModelBtn model="lama" label={t("Get AI model (~200 MB)")} />
+              ) : exMode === "hq" && ready.sd15 === false ? (
+                <DownloadModelBtn model="sd15" label={t("Get HQ model (~1.9 GB)")} />
+              ) : (
+                <ActionBtn
+                  onClick={() => void doExpand()}
+                  disabled={!exPlan || busy || !exModelsReady}
+                  tone="brand"
+                >
+                  <Expand className="h-4 w-4" />
+                  {t("Expand")}
+                </ActionBtn>
+              )}
+            </>
           ) : tool === "crop" ? (
             <ActionBtn
               onClick={applyCrop}
@@ -1443,6 +1636,9 @@ export function ImageEditor({
                 "editor-checker relative rounded-lg leading-[0] shadow-2xl",
                 // clip the straighten preview to the frame
                 straightening && "overflow-hidden",
+                // the expand preview stands in for it (kept mounted, it still loads new
+                // pictures)
+                tool === "expand" && exPlan && "invisible",
               )}
               style={
                 box
@@ -1515,6 +1711,71 @@ export function ImageEditor({
               {t("Loading…")}
             </div>
           )}
+
+          {/* expand preview: the new canvas, the picture on it (drag to move) */}
+          {working && tool === "expand" && exPlan && dims && (() => {
+            const st = stageRef.current;
+            const availW = Math.max(1, (st?.clientWidth ?? 0) - 32);
+            const availH = Math.max(1, (st?.clientHeight ?? 0) - 32);
+            const fit = Math.min(availW / exPlan.W, availH / exPlan.H);
+            const pw = Math.max(1, Math.floor(exPlan.W * fit));
+            const ph = Math.max(1, Math.floor(exPlan.H * fit));
+            const iw = dims.w * fit;
+            const ih = dims.h * fit;
+            const span = exPlan.wider ? pw - iw : ph - ih;
+            // the note sits in the bigger empty part, the picture covers the middle
+            const before = exPlan.wider ? (exPlan.x / exPlan.W) * pw : (exPlan.y / exPlan.H) * ph;
+            const after = span - before;
+            const noteAt = before >= after ? before / 2 : before + (exPlan.wider ? iw : ih) + after / 2;
+            return (
+              <div
+                className="expand-preview absolute overflow-hidden rounded-lg shadow-2xl"
+                style={{ width: pw, height: ph }}
+              >
+                {exMode === "blur" ? (
+                  // same look as the result: a soft, darker copy covering the canvas
+                  <img
+                    src={working}
+                    alt=""
+                    draggable={false}
+                    className="absolute inset-0 h-full w-full scale-110 object-cover"
+                    style={{ filter: "blur(18px) brightness(0.72)" }}
+                  />
+                ) : (
+                  <div className="expand-new absolute inset-0">
+                    {Math.max(before, after) > 40 && (
+                      <span
+                        className="absolute max-w-[12rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-zinc-950/75 px-3 py-1 text-center text-[11px] text-zinc-300"
+                        style={exPlan.wider ? { left: noteAt, top: "50%" } : { top: noteAt, left: "50%" }}
+                      >
+                        {t("AI fills the striped part")}
+                      </span>
+                    )}
+                  </div>
+                )}
+                <img
+                  src={working}
+                  alt={name ?? "image"}
+                  draggable={false}
+                  onPointerDown={(e) => onExpandDown(e, span)}
+                  onPointerMove={onExpandMove}
+                  onPointerUp={onExpandUp}
+                  onPointerCancel={onExpandUp}
+                  className={cn(
+                    "absolute select-none outline outline-1 outline-white/40",
+                    exPlan.wider ? "cursor-ew-resize" : "cursor-ns-resize",
+                    busy && "pointer-events-none",
+                  )}
+                  style={{
+                    left: (exPlan.x / exPlan.W) * pw,
+                    top: (exPlan.y / exPlan.H) * ph,
+                    width: iw,
+                    height: ih,
+                  }}
+                />
+              </div>
+            );
+          })()}
 
           {/* zoom level, click to reset */}
           {working && view.z > 1 && (

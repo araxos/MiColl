@@ -1,7 +1,8 @@
 //! Local AI image models with ONNX Runtime (nothing leaves the PC).
 //! Each model is downloaded once into <app_data>/models/:
 //!
-//! * LaMa (~200 MB) - object remover, works on a 512x512 window.
+//! * LaMa (~200 MB) - object remover, works on a 512x512 window. Also fills the new
+//!   border of the Expand tool (outpaint_lama).
 //! * Real-ESRGAN general x4v3 (~5 MB) - 4x upscaling for the resize tool.
 //!   Runs in tiles so any image size fits in memory.
 //! * IS-Net general-use (~178 MB) - cutout tool, one 1024x1024 pass gives the alpha mask.
@@ -29,7 +30,47 @@ pub enum Model {
     Lama,
     Esrgan,
     Isnet,
+    /// Stable Diffusion 1.5 inpainting (ONNX fp16, several files), Expand's HQ fill.
+    Sd15,
 }
+
+/// One file of a model that comes in several (Sd15).
+pub struct Part {
+    pub file: &'static str,
+    pub url: &'static str,
+    pub sha256: &'static str,
+    pub bytes: u64,
+}
+
+/// SD 1.5 inpainting, exported to ONNX fp16 for MiColl (unet, vae encoder/decoder and the
+/// fixed prompt's embeddings, see diffusion.rs). Published by MiColl, pinned to its release tag.
+/// CreativeML OpenRAIL-M.
+const SD15_PARTS: &[Part] = &[
+    Part {
+        file: "unet.onnx",
+        url: "https://github.com/araxos/MiColl/releases/download/models-sd15-inpaint-v1/unet.onnx",
+        sha256: "4de4173edd531d8cd834d74688f1df15dec95e2aa5100bf7a8681c88aa9c7d2c",
+        bytes: 1_720_072_366,
+    },
+    Part {
+        file: "vae_encoder.onnx",
+        url: "https://github.com/araxos/MiColl/releases/download/models-sd15-inpaint-v1/vae_encoder.onnx",
+        sha256: "cf472391a7e3b64655cf0cf10a46c4587bf8b5ac93be13601fb9db22cbaceb72",
+        bytes: 68_427_527,
+    },
+    Part {
+        file: "vae_decoder.onnx",
+        url: "https://github.com/araxos/MiColl/releases/download/models-sd15-inpaint-v1/vae_decoder.onnx",
+        sha256: "32d8b6866d0435e0d7d62bc9001c9f4a0416983eb0d68be8846d33c540a5042a",
+        bytes: 99_094_067,
+    },
+    Part {
+        file: "prompt_embeds.bin",
+        url: "https://github.com/araxos/MiColl/releases/download/models-sd15-inpaint-v1/prompt_embeds.bin",
+        sha256: "8f2ace4ba3985cac5410cd82c34792995b16f003d9eab16adc24396bcc1c46c9",
+        bytes: 236_544,
+    },
+];
 
 impl Model {
     pub fn from_id(id: &str) -> Result<Model, String> {
@@ -37,6 +78,7 @@ impl Model {
             "lama" => Ok(Model::Lama),
             "esrgan" => Ok(Model::Esrgan),
             "isnet" => Ok(Model::Isnet),
+            "sd15" => Ok(Model::Sd15),
             other => Err(format!("unknown AI model '{other}'")),
         }
     }
@@ -50,6 +92,15 @@ impl Model {
             // IS-Net general-use, best cutout model in rembg. Apache-2.0 (RMBG-1.4 is
             // non-commercial).
             Model::Isnet => "isnet-general-use.onnx",
+            // a folder, the files are in SD15_PARTS
+            Model::Sd15 => "sd15-inpaint",
+        }
+    }
+    /// Several files (only Sd15), each checked on its own.
+    pub fn parts(self) -> Option<&'static [Part]> {
+        match self {
+            Model::Sd15 => Some(SD15_PARTS),
+            _ => None,
         }
     }
     pub fn url(self) -> &'static str {
@@ -59,6 +110,8 @@ impl Model {
             Model::Esrgan => "https://huggingface.co/OwlMaster/AllFilesRope/resolve/d783e61585b3d83a85c91ca8a3b299e8ade94d72/realesr-general-x4v3.onnx",
             // rembg's own release asset
             Model::Isnet => "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx",
+            // the release page, the files are in SD15_PARTS
+            Model::Sd15 => "https://github.com/araxos/MiColl/releases/tag/models-sd15-inpaint-v1",
         }
     }
     /// SHA-256 of the real file. A download that doesn't match gets thrown away.
@@ -68,6 +121,7 @@ impl Model {
             Model::Lama => "1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6",
             Model::Esrgan => "09b757accd747d7e423c1d352b3e8f23e77cc5742d04bae958d4eb8082b76fa4",
             Model::Isnet => "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a",
+            Model::Sd15 => "",
         }
     }
     /// anything smaller is a broken download
@@ -76,6 +130,7 @@ impl Model {
             Model::Lama => 50_000_000,
             Model::Esrgan => 2_000_000,
             Model::Isnet => 150_000_000,
+            Model::Sd15 => 0,
         }
     }
     fn id(self) -> &'static str {
@@ -83,6 +138,7 @@ impl Model {
             Model::Lama => "lama",
             Model::Esrgan => "esrgan",
             Model::Isnet => "isnet",
+            Model::Sd15 => "sd15",
         }
     }
 }
@@ -92,11 +148,25 @@ pub fn model_path(app_data: &Path, model: Model) -> PathBuf {
     app_data.join("models").join(model.file())
 }
 
-/// Is the model file there?
+/// Is the model file there? (Several files: all of them, at their exact size.)
 pub fn model_ready(app_data: &Path, model: Model) -> bool {
+    if let Some(parts) = model.parts() {
+        let dir = model_path(app_data, model);
+        return parts.iter().all(|p| {
+            std::fs::metadata(dir.join(p.file)).map(|m| m.len() == p.bytes).unwrap_or(false)
+        });
+    }
     std::fs::metadata(model_path(app_data, model))
         .map(|m| m.is_file() && m.len() >= model.min_bytes())
         .unwrap_or(false)
+}
+
+/// Size on disk once downloaded (bytes), for the download dialog.
+pub fn model_bytes(app_data: &Path, model: Model) -> Option<u64> {
+    match model.parts() {
+        Some(parts) => Some(parts.iter().map(|p| p.bytes).sum()),
+        None => std::fs::metadata(model_path(app_data, model)).ok().map(|m| m.len()),
+    }
 }
 
 fn downloading() -> &'static Mutex<HashSet<&'static str>> {
@@ -117,7 +187,77 @@ pub fn download_model(
     if !downloading().lock().map_err(|e| e.to_string())?.insert(model.id()) {
         return Err("This model is already being downloaded.".into());
     }
-    let result = (|| -> Result<(), String> {
+    let result = if let Some(parts) = model.parts() {
+        download_parts(app_data, model, parts, &mut progress)
+    } else {
+        download_single(app_data, model, &mut progress)
+    };
+    downloading().lock().map_err(|e| e.to_string())?.remove(model.id());
+    result
+}
+
+/// A model in several files: each one streamed + checked like a single model, the
+/// progress counts over all of them. Files already there (right size) are kept, so a
+/// broken download picks up at the file it stopped in.
+fn download_parts(
+    app_data: &Path,
+    model: Model,
+    parts: &[Part],
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<(), String> {
+    let dir = model_path(app_data, model);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create models dir: {e}"))?;
+    let total: u64 = parts.iter().map(|p| p.bytes).sum();
+    let mut before: u64 = 0;
+    for p in parts {
+        let dest = dir.join(p.file);
+        if std::fs::metadata(&dest).map(|m| m.len() == p.bytes).unwrap_or(false) {
+            before += p.bytes;
+            progress(before, total);
+            continue;
+        }
+        let part = dir.join(format!("{}.part", p.file));
+        let resp = ureq::get(p.url)
+            .timeout(std::time::Duration::from_secs(2 * 60 * 60))
+            .call()
+            .map_err(|e| format!("download failed: {e}"))?;
+        let mut reader = resp.into_reader();
+        let mut file =
+            std::fs::File::create(&part).map_err(|e| format!("create temp file: {e}"))?;
+        let mut buf = vec![0u8; 1 << 20];
+        let mut done: u64 = 0;
+        let mut hash = Sha256::new();
+        loop {
+            let n = reader.read(&mut buf).map_err(|e| format!("download read: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            file.write_all(&buf[..n]).map_err(|e| format!("write model: {e}"))?;
+            hash.update(&buf[..n]);
+            done += n as u64;
+            progress(before + done, total);
+        }
+        file.sync_all().ok();
+        drop(file);
+        if done != p.bytes || format!("{:x}", hash.finalize()) != p.sha256 {
+            let _ = std::fs::remove_file(&part);
+            return Err(
+                "The downloaded model isn't the expected file (size or checksum), so it wasn't used. Please try again later."
+                    .into(),
+            );
+        }
+        std::fs::rename(&part, &dest).map_err(|e| format!("finish download: {e}"))?;
+        before += p.bytes;
+    }
+    Ok(())
+}
+
+fn download_single(
+    app_data: &Path,
+    model: Model,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<(), String> {
+    (|| -> Result<(), String> {
         let dest = model_path(app_data, model);
         let dir = dest.parent().ok_or("bad model path")?;
         std::fs::create_dir_all(dir).map_err(|e| format!("create models dir: {e}"))?;
@@ -164,9 +304,7 @@ pub fn download_model(
         }
         std::fs::rename(&part, &dest).map_err(|e| format!("finish download: {e}"))?;
         Ok(())
-    })();
-    downloading().lock().map_err(|e| e.to_string())?.remove(model.id());
-    result
+    })()
 }
 
 /* ---- cached ONNX sessions --------------------------------------------- */
@@ -227,6 +365,40 @@ pub fn inpaint_lama(app_data: &Path, img: &mut RgbaImage, mask: &GrayImage) -> R
     let mask_crop = image::imageops::crop_imm(mask, cx0, cy0, cw, ch).to_image();
     let mask_small = image::imageops::resize(&mask_crop, net, net, FilterType::Triangle);
 
+    let out_img = lama_pass(app_data, &small, &mask_small)?;
+
+    // resize back and only paste the masked pixels (1px soft edge)
+    let restored = image::imageops::resize(&out_img, cw, ch, FilterType::CatmullRom);
+    let rim = crate::edit::dilate_mask(mask, 1);
+    for y in 0..ch {
+        for x in 0..cw {
+            let gx = cx0 + x;
+            let gy = cy0 + y;
+            let m = mask.get_pixel(gx, gy)[0];
+            let r = rim.get_pixel(gx, gy)[0];
+            if m == 0 && r == 0 {
+                continue;
+            }
+            let src = restored.get_pixel(x, y);
+            let dst = *img.get_pixel(gx, gy);
+            let blend = if m > 0 { 1.0f32 } else { 0.5 }; // soft 1px transition
+            let mix = |a: u8, b: u8| -> u8 {
+                (a as f32 * blend + b as f32 * (1.0 - blend)).round() as u8
+            };
+            img.put_pixel(
+                gx,
+                gy,
+                image::Rgba([mix(src[0], dst[0]), mix(src[1], dst[1]), mix(src[2], dst[2]), dst[3]]),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// One LaMa pass on a 512x512 window: small = the picture, mask_small = what to fill
+/// (anything above 8 counts, grown a bit). Returns the filled 512x512 picture.
+fn lama_pass(app_data: &Path, small: &RgbaImage, mask_small: &GrayImage) -> Result<RgbaImage, String> {
+    let net = LAMA_NET;
     // CHW float tensors. Everything the mask touches counts as hole, grown a bit.
     let mut image_in = vec![0f32; (3 * net * net) as usize];
     for (x, y, p) in small.enumerate_pixels() {
@@ -260,8 +432,9 @@ pub fn inpaint_lama(app_data: &Path, img: &mut RgbaImage, mask: &GrayImage) -> R
         Ok(data.to_vec())
     })?;
 
-    // some exports output 0..255, older ones 0..1
-    let scale = if out_chw.iter().take(4096).fold(0f32, |m, v| m.max(*v)) <= 1.5 {
+    // some exports output 0..255, older ones 0..1 (the whole output: a dark picture's
+    // first rows can stay under 1.5 on a 0..255 export)
+    let scale = if out_chw.iter().fold(0f32, |m, v| m.max(*v)) <= 1.5 {
         255.0
     } else {
         1.0
@@ -276,30 +449,185 @@ pub fn inpaint_lama(app_data: &Path, img: &mut RgbaImage, mask: &GrayImage) -> R
             out_img.put_pixel(x, y, image::Rgba([r, g, b, 255]));
         }
     }
+    Ok(out_img)
+}
 
-    // resize back and only paste the masked pixels (1px soft edge)
-    let restored = image::imageops::resize(&out_img, cw, ch, FilterType::CatmullRom);
-    let rim = crate::edit::dilate_mask(mask, 1);
-    for y in 0..ch {
-        for x in 0..cw {
-            let gx = cx0 + x;
-            let gy = cy0 + y;
-            let m = mask.get_pixel(gx, gy)[0];
-            let r = rim.get_pixel(gx, gy)[0];
-            if m == 0 && r == 0 {
-                continue;
+/* ---- LaMa outpainting (Expand tool) ----------------------------------- */
+
+/// Put img on a width x height canvas at (ox, oy) and let LaMa fill the new border.
+/// Only one axis grows (the canvas keeps the image's height or width).
+///
+/// It grows outwards in narrow strips, ~13% of the window per pass, each pass seeing what
+/// the last one made: one big pass smears and fogs, the strips keep trees, folds and
+/// light going (compared on test images cut out of real wallpapers).
+/// progress(done, total) is called after every strip.
+pub fn outpaint_lama(
+    app_data: &Path,
+    img: &RgbaImage,
+    width: u32,
+    height: u32,
+    ox: u32,
+    oy: u32,
+    progress: &dyn Fn(u32, u32),
+) -> Result<RgbaImage, String> {
+    let (iw, ih) = img.dimensions();
+    if width < iw || height < ih || ox + iw > width || oy + ih > height {
+        return Err("The image doesn't fit on that canvas.".into());
+    }
+    if width > iw && height > ih {
+        return Err("Expand grows one direction at a time.".into());
+    }
+    if height > ih {
+        // a taller canvas is the wider case turned on its side
+        let out = outpaint_x(app_data, &transpose(img), height, oy, progress)?;
+        return Ok(transpose(&out));
+    }
+    if width > iw {
+        return outpaint_x(app_data, img, width, ox, progress);
+    }
+    Ok(img.clone())
+}
+
+fn transpose(img: &RgbaImage) -> RgbaImage {
+    let (w, h) = img.dimensions();
+    let mut out = RgbaImage::new(h, w);
+    for (x, y, p) in img.enumerate_pixels() {
+        out.put_pixel(y, x, *p);
+    }
+    out
+}
+
+/// The wider case: columns [ox, ox + image width) are known, both sides get filled.
+fn outpaint_x(
+    app_data: &Path,
+    img: &RgbaImage,
+    width: u32,
+    ox: u32,
+    progress: &dyn Fn(u32, u32),
+) -> Result<RgbaImage, String> {
+    let (iw, h) = img.dimensions();
+    let mut canvas = RgbaImage::from_pixel(width, h, image::Rgba([0, 0, 0, 255]));
+    image::imageops::replace(&mut canvas, img, i64::from(ox), 0);
+    // fully opaque, the new border has no alpha to carry on
+    for p in canvas.pixels_mut() {
+        p[3] = 255;
+    }
+    // square windows: as tall as the canvas, or as wide as it when that's narrower
+    // (then they're stacked top to bottom)
+    let side = h.min(width);
+    let step = ((side as f32 * 0.13).round() as u32).max(16);
+    // LaMa also repaints a thin band inside the picture's edge, blended back at the end:
+    // the colours never match exactly at a hard edge, that left a visible seam
+    let band = ((side as f32 * 0.01).round() as u32).clamp(4, 24).min(iw / 4);
+    let left_band = if ox > 0 { band } else { 0 };
+    let right_band = if ox + iw < width { band } else { 0 };
+    let mut known = vec![false; (width * h) as usize];
+    for y in 0..h {
+        for x in ox + left_band..ox + iw - right_band {
+            known[(y * width + x) as usize] = true;
+        }
+    }
+    let (mut lx, mut rx) = (ox + left_band, ox + iw - right_band);
+    let total = lx.div_ceil(step) + (width - rx).div_ceil(step);
+    let mut done = 0;
+    while lx > 0 || rx < width {
+        if lx > 0 {
+            let nl = lx.saturating_sub(step);
+            let wx = nl.min(width - side);
+            fill_column_band(app_data, &mut canvas, &mut known, wx, side, nl, lx)?;
+            lx = nl;
+            done += 1;
+            progress(done, total);
+        }
+        if rx < width {
+            let nr = (rx + step).min(width);
+            let wx = nr.saturating_sub(side);
+            fill_column_band(app_data, &mut canvas, &mut known, wx, side, rx, nr)?;
+            rx = nr;
+            done += 1;
+            progress(done, total);
+        }
+    }
+    // the band: the picture again, fading from the inside (full) to its edge (LaMa)
+    for y in 0..h {
+        for i in 0..left_band {
+            let t = (i as f32 + 0.5) / left_band as f32; // 0 at the edge -> 1 inside
+            blend_px(&mut canvas, img, ox + i, y, i, t);
+        }
+        for i in 0..right_band {
+            let t = (i as f32 + 0.5) / right_band as f32;
+            let ix = iw - 1 - i;
+            blend_px(&mut canvas, img, ox + ix, y, ix, t);
+        }
+    }
+    Ok(canvas)
+}
+
+/// canvas(x, y) = t * picture(ix, y) + (1 - t) * what LaMa made there.
+fn blend_px(canvas: &mut RgbaImage, img: &RgbaImage, x: u32, y: u32, ix: u32, t: f32) {
+    let src = img.get_pixel(ix, y);
+    let dst = canvas.get_pixel_mut(x, y);
+    for c in 0..3 {
+        dst[c] = (src[c] as f32 * t + dst[c] as f32 * (1.0 - t)).round() as u8;
+    }
+}
+
+/// Fill the new columns [c0, c1) from the side-wide window at wx, in square windows down
+/// the canvas (one window when the band is as tall as the canvas). LaMa gets every
+/// unknown pixel of the window as hole, but only the strip is kept: the window also
+/// grazes the far, still empty side, and what LaMa guesses there has no context. Kept,
+/// it became fixed context for the next passes and grew into grey blobs.
+#[allow(clippy::too_many_arguments)]
+fn fill_column_band(
+    app_data: &Path,
+    canvas: &mut RgbaImage,
+    known: &mut [bool],
+    wx: u32,
+    side: u32,
+    c0: u32,
+    c1: u32,
+) -> Result<(), String> {
+    let (width, h) = canvas.dimensions();
+    let mut tops = vec![0u32];
+    if h > side {
+        // a quarter overlap, so each window sees the one above
+        let stride = (side * 3 / 4).max(1);
+        let mut y = stride;
+        while y + side < h {
+            tops.push(y);
+            y += stride;
+        }
+        tops.push(h - side);
+    }
+    for wy in tops {
+        let mut hole = GrayImage::new(side, side);
+        let mut any = false;
+        for y in 0..side {
+            for x in 0..side {
+                if !known[((wy + y) * width + wx + x) as usize] {
+                    hole.put_pixel(x, y, image::Luma([255]));
+                    any = true;
+                }
             }
-            let src = restored.get_pixel(x, y);
-            let dst = *img.get_pixel(gx, gy);
-            let blend = if m > 0 { 1.0f32 } else { 0.5 }; // soft 1px transition
-            let mix = |a: u8, b: u8| -> u8 {
-                (a as f32 * blend + b as f32 * (1.0 - blend)).round() as u8
-            };
-            img.put_pixel(
-                gx,
-                gy,
-                image::Rgba([mix(src[0], dst[0]), mix(src[1], dst[1]), mix(src[2], dst[2]), dst[3]]),
-            );
+        }
+        if !any {
+            continue;
+        }
+        let win = image::imageops::crop_imm(canvas, wx, wy, side, side).to_image();
+        let small = image::imageops::resize(&win, LAMA_NET, LAMA_NET, FilterType::CatmullRom);
+        let hole_small = image::imageops::resize(&hole, LAMA_NET, LAMA_NET, FilterType::Triangle);
+        let out = lama_pass(app_data, &small, &hole_small)?;
+        let restored = image::imageops::resize(&out, side, side, FilterType::CatmullRom);
+        for y in 0..side {
+            for x in 0..side {
+                let gx = wx + x;
+                if hole.get_pixel(x, y)[0] > 0 && gx >= c0 && gx < c1 {
+                    let mut p = *restored.get_pixel(x, y);
+                    p[3] = 255;
+                    canvas.put_pixel(gx, wy + y, p);
+                    known[((wy + y) * width + gx) as usize] = true;
+                }
+            }
         }
     }
     Ok(())

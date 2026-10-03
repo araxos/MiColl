@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
-import { CheckSquare, Sparkles, Pencil, Trash2, X, FolderOpen, RotateCcw, RefreshCw, CopyCheck, MousePointerSquareDashed, Share2, FolderInput, FolderPlus, MonitorPlay, FileQuestion, HardDrive, DatabaseBackup, Users, Unlink, ExternalLink, Info } from "lucide-react";
+import { CheckSquare, Pencil, Trash2, X, FolderOpen, RotateCcw, RefreshCw, CopyCheck, MousePointerSquareDashed, Share2, FolderInput, FolderPlus, MonitorPlay, FileQuestion, HardDrive, DatabaseBackup, Users, Unlink, ExternalLink, Info } from "lucide-react";
 import { openDuplicates } from "@/lib/duplicates";
 import { RewardSlot } from "@/components/RewardSlot";
 import { ImageViewer, type CoverTargets, type ViewerItem } from "@/components/ImageViewer";
@@ -53,8 +53,22 @@ interface Rect {
  * you can drag a box, Ctrl-click and Shift-click, then rename or delete.
  * Outside selection mode: click opens, checkbox toggles ownership.
  */
+/**
+ * Extras go last, A-Z among themselves; the other rewards keep the order they came in.
+ * (They're bonus material, the month's real releases come first.)
+ */
+function extrasLast(items: Item[]): Item[] {
+  if (!items.some((it) => it.reward.isExtra)) return items;
+  const extras = items
+    .filter((it) => it.reward.isExtra)
+    .sort((a, b) =>
+      a.reward.title.localeCompare(b.reward.title, undefined, { numeric: true, sensitivity: "base" }),
+    );
+  return [...items.filter((it) => !it.reward.isExtra), ...extras];
+}
+
 export function RewardGrid({
-  items,
+  items: itemsIn,
   artistId,
   toolbarHost,
   defaultPeriodId,
@@ -88,6 +102,8 @@ export function RewardGrid({
 }) {
   const t = useT();
   const tf = useTf();
+  // everything below (selection ranges, the viewer, menus) uses this order
+  const items = useMemo(() => extrasLast(itemsIn), [itemsIn]);
   const { artists, refresh, backed, markRewardSeen } = useData();
   const { openMenu, reveal, requestDelete, reload, showToast, bringBackFromSd, fillRewardInteractive } =
     useActions();
@@ -630,12 +646,6 @@ export function RewardGrid({
             ]
           : []),
         {
-          // "extra" is grouped with the other marks
-          label: r.isExtra ? t("Not an extra") : t("Mark as extra"),
-          icon: <Sparkles className="h-4 w-4" />,
-          onClick: () => void markExtra([r.id], !r.isExtra),
-        },
-        {
           label: t("Reload"),
           icon: <RefreshCw className="h-4 w-4" />,
           quick: 2,
@@ -712,12 +722,7 @@ export function RewardGrid({
         : []),
       ...(backed
         ? [
-            // credit this reward to other creators (nothing is copied)
-            {
-              label: t("Collab with…"),
-              icon: <Users className="h-4 w-4" />,
-              onClick: () => setCollabPick(r),
-            },
+            // "Collab with…" is in Details now, the menu only says where it's shown
             ...(r.collabWith?.length
               ? [
                   {
@@ -813,7 +818,8 @@ export function RewardGrid({
     ]);
   };
 
-  // outline pill like "Details": icon only, label slides in on hover
+  // outline pill like "Details": icon only, label slides in on hover. No title: the
+  // label is the hint, a webview tooltip on top showed the same text twice
   const ToolBtn = ({
     icon,
     label,
@@ -827,8 +833,8 @@ export function RewardGrid({
   }) => (
     <button
       onClick={onClick}
-      title={title ?? label}
       aria-label={label}
+      aria-description={title}
       className={cn(
         "group inline-flex h-8 items-center px-2 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500",
         control,
@@ -1092,6 +1098,24 @@ export function RewardGrid({
             reward={details}
             where={whereOf(items.find((it) => it.reward.id === details.id)?.monthId ?? "")}
             onReveal={() => reveal(details.folderPath)}
+            // the rarer marks live in Details, not in the right-click menu
+            onToggleExtra={
+              details.status !== "missing" && !details.collabFrom
+                ? () => {
+                    const next = !details.isExtra;
+                    void markExtra([details.id], next);
+                    setDetails({ ...details, isExtra: next });
+                  }
+                : undefined
+            }
+            onCollab={
+              backed && !details.collabFrom
+                ? () => {
+                    setCollabPick(details);
+                    setDetails(null);
+                  }
+                : undefined
+            }
             onClose={() => setDetails(null)}
           />
         )}

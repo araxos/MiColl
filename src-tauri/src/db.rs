@@ -1359,15 +1359,24 @@ pub fn mark_rewards_fresh(conn: &Connection, folder_paths: &[String]) -> rusqlit
     Ok(n)
 }
 
+/// Mark the rewards at these folders as extras (the import review's "Extra" toggle).
+pub fn mark_rewards_extra(conn: &Connection, folder_paths: &[String]) -> rusqlite::Result<usize> {
+    let mut n = 0;
+    for path in folder_paths {
+        n += conn.execute(
+            "UPDATE rewards SET is_extra = 1 WHERE folder_path = ?1",
+            params![path],
+        )?;
+    }
+    Ok(n)
+}
+
 /// Remove the "new" badge (when the viewer opens it).
 pub fn mark_reward_seen(conn: &Connection, reward_id: i64) -> rusqlite::Result<()> {
     conn.execute("UPDATE rewards SET fresh = 0 WHERE id = ?1", params![reward_id])?;
     Ok(())
 }
 
-/// Put a reward on the wishlist (1 = the wish made this row, 2 = it already existed)
-/// or take it off (0).
-///
 /// Mark rewards as extras (or not). Returns how many changed.
 pub fn set_rewards_extra(conn: &Connection, ids: &[i64], extra: bool) -> rusqlite::Result<u32> {
     let mut n = 0u32;
@@ -1380,6 +1389,8 @@ pub fn set_rewards_extra(conn: &Connection, ids: &[i64], extra: bool) -> rusqlit
     Ok(n)
 }
 
+/// Put a reward on the wishlist (1 = the wish made this row, 2 = it already existed)
+/// or take it off (0).
 pub fn set_reward_wished(conn: &Connection, reward_id: i64, wished: i64) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE rewards SET wished = ?2 WHERE id = ?1",

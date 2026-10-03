@@ -5,6 +5,7 @@ import { Layout } from "@/components/Layout";
 import { ThemeCheck } from "@/components/ThemeCheck";
 import { RewardGrid } from "@/components/RewardGrid";
 import { CardShapeButton } from "@/components/CardShapeButton";
+import { MonthStats } from "@/components/MonthStats";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { ProgressRing } from "@/components/ui/ProgressRing";
@@ -252,6 +253,8 @@ export function MonthDetailPage({ onLock }: { onLock: () => void }) {
                 {tracked && month.officialTotal! - owned > 0 && (
                   <Badge tone="amber">{tf("{n} missing", { n: month.officialTotal! - owned })}</Badge>
                 )}
+                {/* what's inside: images / videos / other files and the size */}
+                <MonthStats month={month} className={releasedBadge} />
               </div>
               {collabOnly && (
                 <p className="collab-ink mt-2 flex items-center gap-1.5 text-xs">

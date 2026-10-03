@@ -55,7 +55,11 @@ urlencoding = "2"
 tiny_http = "0.12"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 # AI object remover: local LaMa inpainting via ONNX Runtime (CPU, no cloud).
-ort = { version = "2.0.0-rc.10", features = ["download-binaries"] }
+# directml: the Expand tool's HQ fill runs Stable Diffusion on the graphics card (the
+# prebuilt ONNX Runtime on Windows already contains DirectML, this only exposes it).
+# half: SD runs in fp16.
+ort = { version = "2.0.0-rc.10", features = ["download-binaries", "directml", "half"] }
+half = "2"
 # Streaming download of the LaMa model file (one-time, ~200 MB).
 ureq = "2"
 # checks the signature of portable updates (same key as the installer updates)

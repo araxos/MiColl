@@ -955,7 +955,8 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                     <span className="group relative inline-flex">
                       <span
                         className="cursor-default rounded-full border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300"
-                        title={tp("{n} more", rest.length)}
+                        // the list below is the hint, no title on top of it
+                        aria-label={tp("{n} more", rest.length)}
                       >
                         …
                       </span>
@@ -986,12 +987,13 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
           <ArtistLinks links={artist.links} accent={accent} />
 
           <div className="ml-auto flex items-center gap-2">
-            {/* New folder (icon, label on hover), picks the year in its dialog */}
+            {/* New folder (icon, label on hover = the hint, no title), picks the year in
+                its dialog */}
             {backed && platform && (
               <button
                 onClick={() => setNewFolderOpen(true)}
-                title={t("Create a new (empty) folder — pick a year or leave it under Misc")}
                 aria-label={t("New folder")}
+                aria-description={t("Create a new (empty) folder — pick a year or leave it under Misc")}
                 className={cn(
                   "group inline-flex h-8 items-center rounded-lg border px-2 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500",
                   "border-zinc-700 text-zinc-200 micoll-hover",

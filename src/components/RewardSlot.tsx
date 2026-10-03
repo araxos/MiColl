@@ -1,10 +1,11 @@
 import { motion } from "framer-motion";
-import { Ban, Images, PlayCircle, FolderPlus, FileArchive, Users, Unlink } from "lucide-react";
+import { Ban, PlayCircle, FolderPlus, FileArchive, Users, Unlink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 import { useAccent } from "@/lib/theme";
 import { Cover } from "@/components/Cover";
 import { SdBadge, rewardSdState, rewardSdTitle } from "@/components/SdBadge";
+import { FileCountChip } from "@/components/FileCountChip";
 import type { Reward } from "@/types";
 
 export function RewardSlot({
@@ -154,10 +155,8 @@ export function RewardSlot({
               )}
               {sdState && <SdBadge state={sdState} title={rewardSdTitle(sdState, reward)} />}
               {reward.imageCount > 1 && (
-                <span className="inline-flex items-center gap-1 rounded-md bg-black/65 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur">
-                  <Images className="h-3 w-3" />
-                  {reward.imageCount}
-                </span>
+                // hover shows the folder's size
+                <FileCountChip reward={reward} />
               )}
             </span>
             {cat && (

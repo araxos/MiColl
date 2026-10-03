@@ -846,6 +846,9 @@ pub struct ResolvedReward {
     /// ("Reward is root" checkbox, or detected on rescan).
     #[serde(default)]
     pub root: bool,
+    /// Marked as an extra in the import review (doesn't stand in for its month).
+    #[serde(default)]
+    pub extra: bool,
 }
 
 #[derive(Clone, Default)]
@@ -1420,6 +1423,7 @@ fn auto_resolve(plan: ImportPlan, default_platform: Option<&str>) -> Vec<Resolve
             title: d.title,
             folder: d.folder,
             root: d.root,
+            extra: false,
         })
         .collect()
 }
@@ -1639,6 +1643,7 @@ pub(crate) mod tests {
             title: "Set A".into(),
             folder: folder.clone(),
             root: false,
+            extra: false,
         }];
         let fresh_of = |f: &str| -> i64 {
             conn.query_row("SELECT fresh FROM rewards WHERE folder_path = ?1", params![f], |r| {
@@ -1996,6 +2001,7 @@ pub(crate) mod tests {
             title: "testReward".into(),
             folder: folder.clone(),
             root: false,
+            extra: false,
         }];
         commit(&conn, &bundled_import, None).unwrap();
 
@@ -2576,6 +2582,7 @@ pub(crate) mod tests {
                 title: (*c).into(),
                 folder: month.join(c).to_string_lossy().to_string(),
                 root: false,
+                extra: false,
             })
             .collect();
         commit(&conn, &folded, None).unwrap();
@@ -2596,6 +2603,7 @@ pub(crate) mod tests {
             title: title.into(),
             folder: folder.to_string_lossy().to_string(),
             root: false,
+            extra: false,
         };
         let split = vec![
             mk(month.join("CharY"), "CharY"),

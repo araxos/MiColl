@@ -1,16 +1,23 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
-import { Download, ShieldCheck } from "lucide-react";
+import { Download, ExternalLink, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { useAccent } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { useT, useTf } from "@/lib/i18n";
-import type { AiModel, AiModelStatus } from "@/api/library";
+import { openUrl, type AiModel, type AiModelStatus } from "@/api/library";
 
-/** Description of each model. The URL comes from the backend (ai_model_status). */
-const ABOUT: Record<AiModel, { name: string; does: string; size: string; licence: string }> = {
+/**
+ * Description of each model. The URL comes from the backend (ai_model_status).
+ * licenceUrl: the licence text, shown as a link; agree: the licence has use restrictions
+ * that have to be passed on to whoever uses the model (CreativeML OpenRAIL-M).
+ */
+const ABOUT: Record<
+  AiModel,
+  { name: string; does: string; size: string; licence: string; licenceUrl?: string; agree?: boolean }
+> = {
   lama: {
     name: "LaMa",
     does: "Fills what you paint over so it blends into its surroundings — the AI mode of the Erase tool.",
@@ -28,6 +35,15 @@ const ABOUT: Record<AiModel, { name: string; does: string; size: string; licence
     does: "Enlarges images and adds back detail — the AI mode of the Resize tool.",
     size: "~5 MB",
     licence: "BSD-3-Clause",
+  },
+  sd15: {
+    name: "Stable Diffusion 1.5",
+    does: "Redraws the new border of the Expand tool with real detail (AI fill HQ). Runs on the graphics card — without one it takes minutes.",
+    size: "~1.9 GB",
+    licence: "CreativeML OpenRAIL-M",
+    licenceUrl:
+      "https://github.com/araxos/MiColl/releases/download/models-sd15-inpaint-v1/LICENSE.txt",
+    agree: true,
   },
 };
 
@@ -132,8 +148,30 @@ export function ModelDownloadDialog({
               "—"
             ),
           )}
-          {row(t("Licence"), about.licence)}
+          {row(
+            t("Licence"),
+            about.licenceUrl ? (
+              <button
+                type="button"
+                onClick={() => void openUrl(about.licenceUrl!)}
+                className={cn("inline-flex items-center gap-1 underline-offset-2 hover:underline", dlg.accentText)}
+              >
+                {about.licence}
+                <ExternalLink className="h-3 w-3" />
+              </button>
+            ) : (
+              about.licence
+            ),
+          )}
         </dl>
+
+        {about.agree && (
+          <p className="mt-3 text-xs text-zinc-400">
+            {t(
+              "By downloading you agree to this licence, including its use restrictions (Attachment A).",
+            )}
+          </p>
+        )}
 
         <p
           className={cn(

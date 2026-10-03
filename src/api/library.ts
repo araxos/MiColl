@@ -170,6 +170,8 @@ export interface ResolvedReward {
   folder: string;
   /** Drop the named reward folder — files go straight into the month folder. */
   root?: boolean;
+  /** Import it as an extra (doesn't stand in for its month). */
+  extra?: boolean;
 }
 
 /** A release style choice from the import review (whole artist, or one platform if set). */
@@ -974,6 +976,22 @@ export async function editInpaintAi(imageB64: string, maskB64: string): Promise<
   return invoke<string>("edit_inpaint_ai", { imageB64, maskB64 });
 }
 
+/**
+ * Expand: put the image on a width×height canvas at (x, y) and fill the new border.
+ * "ai" grows it out of the picture with LaMa, "hq" then redraws it with Stable Diffusion
+ * (graphics card), "blur" puts a soft copy behind it.
+ */
+export async function editExpand(
+  imageB64: string,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  mode: "ai" | "hq" | "blur",
+): Promise<string> {
+  return invoke<string>("edit_expand", { imageB64, width, height, x, y, mode });
+}
+
 /** Resize to exactly width×height with a high-quality classic filter (Lanczos). */
 export async function editResize(
   imageB64: string,
@@ -1001,7 +1019,7 @@ export async function editCutout(imageB64: string, feather = 0): Promise<string>
 }
 
 /** The local AI models the editor can use. */
-export type AiModel = "lama" | "esrgan" | "isnet";
+export type AiModel = "lama" | "esrgan" | "isnet" | "sd15";
 
 export interface AiModelStatus {
   ready: boolean;

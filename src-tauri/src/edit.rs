@@ -1322,3 +1322,37 @@ mod tests {
         assert_eq!(gray.get_pixel(1, 0)[0], 0);
     }
 }
+
+/* ---- Expand tool: blur fill ------------------------------------------------ */
+
+/// Put img on a width x height canvas at (ox, oy) with a blurred, darker copy of itself
+/// behind it, scaled to cover the canvas: the classic wallpaper look, no AI.
+pub fn expand_blur(img: &RgbaImage, width: u32, height: u32, ox: u32, oy: u32) -> RgbaImage {
+    use image::imageops::FilterType;
+    let (iw, ih) = img.dimensions();
+    // blur at 1/8 size: fast, and the upscale smooths it further
+    let sw = (width / 8).max(16);
+    let sh = (height / 8).max(16);
+    let k = (sw as f32 / iw as f32).max(sh as f32 / ih as f32);
+    let cw = ((iw as f32 * k).ceil() as u32).max(sw);
+    let ch = ((ih as f32 * k).ceil() as u32).max(sh);
+    let cover = image::imageops::resize(img, cw, ch, FilterType::Triangle);
+    // keep the cover centred where the picture sits
+    let fx = (ox as f32 + iw as f32 / 2.0) / width as f32;
+    let fy = (oy as f32 + ih as f32 / 2.0) / height as f32;
+    let cx = ((cw - sw) as f32 * fx).round() as u32;
+    let cy = ((ch - sh) as f32 * fy).round() as u32;
+    let small = image::imageops::crop_imm(&cover, cx.min(cw - sw), cy.min(ch - sh), sw, sh).to_image();
+    let sigma = (sw.min(sh) as f32 * 0.04).max(2.0);
+    let mut back = image::imageops::blur(&small, sigma);
+    for p in back.pixels_mut() {
+        // a bit darker so the picture stands out, fully opaque
+        p[0] = (p[0] as f32 * 0.72) as u8;
+        p[1] = (p[1] as f32 * 0.72) as u8;
+        p[2] = (p[2] as f32 * 0.72) as u8;
+        p[3] = 255;
+    }
+    let mut canvas = image::imageops::resize(&back, width, height, FilterType::Triangle);
+    image::imageops::overlay(&mut canvas, img, i64::from(ox), i64::from(oy));
+    canvas
+}

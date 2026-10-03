@@ -229,7 +229,6 @@ function QuickRow({ items, onClose }: { items: MenuItem[]; onClose: () => void }
             }}
             onMouseEnter={() => setHover(i)}
             onMouseLeave={() => setHover((h) => (h === i ? null : h))}
-            title={it.label}
             aria-label={it.label}
             className={cn(
               "flex w-full items-center justify-center rounded-lg py-2 transition-colors",

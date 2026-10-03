@@ -8,6 +8,7 @@ mod indexer;
 mod organize;
 mod portable_update;
 mod props;
+mod diffusion;
 mod sd;
 mod signing;
 mod single_instance;
@@ -3854,6 +3855,10 @@ fn commit_import(
     // an import is on purpose, so everything gets the "new" badge (also known folders)
     let folders: Vec<String> = rewards.iter().map(|r| r.folder.clone()).collect();
     db::mark_rewards_fresh(&conn, &folders).map_err(map_err)?;
+    // the review's "Extra" toggle
+    let extras: Vec<String> =
+        rewards.iter().filter(|r| r.extra).map(|r| r.folder.clone()).collect();
+    db::mark_rewards_extra(&conn, &extras).map_err(map_err)?;
     // update "last edited" of every touched artist
     {
         let mut seen = std::collections::HashSet::new();
@@ -4624,6 +4629,69 @@ async fn edit_inpaint_ai(
     .map_err(|e| e.to_string())?
 }
 
+/// Expand tool: put the image on a width x height canvas at (x, y) and fill the new
+/// border, mode "ai" (LaMa, grows in strips) or "blur" (blurred copy behind it).
+#[tauri::command]
+async fn edit_expand(
+    app: AppHandle,
+    image_b64: String,
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+    mode: String,
+) -> Result<String, String> {
+    if width == 0 || height == 0 || width > 16_000 || height > 16_000 {
+        return Err("That size is out of range.".into());
+    }
+    let data = app_data(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let img = edit::decode_rgba(&image_b64)?;
+        if x + img.width() > width || y + img.height() > height {
+            return Err("The image doesn't fit on that canvas.".into());
+        }
+        let out = match mode.as_str() {
+            "ai" => {
+                // "3 / 8" in the editor's busy note, a big picture takes a while
+                let report = |done: u32, total: u32| {
+                    use tauri::Emitter;
+                    let _ = app.emit("expand-progress", serde_json::json!({ "done": done, "total": total }));
+                };
+                ai::outpaint_lama(&data, &img, width, height, x, y, &report)?
+            }
+            // LaMa lays out the border, Stable Diffusion redraws it (see diffusion.rs)
+            "hq" => {
+                if !ai::model_ready(&data, ai::Model::Sd15) {
+                    return Err("The HQ model isn't downloaded yet.".into());
+                }
+                let report = |phase: &str, done: u32, total: u32| {
+                    use tauri::Emitter;
+                    let _ = app.emit(
+                        "expand-progress",
+                        serde_json::json!({ "phase": phase, "done": done, "total": total }),
+                    );
+                };
+                let laid = ai::outpaint_lama(&data, &img, width, height, x, y, &|d, t| report("layout", d, t))?;
+                // SD may blend a bit further into the picture than LaMa (it's drawn at a
+                // lower resolution, a wider fade hides that)
+                let band = ((width.min(height) as f32 * 0.02).round() as u32).clamp(8, 48);
+                diffusion::refine(
+                    &ai::model_path(&data, ai::Model::Sd15),
+                    &laid,
+                    (x, y, img.width(), img.height()),
+                    band,
+                    &|d, t| report("detail", d, t),
+                )?
+            }
+            "blur" => edit::expand_blur(&img, width, height, x, y),
+            other => return Err(format!("unknown expand mode '{other}'")),
+        };
+        edit::encode_png_data_url(&out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Resize to width x height with Lanczos.
 #[tauri::command]
 async fn edit_resize(image_b64: String, width: u32, height: u32) -> Result<String, String> {
@@ -4698,7 +4766,7 @@ fn ai_model_status(app: AppHandle, model: Option<String>) -> Result<AiModelStatu
     let data = app_data(&app)?;
     let ready = ai::model_ready(&data, m);
     let size_mb = if ready {
-        std::fs::metadata(ai::model_path(&data, m)).ok().map(|f| f.len() / (1024 * 1024))
+        ai::model_bytes(&data, m).map(|b| b / (1024 * 1024))
     } else {
         None
     };
@@ -8642,6 +8710,7 @@ pub fn run() {
             edit_inpaint,
             edit_inpaint_ai,
             edit_resize,
+            edit_expand,
             edit_upscale,
             edit_cutout,
             ai_model_status,

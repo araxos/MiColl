@@ -11,6 +11,7 @@ import {
   CalendarOff,
   CornerDownRight,
   UserPlus,
+  Sparkles,
   Undo2,
   LayoutGrid,
   FolderTree,
@@ -164,6 +165,8 @@ type DraftRow = {
   title: string;
   category: string | null;
   root: boolean;
+  /** Import as an extra: stays in its period but doesn't stand in for it (month card). */
+  extra: boolean;
   imageCount: number;
   /** What the analyzer saw (used again when the style flips back). */
   det: { year: number | null; month: number | null; number: number | null };
@@ -417,6 +420,7 @@ export function ImportReviewTree({
         title: cleanTitle(r.title, creator),
         category: r.category,
         root: r.root,
+        extra: false,
         imageCount: r.imageCount,
         det: { year: r.year, month: r.month, number: r.number },
         year: "",
@@ -655,6 +659,7 @@ export function ImportReviewTree({
       title,
       category: first.category,
       root: false,
+      extra: false,
       imageCount: children.reduce((s, c) => s + c.imageCount, 0),
       det: { ...first.det },
       year: first.year,
@@ -730,6 +735,7 @@ export function ImportReviewTree({
       title: r.title.trim() || baseName(r.folder),
       folder: r.folder,
       root: r.root,
+      extra: r.extra,
     };
   };
 
@@ -749,6 +755,7 @@ export function ImportReviewTree({
           title: combinedTitle.trim() || rootName,
           folder: root,
           root: rows.every((r) => r.root) && rows.length > 0 ? true : false,
+          extra: activeRows.length > 0 && activeRows.every((r) => r.extra),
         },
       ];
     }
@@ -1437,6 +1444,23 @@ export function ImportReviewTree({
                                         <FolderInput className="h-3.5 w-3.5" />
                                       </button>
                                     )}
+                                    <button
+                                      onClick={() => patchRow(r.folder, { extra: !r.extra })}
+                                      aria-pressed={r.extra}
+                                      title={
+                                        r.extra
+                                          ? t("Imported as an extra — it stays in this period but doesn’t stand in for it. Click to import it normally")
+                                          : t("Import as an extra — it stays in this period but doesn’t stand in for it (not used for the month card)")
+                                      }
+                                      className={cn(
+                                        "rounded-md p-1",
+                                        r.extra
+                                          ? "bg-brand-500/15 text-brand-200 hover:bg-brand-500/25"
+                                          : "text-zinc-500 micoll-hover hover:text-zinc-200",
+                                      )}
+                                    >
+                                      <Sparkles className="h-3.5 w-3.5" />
+                                    </button>
                                     {!isLocked &&
                                       (r.promotedFrom ? (
                                         <button

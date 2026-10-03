@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
-import { FolderOpen, Info, Loader2, X } from "lucide-react";
+import { FolderOpen, Info, Loader2, Sparkles, Users, X } from "lucide-react";
 import { mediaStats } from "@/api/library";
 import { isTauri } from "@/lib/tauri";
 import { useDialogTheme } from "@/lib/dialogTheme";
@@ -8,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { useT, useTf } from "@/lib/i18n";
 import type { Reward } from "@/types";
 
-function fmtBytes(n: number): string {
+export function fmtBytes(n: number): string {
   if (n <= 0) return "0 B";
   const u = ["B", "KB", "MB", "GB", "TB"];
   const i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
@@ -22,20 +23,28 @@ const STATUS: Record<Reward["status"], string> = {
 };
 
 /**
- * Details for one reward folder (like the viewer's per-image Details). Read-only,
- * rename/move/MiSD have their own menu entries. Size and "last changed" load
- * after opening, the rest shows right away.
+ * Details for one reward folder (like the viewer's per-image Details). Rename/move/MiSD
+ * have their own menu entries; the rarer marks live here instead (extra, collab), so the
+ * right-click menu stays short. Size and "last changed" load after opening.
+ * Portaled to <body>: inside the page the creator toolbar (platform tabs, Break, Details)
+ * covered its top.
  */
 export function RewardDetails({
   reward,
   where,
   onReveal,
+  onToggleExtra,
+  onCollab,
   onClose,
 }: {
   reward: Reward;
   /** Where it is in the library, e.g. "Patreon · 05.25". */
   where?: string;
   onReveal: () => void;
+  /** Mark as extra / not an extra (owned rewards in their own folder). */
+  onToggleExtra?: () => void;
+  /** Credit it to other creators too (opens the collab picker). */
+  onCollab?: () => void;
   onClose: () => void;
 }) {
   const t = useT();
@@ -106,6 +115,9 @@ export function RewardDetails({
     [t("Last changed"), modified ? new Date(modified).toLocaleString() : "—"],
     ...(where ? ([[t("Where"), where]] as [string, string][]) : []),
     [t("Cover"), reward.coverCustom ? t("Picked by you") : t("First file (automatic)")],
+    ...(reward.isExtra
+      ? ([[t("Extra"), t("Yes — it doesn’t stand in for its month")]] as [string, string][])
+      : []),
     ...(reward.collabFrom
       ? ([[t("Collab"), tf("Lives in {name}’s folder", { name: reward.collabFrom.artistName })]] as [
           string,
@@ -121,7 +133,7 @@ export function RewardDetails({
     ...(sd ? ([["MiSD", sd]] as [string, string][]) : []),
   ];
 
-  return (
+  return createPortal(
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -209,8 +221,42 @@ export function RewardDetails({
               {t("Measuring the folder…")}
             </p>
           )}
+
+          {(onToggleExtra || onCollab) && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {onToggleExtra && (
+                <button
+                  onClick={onToggleExtra}
+                  title={t("An extra stays in its month but doesn’t stand in for it (not used for the month card)")}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-3 py-2 text-sm text-zinc-200 transition-colors",
+                    dlg.field,
+                    dlg.menuRow,
+                  )}
+                >
+                  <Sparkles className={cn("h-4 w-4", reward.isExtra && dlg.accentText)} />
+                  {reward.isExtra ? t("Not an extra") : t("Mark as extra")}
+                </button>
+              )}
+              {onCollab && (
+                <button
+                  onClick={onCollab}
+                  title={t("Show it at other creators too (nothing is copied)")}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-3 py-2 text-sm text-zinc-200 transition-colors",
+                    dlg.field,
+                    dlg.menuRow,
+                  )}
+                >
+                  <Users className="h-4 w-4" />
+                  {t("Collab with…")}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </motion.div>
-    </motion.div>
+    </motion.div>,
+    document.body,
   );
 }
