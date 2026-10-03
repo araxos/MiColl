@@ -10,6 +10,7 @@ mod portable_update;
 mod props;
 mod sd;
 mod signing;
+mod single_instance;
 mod template;
 mod thumbs;
 mod wshare;
@@ -4992,12 +4993,72 @@ const TRAY_ID: &str = "micoll-tray";
 
 struct CloseToTray(std::sync::atomic::AtomicBool);
 
-fn restore_window(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
+/// A normal app window: the first one ("main") or one from the taskbar's "New window"
+/// (not a pop-out viewer).
+fn is_app_window(label: &str) -> bool {
+    label == "main" || label.starts_with("window-")
+}
+
+/// Bring MiColl to the front: the main window, or another app window if main was closed,
+/// or a new one if none is left (only pop-outs, or all closed while in the tray).
+/// Returns the window it showed (None when a new one is still being built).
+fn restore_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
+    let w = app.get_webview_window("main").or_else(|| {
+        app.webview_windows()
+            .into_iter()
+            .filter(|(label, _)| is_app_window(label))
+            .map(|(_, w)| w)
+            .next()
+    });
+    match w {
+        Some(w) => {
+            let _ = w.show();
+            let _ = w.unminimize();
+            let _ = w.set_focus();
+            Some(w)
+        }
+        None => {
+            open_new_window(app);
+            None
+        }
     }
+}
+
+/* ---- taskbar tasks -------------------------------------------------- */
+/* "Add rewards" from the taskbar's jump list (or a start with --add-rewards): Rust keeps
+   it here until the frontend takes it (components/LaunchActions.tsx), so it also works
+   while MiColl is still starting or locked. */
+static LAUNCH_ACTION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+const ADD_REWARDS_ARG: &str = "--add-rewards";
+
+fn set_launch_action(action: &str) {
+    if let Ok(mut slot) = LAUNCH_ACTION.lock() {
+        *slot = Some(action.to_string());
+    }
+}
+
+/// The waiting taskbar action ("add-rewards"), once.
+#[tauri::command]
+fn take_launch_action() -> Option<String> {
+    LAUNCH_ACTION.lock().ok()?.take()
+}
+
+/// Another app window (taskbar right-click -> "New window"). Same setup as the first
+/// window from tauri.conf.json, own label. Same process, so same library and DB.
+fn open_new_window(app: &AppHandle) {
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(2);
+    let Some(mut config) = app.config().app.windows.first().cloned() else { return };
+    config.label = format!("window-{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    let app = app.clone();
+    // off the calling thread: building a window from a blocked thread can deadlock
+    std::thread::spawn(move || {
+        match tauri::WebviewWindowBuilder::from_config(&app, &config).and_then(|b| b.build()) {
+            Ok(w) => {
+                let _ = w.set_focus();
+            }
+            Err(e) => eprintln!("micoll: new window failed: {e}"),
+        }
+    });
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -5016,7 +5077,9 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         // left click opens the window, right click the menu
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "show" => restore_window(app),
+            "show" => {
+                restore_window(app);
+            }
             // the normal way to quit now, so fold the WAL first (app.exit skips the
             // teardown,
             // an unflushed WAL once lost a month of data, see db::open). Off the
@@ -8257,17 +8320,43 @@ fn command_thread(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // one MiColl per library: a second start hands over to the running one and ends here
+    // (see single_instance.rs)
+    #[cfg(windows)]
+    {
+        let scope = portable_root()
+            .map(|root| root.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "appdata".into());
+        if !single_instance::acquire(&scope) {
+            return;
+        }
+    }
+    // started from the taskbar's "Add rewards" while MiColl wasn't running
+    if std::env::args().skip(1).any(|a| a == ADD_REWARDS_ARG) {
+        set_launch_action("add-rewards");
+    }
     tauri::Builder::default()
         // with "keep running in the tray" the close button hides the window (AtomicBool, no
         // DB lock)
+        // Only the window that stands for the app hides: "main", or the last app window
+        // if main was closed. Extra windows and pop-outs really close.
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle();
-                let hide = app
+                let tray = app
                     .try_state::<CloseToTray>()
                     .map(|f| f.0.load(std::sync::atomic::Ordering::Relaxed))
                     .unwrap_or(false);
-                if hide {
+                let label = window.label();
+                let stands_for_app = label == "main"
+                    || (is_app_window(label)
+                        && app.get_webview_window("main").is_none()
+                        && !app.webview_windows().iter().any(|(other, w)| {
+                            other != label
+                                && is_app_window(other)
+                                && w.is_visible().unwrap_or(false)
+                        }));
+                if tray && stands_for_app {
                     api.prevent_close();
                     let _ = window.hide();
                 }
@@ -8316,6 +8405,33 @@ pub fn run() {
                 if let Err(e) = build_tray(app.handle()) {
                     eprintln!("micoll: tray icon unavailable: {e}");
                 }
+            }
+            // a second start (pinned icon while in the tray, Start menu) shows this one,
+            // the taskbar's "New window" task opens another window, "Add rewards" shows
+            // this one and starts the import there
+            #[cfg(windows)]
+            {
+                let handle = app.handle().clone();
+                single_instance::listen(move |args| {
+                    let has = |arg: &str| args.iter().skip(1).any(|a| a == arg);
+                    if has("--new-window") {
+                        open_new_window(&handle);
+                        return;
+                    }
+                    let shown = restore_window(&handle);
+                    if has(ADD_REWARDS_ARG) {
+                        set_launch_action("add-rewards");
+                        // a new window takes it when it starts, a shown one gets told
+                        if let Some(w) = shown {
+                            use tauri::Emitter;
+                            let _ = handle.emit_to(w.label(), "micoll://launch-action", ());
+                        }
+                    }
+                });
+                single_instance::register_jump_list(&[
+                    ("Add rewards", ADD_REWARDS_ARG),
+                    ("New window", "--new-window"),
+                ]);
             }
             // allow the thumbnail cache folder for the asset protocol
             let thumbs = app_cache(app).ok().map(|cache| cache.join("thumbs"));
@@ -8574,6 +8690,7 @@ pub fn run() {
             extract_archive,
             trash_path,
             set_close_to_tray,
+            take_launch_action,
             is_portable,
             portable_update,
         ]))

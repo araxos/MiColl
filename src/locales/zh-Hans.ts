@@ -525,6 +525,7 @@ export const dict: Dict = {
   "Checking…": "正在检查…",
   "Check for updates": "检查更新",
   "You’re on the latest version.": "你用的已是最新版本。",
+  "You’re on the latest version": "你用的已是最新版本",
   "Portable — data next to the app": "便携版 — 数据在应用旁边",
   "Installed — data in your user profile": "已安装 — 数据在你的用户配置文件里",
   "This copy keeps everything in its own folder, so the whole app can be moved or carried as one. Note that the reward files themselves stay where they are, and are remembered by their full path.": "这个副本把所有东西都放在自己的文件夹里，所以整个应用可以整块搬走或带着走。注意：奖励文件本身仍留在原处，是按完整路径记住的。",

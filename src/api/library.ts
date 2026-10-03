@@ -461,6 +461,11 @@ export async function clearBrokenCollabs(): Promise<number> {
   return (await invoke("clear_broken_collabs")) as number;
 }
 
+/** The waiting taskbar action ("add-rewards" from the jump list), once. */
+export async function takeLaunchAction(): Promise<string | null> {
+  return (await invoke<string | null>("take_launch_action")) ?? null;
+}
+
 export async function setPeriodPlatform(periodId: string, platform: string): Promise<void> {
   await invoke("set_period_platform", { periodId: Number(periodId), platform });
 }

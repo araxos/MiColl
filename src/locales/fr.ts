@@ -525,6 +525,7 @@ export const dict: Dict = {
   "Checking…": "Vérification…",
   "Check for updates": "Rechercher des mises à jour",
   "You’re on the latest version.": "Vous avez la dernière version.",
+  "You’re on the latest version": "Vous avez la dernière version",
   "Portable — data next to the app": "Portable — données à côté de l’application",
   "Installed — data in your user profile": "Installée — données dans votre profil utilisateur",
   "This copy keeps everything in its own folder, so the whole app can be moved or carried as one. Note that the reward files themselves stay where they are, and are remembered by their full path.": "Cette copie garde tout dans son propre dossier, l’application entière peut donc être déplacée ou emportée d’un bloc. Notez que les fichiers des rewards, eux, restent où ils sont et sont retenus par leur chemin complet.",

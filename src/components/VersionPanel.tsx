@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { Info, RefreshCw, Download, Check, FolderOpen, Copy, Scale } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -114,7 +114,26 @@ export function VersionPanel() {
     }
   };
 
-  const runCheck = () => void checkForUpdates({ manual: true });
+  // after a manual check finds nothing, the button itself turns green for 20 s ("You're on
+  // the latest version"), then back. Local state, so leaving Settings resets it too.
+  const [confirmed, setConfirmed] = useState(false);
+  const manualRef = useRef(false);
+  useEffect(() => {
+    if (check.kind === "checking") return;
+    if (check.kind === "current" && manualRef.current) setConfirmed(true);
+    manualRef.current = false;
+  }, [check.kind]);
+  useEffect(() => {
+    if (!confirmed) return;
+    const id = window.setTimeout(() => setConfirmed(false), 20_000);
+    return () => window.clearTimeout(id);
+  }, [confirmed]);
+
+  const runCheck = () => {
+    setConfirmed(false);
+    manualRef.current = true;
+    void checkForUpdates({ manual: true });
+  };
 
   return (
     <div>
@@ -154,18 +173,25 @@ export function VersionPanel() {
             check.kind === "downloading" ||
             check.kind === "installing"
           }
+          // green in every theme (success), the transition makes the switch soft
+          className={cn(
+            "transition-[background-color,border-color,color,box-shadow] duration-300",
+            confirmed &&
+              "border-emerald-400/60 bg-emerald-500/15 text-emerald-200 shadow-[0_0_14px_rgba(52,211,153,0.25)] hover:bg-emerald-500/25",
+          )}
         >
-          <RefreshCw className={`h-4 w-4 ${check.kind === "checking" ? "animate-spin" : ""}`} />
-          {check.kind === "checking" ? t("Checking…") : t("Check for updates")}
+          {confirmed ? (
+            <Check className="h-4 w-4" />
+          ) : (
+            <RefreshCw className={`h-4 w-4 ${check.kind === "checking" ? "animate-spin" : ""}`} />
+          )}
+          {check.kind === "checking"
+            ? t("Checking…")
+            : confirmed
+              ? t("You’re on the latest version")
+              : t("Check for updates")}
         </Button>
       </div>
-
-      {check.kind === "current" && (
-        <p className="mt-3 flex items-center gap-2 text-sm text-emerald-300">
-          <Check className="h-4 w-4" />
-          {t("You’re on the latest version.")}
-        </p>
-      )}
 
       {(check.kind === "available" ||
         check.kind === "downloading" ||

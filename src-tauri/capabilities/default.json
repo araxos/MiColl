@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window and pop-out viewer windows",
-  "windows": ["main", "popout-*"],
+  "description": "Capability for the main window, extra windows (taskbar \"New window\") and pop-out viewer windows",
+  "windows": ["main", "window-*", "popout-*"],
   "permissions": [
     "core:default",
     "opener:default",

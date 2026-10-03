@@ -525,6 +525,7 @@ export const dict: Dict = {
   "Checking…": "確認中…",
   "Check for updates": "更新を確認",
   "You’re on the latest version.": "最新版です。",
+  "You’re on the latest version": "最新版です",
   "Portable — data next to the app": "ポータブル — データはアプリの隣",
   "Installed — data in your user profile": "インストール済み — データはユーザープロファイル内",
   "This copy keeps everything in its own folder, so the whole app can be moved or carried as one. Note that the reward files themselves stay where they are, and are remembered by their full path.": "このコピーはすべてを自分のフォルダーに置くので、アプリ全体をまとめて移動したり持ち歩いたりできます。リワードのファイル自体はそのままの場所に残り、フルパスで記憶される点にご注意ください。",

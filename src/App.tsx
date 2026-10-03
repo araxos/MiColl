@@ -6,6 +6,7 @@ import { CoverCropMigration } from "@/components/CoverCropMigration";
 import { UpdatePrompt } from "@/components/UpdatePrompt";
 import { ActionsProvider } from "@/actions";
 import { LockScreen } from "@/components/LockScreen";
+import { LaunchActions } from "@/components/LaunchActions";
 import { TopBar } from "@/components/Layout";
 import { AppWallpaper } from "@/components/AppWallpaper";
 import { DropZone } from "@/components/DropZone";
@@ -295,6 +296,7 @@ export default function App() {
             <DropZone />
             <CoverCropMigration active={booted && !locked && !safe} />
             <UpdatePrompt active={booted && !locked && !safe} />
+            <LaunchActions active={booted && !locked && !safe} />
             <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
             {dupScope && (
               <DuplicatesPanel scope={dupScope} onClose={() => setDupScope(null)} />
