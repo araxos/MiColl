@@ -988,8 +988,22 @@ export async function editExpand(
   x: number,
   y: number,
   mode: "ai" | "hq" | "blur",
+  /** HQ: a new seed draws a different result for the same picture. */
+  seed: number,
+  /** Shrink the picture to this size first (the output size), null = as it is. */
+  fit: { w: number; h: number } | null,
 ): Promise<string> {
-  return invoke<string>("edit_expand", { imageB64, width, height, x, y, mode });
+  return invoke<string>("edit_expand", {
+    imageB64,
+    width,
+    height,
+    x,
+    y,
+    mode,
+    seed,
+    fitW: fit?.w ?? null,
+    fitH: fit?.h ?? null,
+  });
 }
 
 /** Resize to exactly width×height with a high-quality classic filter (Lanczos). */

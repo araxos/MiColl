@@ -1,6 +1,7 @@
 //! Stable Diffusion 1.5 inpainting on the graphics card (DirectML) for the Expand tool's
 //! "AI fill HQ": LaMa lays out the new border first (ai::outpaint_lama), then SD redraws
-//! it with real detail (img2img on the border, strength 0.6).
+//! it with real detail (img2img on the border, strength 0.6 next to the picture, 0.85 far
+//! out).
 //!
 //! Why the two: SD alone invents unrelated things (figures, rocks) on a big empty border,
 //! LaMa alone stays smeared. LaMa's layout + SD's detail beat both (compared on test
@@ -26,9 +27,14 @@ use std::path::Path;
 
 /// Pixels SD works on (about 768 x 512); the result is scaled up to the canvas.
 const WORK_AREA: f32 = 768.0 * 512.0;
-/// DDIM steps for the full schedule; img2img at STRENGTH runs the last 60% of them.
+/// DDIM steps for the full schedule; img2img at strength 0.6 runs the last 60% of them.
 const STEPS: usize = 30;
-const STRENGTH: f32 = 0.6;
+/// Strength next to the picture: SD stays close to LaMa's layout there, it has to join up.
+const STRENGTH_NEAR: f32 = 0.6;
+/// Strength far out: LaMa's long smears turned into flat walls and vertical edges at 0.6,
+/// SD redraws them as real scenery at 0.85 (compared on the test wallpapers; 0.9 started
+/// inventing shapes).
+const STRENGTH_FAR: f32 = 0.85;
 /// Classifier-free guidance: low, the prompt only nudges towards "sharp, detailed".
 const GUIDANCE: f32 = 3.0;
 const VAE_SCALE: f32 = 0.18215;
@@ -112,13 +118,14 @@ fn run_vae_encoder(path: &Path, images: &[Vec<f16>], gw: u32, gh: u32) -> Result
 }
 
 /// Redraw the new border of canvas (LaMa's layout) with SD. keep = where the real picture
-/// sits (x, y, w, h); band = how far inside its edge SD may blend in.
+/// sits (x, y, w, h); band = how far inside its edge SD may blend in. seed = the noise.
 /// progress(done, total) after every denoising step.
 pub fn refine(
     model_dir: &Path,
     canvas: &RgbaImage,
     keep: (u32, u32, u32, u32),
     band: u32,
+    seed: u64,
     progress: &dyn Fn(u32, u32),
 ) -> Result<RgbaImage, String> {
     let (cw, ch) = canvas.dimensions();
@@ -180,21 +187,38 @@ pub fn refine(
     }
     let ratio = TRAIN_STEPS / STEPS;
     let all: Vec<usize> = (0..STEPS).rev().map(|i| i * ratio + 1).collect();
-    let skip = STEPS - (STEPS as f32 * STRENGTH) as usize;
+    // strength per latent pixel, ramping from STRENGTH_NEAR at the picture to STRENGTH_FAR
+    // at 60% of the widest border: a pixel joins the denoising at its own step and follows
+    // the noised layout until then (soft img2img)
+    let (kx, ky, kw, kh) = keep;
+    let border = kx.max(cw - kx - kw).max(ky).max(ch - ky - kh).max(1) as f32;
+    let first = |st: f32| STEPS - (STEPS as f32 * st) as usize;
+    let skip = first(STRENGTH_FAR);
+    let start: Vec<usize> = (0..lw * lh)
+        .map(|i| {
+            let cx = ((i % lw) as f32 * 8.0 + 4.0) * sx;
+            let cy = ((i / lw) as f32 * 8.0 + 4.0) * sy;
+            let dx = (kx as f32 - cx).max(cx - (kx + kw) as f32).max(0.0);
+            let dy = (ky as f32 - cy).max(cy - (ky + kh) as f32).max(0.0);
+            let d = (dx.max(dy) / (border * 0.6)).min(1.0);
+            first(STRENGTH_NEAR + (STRENGTH_FAR - STRENGTH_NEAR) * d) - skip
+        })
+        .collect();
     let timesteps = &all[skip..];
 
-    // start from the picture's latent, noised to the first timestep (fixed seed: the same
-    // picture expands the same way twice)
-    let mut rng = rand::rngs::StdRng::seed_from_u64(7);
+    // start from the layout's latent, noised to the first timestep (the seed comes from the
+    // editor, a new one each time: Expand again draws something different)
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     let mut gauss = || {
         // Box-Muller
         let u1: f32 = rng.gen_range(f32::EPSILON..1.0);
         let u2: f32 = rng.gen();
         (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos()
     };
+    let noise: Vec<f32> = (0..lat0.len()).map(|_| gauss()).collect();
+    let noised = |i: usize, a: f32| a.sqrt() * lat0[i] + (1.0 - a).sqrt() * noise[i];
     let a0 = acp[timesteps[0]] as f32;
-    let mut x: Vec<f32> =
-        lat0.iter().map(|v| a0.sqrt() * v + (1.0 - a0).sqrt() * gauss()).collect();
+    let mut x: Vec<f32> = (0..lat0.len()).map(|i| noised(i, a0)).collect();
 
     let embeds = {
         let raw = std::fs::read(model_dir.join("prompt_embeds.bin"))
@@ -208,6 +232,13 @@ pub fn refine(
     let mut unet = session(&model_dir.join("unet.onnx"))?;
     let total = timesteps.len() as u32;
     for (step, &ts) in timesteps.iter().enumerate() {
+        // pixels that start later still follow the layout, noised to this step
+        let a_now = acp[ts] as f32;
+        for i in 0..lsize {
+            if step < start[i % (lw * lh)] {
+                x[i] = noised(i, a_now);
+            }
+        }
         // [x | mask | masked latent], twice (negative + prompt)
         let mut sample = Vec::with_capacity(2 * 9 * lw * lh);
         for _ in 0..2 {

@@ -68,6 +68,8 @@ const SYNCED = [
   "micoll.slideshowSpeed",
   "micoll.loop",
   "micoll.removeMode",
+  "micoll.expandMode",
+  "micoll.expandSize",
   "micoll.classFilter",
   "micoll.typeFilter",
 ] as const;

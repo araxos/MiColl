@@ -28,6 +28,7 @@ import {
   Contrast,
   Droplet,
   Expand,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useT, useTf } from "@/lib/i18n";
@@ -51,6 +52,7 @@ import {
   type AiModelStatus,
 } from "@/api/library";
 import { ModelDownloadDialog } from "@/components/ModelDownloadDialog";
+import { ThemedSelect } from "@/components/ThemedSelect";
 
 type Tool = "erase" | "cutout" | "crop" | "transform" | "resize" | "expand" | "adjust";
 
@@ -137,6 +139,18 @@ const EXPAND_RATIOS: { id: string; w: number; h: number }[] = [
   { id: "4:3", w: 4, h: 3 },
   { id: "1:1", w: 1, h: 1 },
   { id: "9:16", w: 9, h: 16 },
+];
+
+/**
+ * Output sizes for Expand, by the short side of the new canvas (1080 = 1920 × 1080 at
+ * 16:9). A bigger picture is shrunk to it before the border is made: wallpaper size in
+ * one go, and the AI has far fewer pixels to fill.
+ */
+const EXPAND_SIZES: { id: string; short: number; name: string }[] = [
+  { id: "720", short: 720, name: "HD" },
+  { id: "1080", short: 1080, name: "Full HD" },
+  { id: "1440", short: 1440, name: "WQHD" },
+  { id: "2160", short: 2160, name: "4K" },
 ];
 
 /**
@@ -260,6 +274,15 @@ export function ImageEditor({
   // expand tool: format, where the picture sits (0..1) and how the border is filled
   const [exRatio, setExRatio] = useState("16:9");
   const [exPos, setExPos] = useState(0.5);
+  // output size: "orig" or an EXPAND_SIZES id
+  const [exSize, setExSizeState] = useState(
+    () => localStorage.getItem("micoll.expandSize") ?? "1080",
+  );
+  const setExSize = (v: string) => {
+    setExSizeState(v);
+    localStorage.setItem("micoll.expandSize", v);
+    queuePrefsSync();
+  };
   const [exMode, setExModeState] = useState<"ai" | "hq" | "blur">(() => {
     const m = localStorage.getItem("micoll.expandMode");
     return m === "blur" || m === "hq" ? m : "ai";
@@ -832,16 +855,47 @@ export function ImageEditor({
 
   /* ---- expand: a wider / taller canvas, the border filled in ----------- */
   const exDef = EXPAND_RATIOS.find((r) => r.id === exRatio) ?? EXPAND_RATIOS[0];
-  const exPlan = dims ? expandPlan(dims.w, dims.h, exDef.w, exDef.h, exPos) : null;
+  const exFull = dims ? expandPlan(dims.w, dims.h, exDef.w, exDef.h, exPos) : null;
+  // the output sizes smaller than the full-size result (shrinking only, never blowing up)
+  const exShort = exFull ? Math.min(exFull.W, exFull.H) : 0;
+  const exSizes = EXPAND_SIZES.filter((s) => s.short < exShort);
+  const exSizeDef = exSizes.find((s) => s.id === exSize) ?? null;
+  // the picture at the output size (as it is for "orig")
+  const exPic =
+    dims && exSizeDef
+      ? {
+          w: Math.max(1, Math.round((dims.w * exSizeDef.short) / exShort)),
+          h: Math.max(1, Math.round((dims.h * exSizeDef.short) / exShort)),
+        }
+      : dims;
+  const exPlan = exPic ? expandPlan(exPic.w, exPic.h, exDef.w, exDef.h, exPos) : null;
 
   // AI fill needs LaMa, HQ needs LaMa (the layout) and Stable Diffusion (the detail)
   const exModelsReady =
     exMode === "blur" ||
     (ready.lama === true && (exMode === "ai" || ready.sd15 === true));
 
-  const doExpand = async () => {
-    if (busy || !working || !exPlan || !exModelsReady) return;
-    setBusyMsg(exMode === "blur" ? t("Expanding…") : t("Expanding (AI)…"));
+  // the last AI expand, for "Try again" (same picture and canvas, a new seed)
+  const exLastRef = useRef<{
+    src: string;
+    result: string;
+    W: number;
+    H: number;
+    x: number;
+    y: number;
+    mode: "ai" | "hq";
+    fit: { w: number; h: number } | null;
+  } | null>(null);
+  const exLast = exLastRef.current;
+  // AI fill is the same every time, only HQ draws something new
+  const canRetry = !!exLast && exLast.result === working && exLast.mode === "hq" && exMode === "hq";
+
+  const doExpand = async (again = false) => {
+    if (busy || !working || !exModelsReady) return;
+    const last = exLastRef.current;
+    if (again ? !last : !exPlan) return;
+    const mode = again && last ? last.mode : exMode;
+    setBusyMsg(mode === "blur" ? t("Expanding…") : t("Expanding (AI)…"));
     setBusy(true);
     // AI fill grows in strips, a big picture takes a while: show "3 / 8". HQ then adds the
     // detail on the graphics card (its own count).
@@ -853,7 +907,22 @@ export function ImageEditor({
         ),
     );
     try {
-      pushWorking(await editExpand(working, exPlan.W, exPlan.H, exPlan.x, exPlan.y, exMode));
+      // a new seed every time: HQ draws something different on every try
+      const seed = Math.floor(Math.random() * 2 ** 31);
+      const job =
+        again && last
+          ? last
+          : {
+              src: working,
+              W: exPlan!.W,
+              H: exPlan!.H,
+              x: exPlan!.x,
+              y: exPlan!.y,
+              fit: exPic && dims && (exPic.w !== dims.w || exPic.h !== dims.h) ? exPic : null,
+            };
+      const result = await editExpand(job.src, job.W, job.H, job.x, job.y, mode, seed, job.fit);
+      exLastRef.current = mode === "blur" ? null : { ...job, result, mode };
+      pushWorking(result);
     } catch (err) {
       console.error("expand failed", err);
     } finally {
@@ -1316,18 +1385,42 @@ export function ImageEditor({
 
         {tool === "expand" && (
           <>
-            <div className="flex h-9 items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-900/70 p-1">
-              {EXPAND_RATIOS.map((r) => (
-                <ToolBtn
-                  key={r.id}
-                  active={exRatio === r.id}
-                  onClick={() => setExRatio(r.id)}
-                  title={r.id === "9:16" ? t("Phone wallpaper") : undefined}
-                >
-                  {r.id}
-                </ToolBtn>
-              ))}
-            </div>
+            <ThemedSelect
+              value={exRatio}
+              onChange={setExRatio}
+              options={EXPAND_RATIOS.map((r) => ({
+                value: r.id,
+                label: r.id === "9:16" ? `9:16 · ${t("Phone wallpaper")}` : r.id,
+              }))}
+              title={t("Format")}
+              className="viewer-chip h-9 w-36 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 text-xs text-zinc-300"
+              minWidth={176}
+            />
+            <ThemedSelect
+              value={exSizeDef?.id ?? "orig"}
+              onChange={setExSize}
+              options={[
+                {
+                  value: "orig",
+                  label: exFull
+                    ? `${t("Original size")} · ${exFull.W} × ${exFull.H}`
+                    : t("Original size"),
+                },
+                ...[...exSizes].reverse().map((s) => {
+                  const p = exFull && expandPlan(
+                    Math.round((dims!.w * s.short) / exShort),
+                    Math.round((dims!.h * s.short) / exShort),
+                    exDef.w,
+                    exDef.h,
+                    0.5,
+                  );
+                  return { value: s.id, label: p ? `${s.name} · ${p.W} × ${p.H}` : s.name };
+                }),
+              ]}
+              title={t("Output size — a big picture is shrunk to it first, that's also much faster")}
+              className="viewer-chip h-9 w-52 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 text-xs text-zinc-300"
+              minWidth={208}
+            />
             <label
               className="viewer-chip flex h-9 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 text-xs text-zinc-300"
               title={t("Where the picture sits on the new canvas — you can also drag it")}
@@ -1482,7 +1575,9 @@ export function ImageEditor({
               <span className="mr-1 text-[11px] tabular-nums text-zinc-500">
                 {exPlan
                   ? `${dims?.w} × ${dims?.h} → ${exPlan.W} × ${exPlan.H} px`
-                  : t("Already this shape")}
+                  : canRetry
+                    ? `${dims?.w} × ${dims?.h} px`
+                    : t("Already this shape")}
               </span>
               <div className="flex h-9 items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-900/70 p-1">
                 <ToolBtn
@@ -1518,6 +1613,15 @@ export function ImageEditor({
                 <DownloadModelBtn model="lama" label={t("Get AI model (~200 MB)")} />
               ) : exMode === "hq" && ready.sd15 === false ? (
                 <DownloadModelBtn model="sd15" label={t("Get HQ model (~1.9 GB)")} />
+              ) : !exPlan && canRetry ? (
+                <ActionBtn
+                  onClick={() => void doExpand(true)}
+                  disabled={busy || !exModelsReady}
+                  tone="brand"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  {t("Try again")}
+                </ActionBtn>
               ) : (
                 <ActionBtn
                   onClick={() => void doExpand()}
@@ -1720,8 +1824,8 @@ export function ImageEditor({
             const fit = Math.min(availW / exPlan.W, availH / exPlan.H);
             const pw = Math.max(1, Math.floor(exPlan.W * fit));
             const ph = Math.max(1, Math.floor(exPlan.H * fit));
-            const iw = dims.w * fit;
-            const ih = dims.h * fit;
+            const iw = (exPic ?? dims).w * fit;
+            const ih = (exPic ?? dims).h * fit;
             const span = exPlan.wider ? pw - iw : ph - ih;
             // the note sits in the bigger empty part, the picture covers the middle
             const before = exPlan.wider ? (exPlan.x / exPlan.W) * pw : (exPlan.y / exPlan.H) * ph;

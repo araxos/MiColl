@@ -4630,8 +4630,11 @@ async fn edit_inpaint_ai(
 }
 
 /// Expand tool: put the image on a width x height canvas at (x, y) and fill the new
-/// border, mode "ai" (LaMa, grows in strips) or "blur" (blurred copy behind it).
+/// border, mode "ai" (LaMa, grows in strips), "hq" (LaMa + Stable Diffusion, drawn with
+/// seed) or "blur" (blurred copy behind it). fit_w x fit_h: shrink the picture to that
+/// first (the editor's output size).
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn edit_expand(
     app: AppHandle,
     image_b64: String,
@@ -4640,13 +4643,22 @@ async fn edit_expand(
     x: u32,
     y: u32,
     mode: String,
+    seed: Option<u64>,
+    fit_w: Option<u32>,
+    fit_h: Option<u32>,
 ) -> Result<String, String> {
     if width == 0 || height == 0 || width > 16_000 || height > 16_000 {
         return Err("That size is out of range.".into());
     }
     let data = app_data(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let img = edit::decode_rgba(&image_b64)?;
+        let mut img = edit::decode_rgba(&image_b64)?;
+        // the output size: shrink the picture first (far fewer pixels for the AI to fill)
+        if let (Some(fw), Some(fh)) = (fit_w, fit_h) {
+            if fw > 0 && fh > 0 && (fw, fh) != img.dimensions() {
+                img = image::imageops::resize(&img, fw, fh, image::imageops::FilterType::Lanczos3);
+            }
+        }
         if x + img.width() > width || y + img.height() > height {
             return Err("The image doesn't fit on that canvas.".into());
         }
@@ -4680,6 +4692,7 @@ async fn edit_expand(
                     &laid,
                     (x, y, img.width(), img.height()),
                     band,
+                    seed.unwrap_or(7),
                     &|d, t| report("detail", d, t),
                 )?
             }
