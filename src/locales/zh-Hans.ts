@@ -1174,6 +1174,8 @@ export const dict: Dict = {
   "Expand — a wider or taller canvas, the new border gets filled in": "扩展 — 更宽或更高的画布,新边缘会被填充",
   "Pick a format and drag the picture into place — AI fill grows the border out of it": "选择比例并把图片拖到位置 — AI 填充会从图片中延伸出边缘",
   "Phone wallpaper": "手机壁纸",
+  "Edited": "已编辑",
+  "Switch between your edit and the original": "在编辑结果和原图之间切换",
   "Format": "格式",
   "Original size": "原始尺寸",
   "Output size — a big picture is shrunk to it first, that's also much faster": "输出尺寸 — 大图会先缩小到这个尺寸,速度也快得多",

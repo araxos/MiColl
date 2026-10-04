@@ -1213,6 +1213,8 @@ export const dict: Dict = {
   "Expand — a wider or taller canvas, the new border gets filled in": "Расширить — холст шире или выше, новый край заполняется",
   "Pick a format and drag the picture into place — AI fill grows the border out of it": "Выберите формат и перетащите изображение на место — ИИ-заливка выращивает край из изображения",
   "Phone wallpaper": "Обои для телефона",
+  "Edited": "Изменённое",
+  "Switch between your edit and the original": "Переключить между правкой и оригиналом",
   "Format": "Формат",
   "Original size": "Исходный размер",
   "Output size — a big picture is shrunk to it first, that's also much faster": "Размер результата — большое изображение сначала уменьшается до него, так ещё и намного быстрее",

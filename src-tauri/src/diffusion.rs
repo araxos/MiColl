@@ -90,6 +90,66 @@ fn keep_weight(x: u32, y: u32, keep: (u32, u32, u32, u32), canvas: (u32, u32), b
     t.clamp(0.0, 1.0)
 }
 
+/// One side of the picture for reseed_dark_edges: border width, picture depth, edge length
+/// and the canvas pixel at (position along the edge, depth: >= 0 inside, < 0 outside).
+type Side = (u32, u32, u32, Box<dyn Fn(u32, i64) -> (u32, u32)>);
+
+/// LaMa sometimes ends a lit edge in near black (a bar's wall and table next to a dark
+/// room: the strip beside the picture came out half as bright as the picture's edge).
+/// On such a side the picture's own edge, mirrored, is faded into a band of 10% of the
+/// picture's width before SD redraws it: SD then carries the wall and the table on
+/// instead of a hard cut. 15% mirrored a watermark near the edge along with it. Only on
+/// such sides: on the test wallpapers (ratio 0.83 and up) the mirror left mirrored
+/// shapes, so a side only gets it below 0.8, fully below 0.6.
+fn reseed_dark_edges(canvas: &RgbaImage, keep: (u32, u32, u32, u32)) -> RgbaImage {
+    let (cw, ch) = canvas.dimensions();
+    let (kx, ky, kw, kh) = keep;
+    let mut out = canvas.clone();
+    let lum = |p: &image::Rgba<u8>| 0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32;
+    let sides: [Side; 4] = [
+        (kx, kw, kh, Box::new(move |a, d| ((kx as i64 + d) as u32, ky + a))),
+        (cw - kx - kw, kw, kh, Box::new(move |a, d| ((kx as i64 + kw as i64 - 1 - d) as u32, ky + a))),
+        (ky, kh, kw, Box::new(move |a, d| (kx + a, (ky as i64 + d) as u32))),
+        (ch - ky - kh, kh, kw, Box::new(move |a, d| (kx + a, (ky as i64 + kh as i64 - 1 - d) as u32))),
+    ];
+    for (border, depth, len, at) in sides.iter() {
+        let reach = ((*depth as f32 * 0.1) as u32).min(*border);
+        let strip = 24.min(depth / 4).min(*border);
+        if reach < 4 || strip == 0 {
+            continue;
+        }
+        let (mut inside, mut outside) = (0f32, 0f32);
+        for a in 0..*len {
+            for d in 0..strip as i64 {
+                let (x, y) = at(a, d);
+                inside += lum(canvas.get_pixel(x, y));
+                let (x, y) = at(a, -1 - d);
+                outside += lum(canvas.get_pixel(x, y));
+            }
+        }
+        let n = (*len * strip) as f32;
+        let ratio = (outside / n + 4.0) / (inside / n + 4.0);
+        let w = ((0.8 - ratio) / 0.2).clamp(0.0, 1.0);
+        if w <= 0.0 {
+            continue;
+        }
+        for d in 0..reach {
+            let t = 1.0 - d as f32 / reach as f32;
+            let t = t * t * (3.0 - 2.0 * t) * w;
+            for a in 0..*len {
+                let (sx, sy) = at(a, d as i64);
+                let (ox, oy) = at(a, -1 - d as i64);
+                let src = *canvas.get_pixel(sx, sy);
+                let dst = out.get_pixel_mut(ox, oy);
+                for c in 0..3 {
+                    dst[c] = (src[c] as f32 * t + dst[c] as f32 * (1.0 - t)).round() as u8;
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Image -> [1, 3, h, w] in -1..1, f16.
 fn to_tensor(img: &RgbaImage) -> Vec<f16> {
     let (w, h) = img.dimensions();
@@ -129,6 +189,8 @@ pub fn refine(
     progress: &dyn Fn(u32, u32),
 ) -> Result<RgbaImage, String> {
     let (cw, ch) = canvas.dimensions();
+    let reseeded = reseed_dark_edges(canvas, keep);
+    let canvas = &reseeded;
     let s = (WORK_AREA / (cw as f32 * ch as f32)).sqrt();
     let gw = round64(cw as f32 * s);
     let gh = round64(ch as f32 * s);

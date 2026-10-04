@@ -29,7 +29,10 @@ import {
   Droplet,
   Expand,
   RefreshCw,
+  Minus,
+  SplitSquareHorizontal,
 } from "lucide-react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { cn } from "@/lib/utils";
 import { useT, useTf } from "@/lib/i18n";
 import { isTauri } from "@/lib/tauri";
@@ -53,6 +56,8 @@ import {
 } from "@/api/library";
 import { ModelDownloadDialog } from "@/components/ModelDownloadDialog";
 import { ThemedSelect } from "@/components/ThemedSelect";
+import { AiWorkFx, BusyNote, useLongBusy } from "@/components/AiWorkFx";
+import { useAccent } from "@/lib/theme";
 
 type Tool = "erase" | "cutout" | "crop" | "transform" | "resize" | "expand" | "adjust";
 
@@ -237,12 +242,38 @@ export function ImageEditor({
   const [dims, setDims] = useState<Dims | null>(null);
   const [tool, setTool] = useState<Tool>("erase");
   const [maskMode, setMaskMode] = useState<"add" | "subtract">("add");
-  const [brush, setBrush] = useState(28); // on-screen radius (px)
+  // on-screen radius (px), the same on every picture (remembered)
+  const [brush, setBrushState] = useState(() => {
+    const v = Number(localStorage.getItem("micoll.brushSize"));
+    return v >= 6 && v <= 90 ? v : 28;
+  });
+  // while the slider moves: the brush as a circle in the middle of the stage
+  const [brushPeek, setBrushPeek] = useState(false);
+  const brushPeekTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(brushPeekTimer.current), []);
+  const setBrush = (v: number) => {
+    setBrushState(v);
+    localStorage.setItem("micoll.brushSize", String(v));
+    queuePrefsSync();
+    setBrushPeek(true);
+    window.clearTimeout(brushPeekTimer.current);
+    brushPeekTimer.current = window.setTimeout(() => setBrushPeek(false), 900);
+  };
+  // "Original" in the title row: shows the untouched picture over the edit, until the
+  // next change
+  const [showOrig, setShowOrig] = useState(false);
+  const accent = useAccent();
+  const premium = accent === "iridescent" || accent === "cyberpunk" || accent === "sakura";
+  useEffect(() => setShowOrig(false), [working]);
   const [detectStrength, setDetectStrength] = useState(60); // detect sensitivity 0..100
   const [hasMask, setHasMask] = useState(false);
   const [cropRect, setCropRect] = useState<Rect | null>(null);
   const [busy, setBusy] = useState(false);
   const [busyMsg, setBusyMsg] = useState(() => t("Working…"));
+  // the premium themes' working effect on the picture, only for the long waits
+  const longBusy = useLongBusy(busy);
+  // how far a long job is (0..1), null when the job doesn't tell
+  const [busyProgress, setBusyProgress] = useState<number | null>(null);
   // remove engine: classic (PatchMatch) or AI (local LaMa)
   const [removeMode, setRemoveModeState] = useState<"classic" | "ai">(() =>
     localStorage.getItem("micoll.removeMode") === "ai" ? "ai" : "classic",
@@ -457,8 +488,8 @@ export function ImageEditor({
     const st = stageRef.current;
     const d = dimsRef.current;
     if (!st || !d) return;
-    const availW = st.clientWidth - 32; // p-4 (16px) on each side
-    const availH = st.clientHeight - 32;
+    const availW = st.clientWidth - 32; // px-4 (16px) on each side
+    const availH = st.clientHeight - 20; // pt-4 + pb-1, the hint row sits under it
     if (availW <= 0 || availH <= 0) return;
     const fit = Math.min(availW / d.w, availH / d.h);
     setBox({ w: Math.max(1, Math.floor(d.w * fit)), h: Math.max(1, Math.floor(d.h * fit)) });
@@ -901,10 +932,16 @@ export function ImageEditor({
     // detail on the graphics card (its own count).
     const off = await listen<{ phase?: string; done: number; total: number }>(
       "expand-progress",
-      (e) =>
+      (e) => {
         setBusyMsg(
           `${e.payload.phase === "detail" ? t("Adding detail (HQ)…") : t("Expanding (AI)…")} ${e.payload.done} / ${e.payload.total}`,
-        ),
+        );
+        // HQ: the layout is the first half, the detail the second
+        const part = e.payload.total > 0 ? e.payload.done / e.payload.total : 0;
+        setBusyProgress(
+          mode !== "hq" ? part : e.payload.phase === "detail" ? 0.5 + part / 2 : part / 2,
+        );
+      },
     );
     try {
       // a new seed every time: HQ draws something different on every try
@@ -928,6 +965,7 @@ export function ImageEditor({
     } finally {
       off();
       setBusy(false);
+      setBusyProgress(null);
       setBusyMsg(t("Working…"));
     }
   };
@@ -1169,6 +1207,16 @@ export function ImageEditor({
         <ActionBtn onClick={redo} disabled={future.length === 0 || busy} title={t("Redo")}>
           <Redo2 className="h-4 w-4" />
         </ActionBtn>
+        <ActionBtn
+          onClick={() => setShowOrig((v) => !v)}
+          disabled={!imageEdited || busy}
+          tone="ghost"
+          pressed={showOrig && imageEdited}
+          title={t("Switch between your edit and the original")}
+        >
+          <SplitSquareHorizontal className="h-4 w-4" />
+          {showOrig && imageEdited ? t("Original") : t("Edited")}
+        </ActionBtn>
         <ActionBtn onClick={reset} disabled={(!canUndo && !imageEdited) || busy} title={t("Reset to original")}>
           <RotateCcw className="h-4 w-4" />
           {t("Reset")}
@@ -1195,6 +1243,15 @@ export function ImageEditor({
           <FilePlus2 className="h-4 w-4" />
           {t("Save a copy")}
         </ActionBtn>
+        {isTauri() && (
+          <button
+            onClick={() => void getCurrentWindow().minimize()}
+            title={t("Minimize")}
+            className="ml-1 flex h-9 w-9 items-center justify-center rounded-lg text-zinc-300 transition-colors hover:bg-brand-500/15 hover:text-brand-200"
+          >
+            <Minus className="h-5 w-5" />
+          </button>
+        )}
         <button
           onClick={requestClose}
           title={t("Close (Esc)")}
@@ -1421,23 +1478,6 @@ export function ImageEditor({
               className="viewer-chip h-9 w-52 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 text-xs text-zinc-300"
               minWidth={208}
             />
-            <label
-              className="viewer-chip flex h-9 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 text-xs text-zinc-300"
-              title={t("Where the picture sits on the new canvas — you can also drag it")}
-            >
-              {exPlan && !exPlan.wider ? t("Top") : t("Left")}
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={Math.round(exPos * 100)}
-                disabled={!exPlan}
-                onChange={(e) => setExPos(Number(e.target.value) / 100)}
-                onDoubleClick={() => setExPos(0.5)}
-                className="accent-brand-500"
-              />
-              {exPlan && !exPlan.wider ? t("Bottom") : t("Right")}
-            </label>
           </>
         )}
 
@@ -1722,7 +1762,8 @@ export function ImageEditor({
           ))}
         </div>
 
-        {/* stage */}
+        {/* stage, the tool hint under it */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div
           ref={stageRef}
           onPointerDown={onStagePointerDown}
@@ -1731,7 +1772,7 @@ export function ImageEditor({
           onPointerCancel={onStagePointerUp}
           // stop Windows middle-click autoscroll
           onMouseDown={(e) => e.button === 1 && e.preventDefault()}
-          className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden p-4"
+          className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden px-4 pb-1 pt-4"
         >
           {working ? (
             <div
@@ -1787,6 +1828,7 @@ export function ImageEditor({
                   busy && "pointer-events-none",
                 )}
               />
+              {longBusy && <AiWorkFx accent={accent} progress={busyProgress} />}
               {/* thirds lines for leveling */}
               {straightening && (
                 <div className="pointer-events-none absolute inset-0">
@@ -1820,7 +1862,7 @@ export function ImageEditor({
           {working && tool === "expand" && exPlan && dims && (() => {
             const st = stageRef.current;
             const availW = Math.max(1, (st?.clientWidth ?? 0) - 32);
-            const availH = Math.max(1, (st?.clientHeight ?? 0) - 32);
+            const availH = Math.max(1, (st?.clientHeight ?? 0) - 20);
             const fit = Math.min(availW / exPlan.W, availH / exPlan.H);
             const pw = Math.max(1, Math.floor(exPlan.W * fit));
             const ph = Math.max(1, Math.floor(exPlan.H * fit));
@@ -1847,7 +1889,7 @@ export function ImageEditor({
                   />
                 ) : (
                   <div className="expand-new absolute inset-0">
-                    {Math.max(before, after) > 40 && (
+                    {!busy && Math.max(before, after) > 40 && (
                       <span
                         className="absolute max-w-[12rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-zinc-950/75 px-3 py-1 text-center text-[11px] text-zinc-300"
                         style={exPlan.wider ? { left: noteAt, top: "50%" } : { top: noteAt, left: "50%" }}
@@ -1877,6 +1919,7 @@ export function ImageEditor({
                     height: ih,
                   }}
                 />
+                {longBusy && <AiWorkFx accent={accent} progress={busyProgress} />}
               </div>
             );
           })()}
@@ -1892,21 +1935,48 @@ export function ImageEditor({
             </button>
           )}
 
-          {/* tool hint at the bottom of the stage */}
-          {working && (
-            <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-zinc-950/80 px-3 py-1 text-[11px] text-zinc-400 backdrop-blur">
-              {t(hint)}
+          {/* the untouched picture over the edit ("Original" in the title row); it
+              takes the clicks too, nothing gets painted on what isn't shown */}
+          {showOrig && imageEdited && (
+            <div className="absolute inset-0 z-[5] flex items-center justify-center bg-zinc-950 px-4 pb-1 pt-4">
+              <img
+                src={original}
+                alt=""
+                draggable={false}
+                className="editor-checker max-h-full max-w-full select-none rounded-lg object-contain shadow-2xl"
+              />
+              <span className="absolute left-3 top-3 rounded-full bg-zinc-950/80 px-3 py-1 text-[11px] font-medium text-zinc-200 backdrop-blur">
+                {t("Original")}
+              </span>
             </div>
           )}
 
+          {/* the brush size while the slider moves (on-screen size, like the stroke) */}
+          {brushPeek && tool === "erase" && (
+            <div
+              className="pointer-events-none absolute left-1/2 top-1/2 z-[6] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/90 bg-rose-500/25 shadow-[0_0_0_1px_rgba(0,0,0,0.6),0_0_18px_rgba(0,0,0,0.5)]"
+              style={{ width: brush * 2, height: brush * 2 }}
+            />
+          )}
+
           {busy && (
-            <div className="absolute inset-0 z-10 grid place-items-center bg-black/40">
-              <div className="flex items-center gap-2 rounded-xl bg-zinc-900/90 px-4 py-2.5 text-sm text-zinc-100 shadow-2xl">
-                <Loader2 className="h-4 w-4 animate-spin text-brand-300" />
-                {busyMsg}
-              </div>
+            <div
+              className={cn(
+                "absolute inset-0 z-10 grid place-items-center",
+                // the premium themes show the work on the picture itself, keep it visible
+                premium ? "bg-black/10" : "bg-black/40",
+              )}
+            >
+              <BusyNote accent={accent} msg={busyMsg} progress={busyProgress} />
             </div>
           )}
+        </div>
+        {/* tool hint under the picture, never on top of it */}
+        {working && (
+          <div className="flex h-6 shrink-0 items-start justify-center px-4 text-[11px] leading-4 text-zinc-400">
+            <span className="truncate">{t(hint)}</span>
+          </div>
+        )}
         </div>
       </div>
     </motion.div>
@@ -2078,12 +2148,15 @@ function ActionBtn({
   disabled,
   tone = "ghost",
   title,
+  pressed,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
   tone?: "ghost" | "brand" | "secondary" | "primary";
   title?: string;
+  /** A toggle that's on: the premium themes give it their "picked" look (data-active). */
+  pressed?: boolean;
 }) {
   const tones = {
     ghost: "border border-zinc-800 bg-zinc-900 text-zinc-200 micoll-hover",
@@ -2098,11 +2171,12 @@ function ActionBtn({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      data-active={tone === "primary" || undefined}
+      data-active={tone === "primary" || pressed || undefined}
       data-secondary={tone === "secondary" || undefined}
       className={cn(
         "viewer-btn inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors disabled:opacity-40 disabled:pointer-events-none",
-        tones[tone],
+        // on like the tool chips (AI fill …): the accent fill
+        pressed ? "border border-transparent bg-brand-600 text-white" : tones[tone],
       )}
     >
       {children}

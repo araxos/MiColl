@@ -3388,6 +3388,455 @@ img {
   color: #09090b;
 }
 
+/* ---- Editor: the picture while the AI works on it (premium themes) ------- */
+/* AiWorkFx.tsx lays these over the picture being changed. Every piece fades in on
+   its own (no opacity on .aifx itself: that would make it a stacking context and
+   the blend modes below would only blend with nothing). */
+.aifx {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.aifx > * {
+  position: absolute;
+  pointer-events: none;
+}
+@keyframes aifx-in {
+  from { opacity: 0; }
+}
+
+/* iridescent: quiet and precious. A faint pearl sheen, a hairline of shifting pastel
+   light around the picture, small stars and motes of light rising, now and then a
+   thin glint across. Kept faint on purpose: the picture stays the star. */
+@property --aifx-iri-a {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+/* a repeating band that ends in the colour it starts with, so its tiles meet without a
+   seam (a tiled diagonal gradient left a hard vertical line). The diagonal comes from
+   turning the whole, oversized layer; it slides exactly one period per loop. */
+.aifx-iri-sheen {
+  inset: -60%;
+  background-image: repeating-linear-gradient(
+    90deg,
+    #c4b5fd 0,
+    #f5c2ff 150px,
+    #a7f3d0 300px,
+    #bae6fd 450px,
+    #c4b5fd 600px
+  );
+  transform: rotate(25deg);
+  mix-blend-mode: soft-light;
+  opacity: 0.38;
+  animation:
+    aifx-in 1.2s ease both,
+    aifx-iri-flow 9s linear infinite;
+}
+@keyframes aifx-iri-flow {
+  from { background-position: 0 0; }
+  to { background-position: 600px 0; }
+}
+/* the hairline: a turning conic gradient, masked to a 1.5px ring */
+.aifx-iri-rim {
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--aifx-iri-a),
+    rgba(196, 181, 253, 0.9),
+    rgba(245, 194, 255, 0.9),
+    rgba(167, 243, 208, 0.9),
+    rgba(186, 230, 253, 0.9),
+    rgba(196, 181, 253, 0.9)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  filter: drop-shadow(0 0 6px rgba(245, 194, 255, 0.55));
+  animation:
+    aifx-in 1.2s ease both,
+    aifx-iri-turn 6s linear infinite;
+}
+@keyframes aifx-iri-turn {
+  to { --aifx-iri-a: 360deg; }
+}
+.aifx-iri-glint {
+  inset: -50%;
+  background: linear-gradient(
+    105deg,
+    transparent 46%,
+    rgba(245, 194, 255, 0.08) 48.5%,
+    rgba(255, 255, 255, 0.22) 50%,
+    rgba(186, 230, 253, 0.08) 51.5%,
+    transparent 54%
+  );
+  mix-blend-mode: screen;
+  animation:
+    aifx-in 1.2s ease both,
+    aifx-iri-glint 5.5s cubic-bezier(0.55, 0, 0.3, 1) infinite;
+}
+@keyframes aifx-iri-glint {
+  0% { transform: translateX(-45%); }
+  55%, 100% { transform: translateX(45%); }
+}
+/* a small four-pointed star. The shape is on ::before, the glow on the star itself:
+   clip-path would cut a filter on the same element away. */
+.aifx-iri-star {
+  width: var(--sz);
+  height: var(--sz);
+  margin: calc(var(--sz) / -2) 0 0 calc(var(--sz) / -2);
+  filter: drop-shadow(0 0 1.5px rgba(139, 92, 246, 0.6)) drop-shadow(0 0 5px rgba(245, 194, 255, 0.95));
+  opacity: 0;
+  animation: aifx-iri-twinkle 3.6s ease-in-out infinite;
+}
+.aifx-iri-star::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  /* white heart, pastel tips: shows on a bright sky as well as on a dark picture */
+  background: radial-gradient(circle, #fff 0 22%, #f3e8ff 40%, #d8b4fe 70%);
+  clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+}
+@keyframes aifx-iri-twinkle {
+  0%, 100% { opacity: 0; transform: scale(0.4) rotate(0deg); }
+  40% { opacity: 1; transform: scale(1) rotate(30deg); }
+  60% { opacity: 0.6; transform: scale(0.85) rotate(40deg); }
+}
+/* motes of light rising slowly */
+.aifx-iri-mote {
+  bottom: 0;
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  background: #faf5ff;
+  box-shadow:
+    0 0 0 1px rgba(196, 181, 253, 0.35),
+    0 0 6px 1px rgba(196, 181, 253, 0.85);
+  opacity: 0;
+  animation-name: aifx-iri-rise;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+@keyframes aifx-iri-rise {
+  0% { opacity: 0; transform: translate(0, 0); }
+  20% { opacity: 0.7; }
+  80% { opacity: 0.5; }
+  100% { opacity: 0; transform: translate(var(--drift), -60vh); }
+}
+
+/* the busy note on iridescent: a dark glass card with the turning pastel hairline and
+   the theme's crystal (CrystalProgress) filling with the real progress */
+.aifx-note-iri {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px 10px 12px;
+  border-radius: 16px;
+  background: rgba(20, 18, 32, 0.8);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.45),
+    0 0 26px rgba(196, 181, 253, 0.16);
+  color: #f5f3ff;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.aifx-note-iri > .aifx-iri-rim {
+  position: absolute;
+  pointer-events: none;
+}
+.aifx-note-iri-pct {
+  margin-top: 2px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  background-image: linear-gradient(90deg, #c4b5fd, #f5c2ff, #a7f3d0, #bae6fd);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* the busy note on cyberpunk: a HUD readout. Square with a cut corner, acid-yellow
+   edge, mono text with a blinking cursor and a segmented bar that fills with the real
+   progress (or runs a loop when there's none). */
+.aifx-note-cy {
+  position: relative;
+  min-width: 15rem;
+  padding: 9px 14px 10px;
+  border: 1px solid rgba(252, 238, 10, 0.75);
+  background: rgba(9, 9, 11, 0.9);
+  box-shadow:
+    0 0 0 1px rgba(0, 229, 255, 0.18) inset,
+    0 0 22px rgba(252, 238, 10, 0.18),
+    0 12px 36px rgba(0, 0, 0, 0.5);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+  font: 600 12px/16px ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color: #fcee0a;
+  letter-spacing: 0.04em;
+}
+.aifx-note-cy-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 7px;
+}
+.aifx-note-cy-head::after {
+  content: "_";
+  animation: aifx-cy-blink 1s steps(1) infinite;
+}
+@keyframes aifx-cy-blink {
+  50% { opacity: 0; }
+}
+.aifx-note-cy-pct {
+  color: #00e5ff;
+  font-variant-numeric: tabular-nums;
+}
+.aifx-note-cy-bar {
+  display: grid;
+  grid-template-columns: repeat(20, 1fr);
+  gap: 2px;
+  height: 6px;
+}
+.aifx-note-cy-bar > i {
+  background: rgba(252, 238, 10, 0.12);
+}
+.aifx-note-cy-bar > i[data-on] {
+  background: #fcee0a;
+  box-shadow: 0 0 6px rgba(252, 238, 10, 0.7);
+}
+/* no progress known: a block of light runs along */
+.aifx-note-cy-bar--loop > i {
+  animation: aifx-cy-run 1.4s steps(1) infinite;
+}
+@keyframes aifx-cy-run {
+  0%, 15% { background: #fcee0a; box-shadow: 0 0 6px rgba(252, 238, 10, 0.7); }
+  16%, 100% { background: rgba(252, 238, 10, 0.12); box-shadow: none; }
+}
+
+/* cyberpunk: the picture gets hacked */
+.aifx-cy-lines {
+  inset: 0;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.32) 0 1px, transparent 1px 3px);
+  animation:
+    aifx-in 0.3s steps(3) both,
+    aifx-cy-flicker 0.18s steps(2) infinite;
+}
+@keyframes aifx-cy-flicker {
+  50% { opacity: 0.7; }
+}
+/* rare, faint and thin: a short flick every few seconds, not a strobe */
+.aifx-cy-band {
+  left: 0;
+  right: 0;
+  mix-blend-mode: difference;
+  opacity: 0;
+  animation: aifx-cy-glitch 5.5s steps(1) infinite;
+}
+.aifx-cy-band--0 { background: #fcee0a; }
+.aifx-cy-band--1 { background: #00e5ff; }
+.aifx-cy-band--2 { background: #ff2a6d; }
+@keyframes aifx-cy-glitch {
+  0%, 100% { opacity: 0; transform: translateX(0); }
+  62% { opacity: 0.28; transform: translateX(-3%); }
+  63.5% { opacity: 0.16; transform: translateX(2%) scaleY(0.6); }
+  65% { opacity: 0; transform: translateX(0); }
+}
+.aifx-cy-stream {
+  top: 0;
+  white-space: pre;
+  font: 600 10px/12px ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color: #ff1f1f;
+  text-shadow: 0 0 6px rgba(255, 31, 31, 0.9);
+  opacity: 0.75;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 25%, #000 70%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 25%, #000 70%, transparent);
+  animation-name: aifx-cy-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+/* a lighter red every third column, for depth */
+.aifx-cy-stream--y {
+  color: #ff7a6b;
+  text-shadow: 0 0 6px rgba(255, 90, 70, 0.85);
+}
+@keyframes aifx-cy-fall {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(100vh); }
+}
+.aifx-cy-bar {
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  background: #00e5ff;
+  box-shadow:
+    0 0 12px 2px rgba(0, 229, 255, 0.85),
+    0 0 40px 8px rgba(0, 229, 255, 0.3);
+  mix-blend-mode: screen;
+  animation:
+    aifx-in 0.3s steps(3) both,
+    aifx-cy-scan 2.2s cubic-bezier(0.6, 0, 0.4, 1) infinite alternate;
+}
+@keyframes aifx-cy-scan {
+  from { top: 0; }
+  to { top: calc(100% - 3px); }
+}
+
+/* sakura: quiet and Japanese. Cherry branches grow out of the left edge one above the
+   other (SakuraFx), their blossoms open one by one, and only then single petals (with
+   the notched tip) leave them on the wind, some soft as if further away. A faint blush
+   only at the edges. */
+.aifx-sak-blush {
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(244, 114, 182, 0.22) 100%);
+  animation:
+    aifx-in 1.2s ease both,
+    aifx-sak-blush 6s ease-in-out infinite;
+}
+@keyframes aifx-sak-blush {
+  50% { opacity: 0.6; }
+}
+.aifx-sak-branch {
+  left: 0;
+  bottom: 0;
+  width: min(42%, 300px);
+  overflow: visible;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
+  animation: aifx-in 0.6s ease both;
+}
+/* a side branch growing out of the left edge at its height (top = its middle) */
+.aifx-sak-twig {
+  left: 0;
+  width: min(34%, 240px);
+  transform: translateY(-50%);
+  overflow: visible;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
+  animation: aifx-in 0.6s ease both;
+}
+.aifx-sak-branch .stem,
+.aifx-sak-twig .stem {
+  fill: none;
+  stroke: #7a4359;
+  stroke-linecap: round;
+  stroke-dasharray: 260;
+  stroke-dashoffset: 260;
+  animation: aifx-sak-draw 2.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes aifx-sak-draw {
+  to { stroke-dashoffset: 0; }
+}
+.aifx-sak-branch .flower,
+.aifx-sak-twig .flower {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(0);
+  animation:
+    aifx-sak-open 1s cubic-bezier(0.2, 0.9, 0.3, 1.25) forwards,
+    aifx-sak-sway 4.5s ease-in-out infinite;
+  animation-delay: var(--d), calc(var(--d) + 1s);
+}
+@keyframes aifx-sak-open {
+  from { transform: scale(0) rotate(-40deg); }
+  to { transform: scale(1) rotate(0deg); }
+}
+@keyframes aifx-sak-sway {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  50% { transform: scale(1.04) rotate(8deg); }
+}
+.aifx-sak-glide {
+  left: -8%;
+  width: var(--sz);
+  height: var(--sz);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-10 -18 20 20'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23ffe4f1'/%3E%3Cstop offset='1' stop-color='%23f472b6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M0 0 C-6 -4 -7 -12 -3 -16 L0 -13.5 L3 -16 C7 -12 6 -4 0 0 Z' fill='url(%23g)'/%3E%3C/svg%3E") center / contain no-repeat;
+  opacity: 0;
+  animation-name: aifx-sak-glide;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+.aifx-sak-glide--far {
+  filter: blur(1.6px);
+}
+/* from its branch on the left across to the right, sinking by --fall on the way */
+@keyframes aifx-sak-glide {
+  0% { left: 4%; top: var(--y); opacity: 0; transform: rotate(0deg); }
+  8% { opacity: 0.95; }
+  35% { top: calc(var(--y) + var(--fall) * 0.45); transform: rotate(120deg); }
+  65% { top: calc(var(--y) + var(--fall) * 0.3); transform: rotate(220deg); }
+  90% { opacity: 0.9; }
+  100% { left: 104%; top: calc(var(--y) + var(--fall)); opacity: 0; transform: rotate(340deg); }
+}
+
+/* the busy note on sakura: plum glass with a rose edge and a cherry blossom whose five
+   petals fill one by one with the progress (or light up in turn when there's none) */
+.aifx-note-sak {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px 10px 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(249, 168, 212, 0.45);
+  background:
+    linear-gradient(160deg, rgba(255, 209, 229, 0.1), transparent 55%),
+    rgba(36, 16, 28, 0.86);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 240, 247, 0.25),
+    0 12px 36px rgba(0, 0, 0, 0.45),
+    0 0 24px rgba(244, 114, 182, 0.22);
+  color: #ffe4f1;
+  font-size: 13px;
+  font-weight: 500;
+}
+.aifx-note-sak-pct {
+  margin-top: 2px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #f9a8d4;
+}
+.aifx-note-sak svg {
+  overflow: visible;
+}
+.aifx-note-sak .petal {
+  fill: rgba(249, 168, 212, 0.14);
+  stroke: rgba(249, 168, 212, 0.55);
+  stroke-width: 0.8;
+  transition: fill 0.4s ease;
+}
+.aifx-note-sak .petal[data-on] {
+  fill: url(#aifx-sak-petal-fill);
+  stroke: rgba(255, 228, 241, 0.9);
+}
+.aifx-note-sak--loop .petal {
+  animation: aifx-sak-turn 2s ease-in-out infinite;
+}
+@keyframes aifx-sak-turn {
+  0%, 100% { fill: rgba(249, 168, 212, 0.14); }
+  30% { fill: #f9a8d4; }
+}
+.aifx-note-sak--loop svg {
+  animation: aifx-sak-spin 10s linear infinite;
+}
+@keyframes aifx-sak-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* the Animations switch and reduced motion: no effect, the busy note stays */
+[data-animations="off"] .aifx {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .aifx {
+    display: none;
+  }
+}
+
 /* ---- Editor: Expand preview --------------------------------------------- */
 /* The new border AI fill will make: soft diagonal stripes in the theme color over the
    dark stage, so it reads as "to be filled" and not as part of the picture. */

@@ -1174,6 +1174,8 @@ export const dict: Dict = {
   "Expand — a wider or taller canvas, the new border gets filled in": "拡張 — キャンバスを横または縦に広げ、新しい余白を埋めます",
   "Pick a format and drag the picture into place — AI fill grows the border out of it": "形式を選んで画像を位置までドラッグ — AI 塗りつぶしが画像から余白を広げます",
   "Phone wallpaper": "スマホ壁紙",
+  "Edited": "編集後",
+  "Switch between your edit and the original": "編集後と元の画像を切り替え",
   "Format": "形式",
   "Original size": "元のサイズ",
   "Output size — a big picture is shrunk to it first, that's also much faster": "出力サイズ — 大きな画像はまずこのサイズに縮小され、処理もずっと速くなります",

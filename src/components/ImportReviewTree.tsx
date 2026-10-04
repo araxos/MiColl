@@ -1224,9 +1224,7 @@ export function ImportReviewTree({
                             title={t(hint)}
                             className={cn(
                               "inline-flex items-center gap-1.5 px-2.5 py-1 text-xs transition-colors",
-                              node.style === key
-                                ? cn("font-medium", dlg.menuRowOpen, dlg.control)
-                                : dlg.control,
+                              node.style === key ? cn("font-medium", dlg.controlOn) : dlg.control,
                             )}
                           >
                             <Icon className="h-3 w-3" />

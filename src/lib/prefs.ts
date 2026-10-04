@@ -70,6 +70,7 @@ const SYNCED = [
   "micoll.removeMode",
   "micoll.expandMode",
   "micoll.expandSize",
+  "micoll.brushSize",
   "micoll.classFilter",
   "micoll.typeFilter",
 ] as const;

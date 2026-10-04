@@ -27,6 +27,11 @@ export interface DialogTheme {
    */
   control: string;
   /**
+   * control when it's the picked one of a group (Monthly / Numbered drops …). Use it
+   * instead of control, not on top: control's own fill would win over a selected fill.
+   */
+  controlOn: string;
+  /**
    * Right-click menu panel. Like panel but without the cyberpunk clip-path
    * and without overflow-hidden (submenus must not get cut off).
    */
@@ -113,6 +118,15 @@ export function useDialogTheme(): DialogTheme {
           ? "rounded-lg border border-[#f9a8d4]/40 bg-[#f9a8d4]/10 text-zinc-100 hover:bg-[#f9a8d4]/20"
           : // `micoll-hover` = the accent's own hover fill (index.css), not zinc.
             "rounded-lg border border-zinc-700 text-zinc-200 micoll-hover micoll-hover-ink";
+  const controlOn =
+    accent === "cyberpunk"
+      ? "rounded-none border border-[#fcee0a] bg-[#fcee0a]/20 text-[#fcee0a] shadow-[0_0_12px_rgba(252,238,10,0.3)]"
+      : accent === "iridescent"
+        ? // the theme's own pastel gradient, faint, with a bright rim
+          "iri-frost rounded-lg border border-white/70 text-white shadow-[0_0_14px_rgba(196,181,253,0.4)] [background-image:linear-gradient(90deg,rgba(196,181,253,0.35),rgba(245,194,255,0.35),rgba(167,243,208,0.3),rgba(186,230,253,0.35))]"
+        : accent === "sakura"
+          ? "rounded-lg border border-[#f9a8d4]/90 bg-[#f472b6]/35 text-white shadow-[0_0_12px_rgba(244,114,182,0.4)]"
+          : "rounded-lg border border-brand-500 bg-brand-500/20 text-brand-100";
   const primary =
     accent === "cyberpunk"
       ? "!rounded-none !bg-[#fcee0a] !text-zinc-950 shadow-[0_0_16px_rgba(252,238,10,0.35)] hover:!bg-[#fff35c]"
@@ -180,6 +194,7 @@ export function useDialogTheme(): DialogTheme {
     box,
     soft,
     control,
+    controlOn,
     menu,
     menuRow,
     menuRowOpen,

@@ -1185,6 +1185,8 @@ export const dict: Dict = {
   "Expand — a wider or taller canvas, the new border gets filled in": "Expandir — uma tela mais larga ou mais alta, a nova borda é preenchida",
   "Pick a format and drag the picture into place — AI fill grows the border out of it": "Escolha um formato e arraste a imagem para o lugar — o preenchimento com IA faz a borda crescer a partir da imagem",
   "Phone wallpaper": "Papel de parede do celular",
+  "Edited": "Editada",
+  "Switch between your edit and the original": "Alternar entre sua edição e o original",
   "Format": "Formato",
   "Original size": "Tamanho original",
   "Output size — a big picture is shrunk to it first, that's also much faster": "Tamanho de saída — uma imagem grande é reduzida a ele primeiro, também é bem mais rápido",
