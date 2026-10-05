@@ -51,10 +51,12 @@ import {
   saveImageVersion,
   aiModelStatus,
   aiModelDownload,
+  aiWarm,
   type AiModel,
   type AiModelStatus,
 } from "@/api/library";
 import { ModelDownloadDialog } from "@/components/ModelDownloadDialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ThemedSelect } from "@/components/ThemedSelect";
 import { AiWorkFx, BusyNote, useLongBusy } from "@/components/AiWorkFx";
 import { useAccent } from "@/lib/theme";
@@ -274,6 +276,19 @@ export function ImageEditor({
   const longBusy = useLongBusy(busy);
   // how far a long job is (0..1), null when the job doesn't tell
   const [busyProgress, setBusyProgress] = useState<number | null>(null);
+  /**
+   * Load the model first. The first AI step after the start spends seconds loading it;
+   * if that takes a moment the note says so, then it goes back to the step's own text.
+   */
+  const warmModel = async (model: AiModel, stepMsg: string) => {
+    const slow = window.setTimeout(() => setBusyMsg(t("Loading AI model…")), 200);
+    try {
+      await aiWarm(model);
+    } finally {
+      window.clearTimeout(slow);
+      setBusyMsg(stepMsg);
+    }
+  };
   // remove engine: classic (PatchMatch) or AI (local LaMa)
   const [removeMode, setRemoveModeState] = useState<"classic" | "ai">(() =>
     localStorage.getItem("micoll.removeMode") === "ai" ? "ai" : "classic",
@@ -474,13 +489,26 @@ export function ImageEditor({
     else onCloseRef.current();
   }, []);
 
+  // Esc and X ask first when the edit isn't saved (saving closes on its own)
+  const [askDiscard, setAskDiscard] = useState(false);
+  const askDiscardRef = useRef(false);
+  askDiscardRef.current = askDiscard;
+  const unsavedRef = useRef(false);
+  const closeOrAsk = useCallback(() => {
+    if (unsavedRef.current) setAskDiscard(true);
+    else requestClose();
+  }, [requestClose]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") requestClose();
+      if (e.key !== "Escape") return;
+      // Esc on the question cancels it
+      if (askDiscardRef.current) setAskDiscard(false);
+      else closeOrAsk();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [requestClose]);
+  }, [closeOrAsk]);
 
   /* ---- canvas / coordinate helpers ------------------------------------- */
   // fit the image in the stage so the mask/crop overlay lines up exactly
@@ -838,6 +866,7 @@ export function ImageEditor({
     setBusyMsg(useAi ? t("Removing (AI)…") : t("Removing…"));
     setBusy(true);
     try {
+      if (useAi) await warmModel("lama", t("Removing (AI)…"));
       const res = useAi ? await editInpaintAi(working, mask) : await editInpaint(working, mask);
       pushWorking(res);
       clearMask();
@@ -872,6 +901,7 @@ export function ImageEditor({
     setBusyMsg(useAi ? t("Upscaling (AI)…") : t("Resizing…"));
     setBusy(true);
     try {
+      if (useAi) await warmModel("esrgan", t("Upscaling (AI)…"));
       const res = useAi
         ? await editUpscale(working, targetW, targetH)
         : await editResize(working, targetW, targetH);
@@ -933,6 +963,11 @@ export function ImageEditor({
     const off = await listen<{ phase?: string; done: number; total: number }>(
       "expand-progress",
       (e) => {
+        // HQ: Stable Diffusion loads its files between the layout and the detail
+        if (e.payload.phase === "loading") {
+          setBusyMsg(t("Loading HQ model…"));
+          return;
+        }
         setBusyMsg(
           `${e.payload.phase === "detail" ? t("Adding detail (HQ)…") : t("Expanding (AI)…")} ${e.payload.done} / ${e.payload.total}`,
         );
@@ -957,6 +992,7 @@ export function ImageEditor({
               y: exPlan!.y,
               fit: exPic && dims && (exPic.w !== dims.w || exPic.h !== dims.h) ? exPic : null,
             };
+      if (mode !== "blur") await warmModel("lama", t("Expanding (AI)…"));
       const result = await editExpand(job.src, job.W, job.H, job.x, job.y, mode, seed, job.fit);
       exLastRef.current = mode === "blur" ? null : { ...job, result, mode };
       pushWorking(result);
@@ -997,6 +1033,7 @@ export function ImageEditor({
     setBusyMsg(t("Removing background…"));
     setBusy(true);
     try {
+      await warmModel("isnet", t("Removing background…"));
       pushWorking(await editCutout(working, feather));
     } catch (err) {
       console.error("cutout failed", err);
@@ -1159,6 +1196,7 @@ export function ImageEditor({
   // file"
   const canUndo = history.length > 0;
   const imageEdited = !!original && working !== original;
+  unsavedRef.current = imageEdited;
   const cropPct = (v: number, total: number) => `${(v / total) * 100}%`;
   const activeTool = TOOLS.find((x) => x.id === tool)!;
   // straighten preview only with an angle AND a size
@@ -1173,6 +1211,18 @@ export function ImageEditor({
       exit={{ opacity: 0 }}
       className="micoll-viewer fixed inset-0 z-[60] flex flex-col bg-zinc-950/97 backdrop-blur-sm"
     >
+      {askDiscard && (
+        <ConfirmDialog
+          title={t("Discard your edits?")}
+          body={t("You haven't saved this as a version or a copy yet. Closing now loses the changes.")}
+          confirmLabel={t("Discard")}
+          onConfirm={() => {
+            setAskDiscard(false);
+            requestClose();
+          }}
+          onCancel={() => setAskDiscard(false)}
+        />
+      )}
       {askModel && (
         <ModelDownloadDialog
           model={askModel}
@@ -1253,7 +1303,7 @@ export function ImageEditor({
           </button>
         )}
         <button
-          onClick={requestClose}
+          onClick={closeOrAsk}
           title={t("Close (Esc)")}
           className="ml-1 flex h-9 w-9 items-center justify-center rounded-lg text-zinc-300 transition-colors hover:bg-brand-500/15 hover:text-brand-200"
         >

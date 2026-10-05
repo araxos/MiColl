@@ -643,11 +643,11 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
 
   const doImport = async (
     rewards: api.ResolvedReward[],
-    opts: { styles: api.StyleChoice[]; openAsCards: boolean },
+    opts: { styles: api.StyleChoice[] },
   ) => {
     setBusy(true);
     try {
-      await api.commitImport(rewards, importSource, opts.styles, opts.openAsCards);
+      await api.commitImport(rewards, importSource, opts.styles);
       if (importManaged) {
         // managed mode: move the new content into the collection and remove the old folder
         const org = await api.organizeCollection();

@@ -1449,6 +1449,15 @@ struct MediaStat {
     modified: i64,
 }
 
+/// Images, videos, other files and the size of what an import brings in (the line at the
+/// bottom of the import review). One walk per folder, off the command thread.
+#[tauri::command]
+async fn import_stats(folders: Vec<String>) -> Result<indexer::ImportStats, String> {
+    tauri::async_runtime::spawn_blocking(move || indexer::import_stats(&folders))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Stat files for the viewer's size/date sort. Missing files give zeros.
 /// Only metadata, no decrypting (encrypted size keeps the order).
 #[tauri::command]
@@ -4684,6 +4693,8 @@ async fn edit_expand(
                     );
                 };
                 let laid = ai::outpaint_lama(&data, &img, width, height, x, y, &|d, t| report("layout", d, t))?;
+                // Stable Diffusion loads its files for every run, that takes a few seconds
+                report("loading", 0, 0);
                 // SD may blend a bit further into the picture than LaMa (it's drawn at a
                 // lower resolution, a wider fade hides that)
                 let band = ((width.min(height) as f32 * 0.02).round() as u32).clamp(8, 48);
@@ -4771,6 +4782,16 @@ struct AiModelStatus {
     url: &'static str,
     /// the model folder
     folder: String,
+}
+
+/// Load an AI model into memory without running it (see ai::warm).
+#[tauri::command]
+async fn ai_warm(app: AppHandle, model: String) -> Result<(), String> {
+    let m = ai::Model::from_id(&model)?;
+    let data = app_data(&app)?;
+    tauri::async_runtime::spawn_blocking(move || ai::warm(&data, m))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -8614,6 +8635,7 @@ pub fn run() {
             move_images,
             merge_rewards,
             media_stats,
+            import_stats,
             read_file_props,
             write_file_props,
             summarize_file_props,
@@ -8727,6 +8749,7 @@ pub fn run() {
             edit_upscale,
             edit_cutout,
             ai_model_status,
+            ai_warm,
             ai_model_download,
             edit_detect,
             edit_save,

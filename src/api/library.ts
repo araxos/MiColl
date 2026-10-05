@@ -1035,6 +1035,11 @@ export async function editCutout(imageB64: string, feather = 0): Promise<string>
 /** The local AI models the editor can use. */
 export type AiModel = "lama" | "esrgan" | "isnet" | "sd15";
 
+/** Load an AI model into memory now (instant when it's loaded already). */
+export async function aiWarm(model: AiModel): Promise<void> {
+  return invoke<void>("ai_warm", { model });
+}
+
 export interface AiModelStatus {
   ready: boolean;
   sizeMb: number | null;
@@ -1484,6 +1489,18 @@ export async function moveImages(imageIds: string[], destRewardId: string): Prom
   });
 }
 
+/** What an import brings in (the line at the bottom of the import review). */
+export interface ImportStats {
+  images: number;
+  videos: number;
+  /** archives and other files that get a tile */
+  other: number;
+  bytes: number;
+}
+export async function importStats(folders: string[]): Promise<ImportStats> {
+  return invoke<ImportStats>("import_stats", { folders });
+}
+
 /** Per-file size (bytes) + last-modified (ms) — for the viewer's sort by size/date. */
 export interface MediaStat {
   path: string;
@@ -1653,9 +1670,8 @@ export async function commitImport(
   rewards: ResolvedReward[],
   source: string,
   styles: StyleChoice[] = [],
-  openAsCards = false,
 ): Promise<ScanSummary> {
-  return invoke<ScanSummary>("commit_import", { rewards, source, styles, openAsCards });
+  return invoke<ScanSummary>("commit_import", { rewards, source, styles });
 }
 
 export interface CreateArtistArgs {

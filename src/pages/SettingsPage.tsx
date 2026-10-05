@@ -687,12 +687,12 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
 
   const doImport = async (
     rewards: api.ResolvedReward[],
-    opts: { styles: api.StyleChoice[]; openAsCards: boolean },
+    opts: { styles: api.StyleChoice[] },
   ) => {
     setBusy(true);
     setStatus(null);
     try {
-      const s = await api.commitImport(rewards, source, opts.styles, opts.openAsCards);
+      const s = await api.commitImport(rewards, source, opts.styles);
       if (managed && collectionRoot) {
         // managed mode: move the new content into the collection and remove the old folder
         await api.organizeCollection();

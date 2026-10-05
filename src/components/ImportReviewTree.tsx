@@ -13,7 +13,6 @@ import {
   UserPlus,
   Sparkles,
   Undo2,
-  LayoutGrid,
   FolderTree,
   ArrowUpRight,
 } from "lucide-react";
@@ -22,6 +21,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { ThemedSelect } from "@/components/ThemedSelect";
 import { ImportClashDialog } from "@/components/ImportClashDialog";
+import { ImportStatsLine } from "@/components/ImportStatsLine";
 import * as api from "@/api/library";
 import type { ImportPlan, ResolvedReward, StyleChoice } from "@/api/library";
 import type { ReleaseStyle } from "@/types";
@@ -229,7 +229,7 @@ export function ImportReviewTree({
   defaultNumber?: number;
   onConfirm: (
     rewards: ResolvedReward[],
-    opts: { styles: StyleChoice[]; openAsCards: boolean },
+    opts: { styles: StyleChoice[] },
   ) => void;
   onCancel: () => void;
 }) {
@@ -573,8 +573,6 @@ export function ImportReviewTree({
   const [combine, setCombine] = useState(false);
   const [combinedTitle, setCombinedTitle] = useState(rootName);
 
-  const [openAsCards, setOpenAsCards] = useState(false);
-
   const [customPlatforms, setCustomPlatforms] = useState<string[]>([]);
   const [newPlatform, setNewPlatform] = useState<string | null>(null);
   // the platform list + anything typed in this review
@@ -815,7 +813,7 @@ export function ImportReviewTree({
       setClashes(found);
       return;
     }
-    onConfirm(rewards, { styles: styleList, openAsCards });
+    onConfirm(rewards, { styles: styleList });
   };
 
   const confirm = () => {
@@ -867,7 +865,7 @@ export function ImportReviewTree({
     const rest = pend.rewards.filter((r) => !done.has(r.folder));
     if (rest.length > 0) {
       // the merged files are in place, the rest goes through the normal import
-      onConfirm(rest, { styles: pend.styles, openAsCards });
+      onConfirm(rest, { styles: pend.styles });
       return;
     }
     await refresh();
@@ -1025,9 +1023,9 @@ export function ImportReviewTree({
                 {lockedArtist ? tf("Add rewards to {name}", { name: lockedArtist }) : t("Review import")}
               </h2>
               <p className="text-xs text-zinc-400">
-                {outCount} reward(s)
-                {lockedArtist || combine ? "" : ` · ${tree.length} creator(s)`}
-                {" · this is exactly what will be created"}
+                {tp("{n} rewards", outCount)}
+                {lockedArtist || combine ? "" : ` · ${tp("{n} creators", tree.length)}`}
+                {` · ${t("this is exactly what will be created")}`}
               </p>
             </div>
             <button onClick={onCancel} className="text-zinc-500 hover:text-zinc-300">
@@ -1167,10 +1165,10 @@ export function ImportReviewTree({
                               ? [{ value: "", label: t("(mixed)"), muted: true }]
                               : []),
                             ...platformOptions.map((p) => ({ value: p, label: p })),
-                            { value: "__add__", label: t("+ Platform…"), muted: true },
-                            // always the last two: Misc, then Unsorted at the very bottom
+                            // then Misc and Unsorted, "+ Platform…" always the very last
                             { value: MISC, label: t("Misc") },
                             { value: UNSORTED, label: t("Unsorted") },
+                            { value: "__add__", label: t("+ Platform…"), muted: true },
                           ]}
                           title={t("Platform for every reward of this creator")}
                           className={cn("h-8 w-32 shrink-0", inputCls)}
@@ -1539,17 +1537,8 @@ export function ImportReviewTree({
                   );
                 })}
 
-                {/* view preference, small at the end */}
-                <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-500">
-                  <input
-                    type="checkbox"
-                    checked={openAsCards}
-                    onChange={(e) => setOpenAsCards(e.target.checked)}
-                    className="h-3.5 w-3.5 accent-brand-500"
-                  />
-                  <LayoutGrid className="h-3.5 w-3.5" />
-                  {t("Open imported periods as folder cards (instead of jumping straight into the viewer)")}
-                </label>
+                {/* what comes in: images, videos, other files and the size */}
+                <ImportStatsLine folders={plan.rewards.map((r) => r.folder)} />
               </div>
             )}
           </div>

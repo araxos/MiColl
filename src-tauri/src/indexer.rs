@@ -608,6 +608,42 @@ pub fn collect_reward_images(reward_dir: &Path) -> (Vec<(String, String)>, Optio
     (images, cover)
 }
 
+/// What an import brings in, for the line at the bottom of the import review.
+#[derive(Serialize, Default, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportStats {
+    pub images: u64,
+    pub videos: u64,
+    /// archives and other files that get a tile
+    pub other: u64,
+    pub bytes: u64,
+}
+
+/// Count the files of these reward folders the way the import takes them
+/// (collect_reward_images rules). A folder inside another one is counted once.
+pub fn import_stats(folders: &[String]) -> ImportStats {
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    let mut st = ImportStats::default();
+    for f in folders {
+        for entry in WalkDir::new(f) {
+            let Ok(entry) = entry else { continue };
+            let p = entry.path();
+            if !p.is_file() || !is_indexable(p) || !seen.insert(p.to_path_buf()) {
+                continue;
+            }
+            if is_image(p) {
+                st.images += 1;
+            } else if is_video(p) {
+                st.videos += 1;
+            } else {
+                st.other += 1;
+            }
+            st.bytes += entry.metadata().map(|m| m.len()).unwrap_or(0);
+        }
+    }
+    st
+}
+
 /* ---- DB upserts ------------------------------------------------------ */
 
 pub fn upsert_artist(conn: &Connection, name: &str) -> rusqlite::Result<i64> {
@@ -2642,5 +2678,24 @@ pub(crate) mod tests {
             .expect("Fansly detected");
         assert_eq!((f.year, f.month), (Some(2026), Some(3)));
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn import_stats_counts_each_file_once_by_kind() {
+        let dir = std::env::temp_dir().join(format!("micoll-import-stats-{}", std::process::id()));
+        let inner = dir.join("Reward").join("extra");
+        std::fs::create_dir_all(&inner).unwrap();
+        std::fs::write(dir.join("Reward").join("a.jpg"), b"12345").unwrap();
+        std::fs::write(dir.join("Reward").join("b.mp4"), b"123").unwrap();
+        std::fs::write(inner.join("c.zip"), b"12").unwrap();
+        std::fs::write(inner.join("d.png"), b"1").unwrap();
+        // the nested folder is a reward of its own too: still counted once
+        let folders = vec![
+            dir.join("Reward").to_string_lossy().to_string(),
+            inner.to_string_lossy().to_string(),
+        ];
+        let st = import_stats(&folders);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(st, ImportStats { images: 2, videos: 1, other: 1, bytes: 11 });
     }
 }

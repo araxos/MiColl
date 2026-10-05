@@ -557,6 +557,9 @@ export function ImageViewer({
   const [showHelp, setShowHelp] = useState(false);
   const showHelpRef = useRef(false);
   showHelpRef.current = showHelp;
+  // the editor on top takes the keys (Esc would close both, the arrows switch the picture)
+  const editingRef = useRef(false);
+  editingRef.current = editing;
   const ssMenuRef = useRef(false);
   ssMenuRef.current = ssMenu !== null;
   // "Crop & set" cover: which image + setter + the card ratio
@@ -870,6 +873,7 @@ export function ImageViewer({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (editingRef.current) return;
       bump(); // any key reveals the chrome and restarts the auto-hide timer
       if (e.key === "?") {
         e.preventDefault();

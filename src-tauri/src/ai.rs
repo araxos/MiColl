@@ -325,6 +325,16 @@ fn load_session(path: &Path) -> Result<Session, String> {
         .map_err(|e| format!("load model: {e}"))
 }
 
+/// Load the model's session now (no-op when it's loaded already). The editor calls it
+/// before an AI step so the first run after the start can say "Loading AI model…"
+/// instead of sitting silent for seconds. Several-file models (Sd15) load per run.
+pub fn warm(app_data: &Path, model: Model) -> Result<(), String> {
+    if model.parts().is_some() {
+        return Ok(());
+    }
+    with_session(app_data, model, |_| Ok(()))
+}
+
 /// Run f with the cached session for model (loads it the first time).
 fn with_session<R>(
     app_data: &Path,
