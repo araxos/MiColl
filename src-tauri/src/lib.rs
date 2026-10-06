@@ -14,6 +14,7 @@ mod signing;
 mod single_instance;
 mod template;
 mod thumbs;
+mod transfer;
 mod wshare;
 
 use db::{Artist, Db, Root};
@@ -1197,34 +1198,21 @@ fn add_skipped_period(
     Ok(())
 }
 
-/// Copy a folder's contents into dst recursively. Counts copied and failed files
-/// instead of stopping at the first error (one locked file doesn't sink the drop).
-fn copy_tree_counting(
-    src: &std::path::Path,
-    dst: &std::path::Path,
-    added: &mut u32,
-    failed: &mut u32,
-) {
-    let entries = match std::fs::read_dir(src) {
-        Ok(e) => e,
-        Err(_) => {
-            *failed += 1;
-            return;
-        }
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let dest = dst.join(entry.file_name());
-        if path.is_dir() {
-            let _ = std::fs::create_dir_all(&dest);
-            copy_tree_counting(&path, &dest, added, failed);
-        } else if path.is_file() {
-            match std::fs::copy(&path, &dest) {
-                Ok(_) => *added += 1,
-                Err(_) => *failed += 1,
-            }
-        }
+/// Move one file: rename, or a checked copy (same size) before the original is deleted.
+/// A failed copy is taken back, the original stays.
+fn move_file_checked(src: &std::path::Path, dest: &std::path::Path) -> bool {
+    if std::fs::rename(src, dest).is_ok() {
+        return true;
     }
+    if transfer::copy_file_checked(src, dest).is_err() {
+        return false;
+    }
+    if std::fs::remove_file(src).is_err() {
+        // the original stays where it was (the caller keeps pointing at it)
+        let _ = std::fs::remove_file(dest);
+        return false;
+    }
+    true
 }
 
 /// A free file path in dir for name (no overwriting).
@@ -1433,9 +1421,15 @@ fn move_tree(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()
     match std::fs::rename(src, dst) {
         Ok(()) => Ok(()),
         Err(_) => {
-            std::fs::create_dir_all(dst)?;
-            let (mut added, mut failed) = (0u32, 0u32);
-            copy_tree_counting(src, dst, &mut added, &mut failed);
+            // copy, check every file, and only then delete the source. Anything wrong
+            // (a failed or short copy, a file added meanwhile) takes the copy back and
+            // leaves the source as it is
+            let copied =
+                transfer::copy_tree_checked(src, dst, &|_| false).map_err(std::io::Error::other)?;
+            if let Err(e) = transfer::all_arrived(src, &copied.arrived, &|_| false) {
+                copied.undo();
+                return Err(std::io::Error::other(e));
+            }
             std::fs::remove_dir_all(src)
         }
     }
@@ -1854,9 +1848,12 @@ struct FillReport {
     added: u32,
     skipped: u32,
     failed: u32,
-    /// Only for move_sources: source folders the recycle bin refused. The copy worked,
-    /// it's a leftover, but the user should know.
+    /// Only for move_sources: sources that stayed (the recycle bin refused, or something
+    /// in them wasn't copied). The copy worked, it's a leftover, but the user should know.
     kept_sources: Vec<String>,
+    /// Every file arrived and was checked (nothing skipped, failed or unreadable). Only
+    /// then may a source go, also the archive the frontend unpacked.
+    all_arrived: bool,
 }
 
 /// An incoming file that would overwrite an existing one. rel = path inside the
@@ -1875,25 +1872,39 @@ struct FillPlan {
 
 /// Turn the picked sources into (source file, destination path in the reward) pairs.
 /// Files -> their name, folders keep their sub-paths. Same layout as fill_reward writes.
-fn collect_fill_items(paths: &[String]) -> Vec<(std::path::PathBuf, std::path::PathBuf)> {
+/// Also returns how many entries couldn't be read (a folder without access, a missing
+/// path, a link): they count as failed, so their source is never deleted.
+fn collect_fill_items(paths: &[String]) -> (Vec<(std::path::PathBuf, std::path::PathBuf)>, u32) {
     let mut out = Vec::new();
+    let mut unreadable = 0u32;
     for p in paths {
         let src = std::path::Path::new(p);
         if src.is_file() {
-            if let Some(name) = src.file_name() {
-                out.push((src.to_path_buf(), std::path::PathBuf::from(name)));
+            match src.file_name() {
+                Some(name) => out.push((src.to_path_buf(), std::path::PathBuf::from(name))),
+                None => unreadable += 1,
             }
         } else if src.is_dir() {
-            for entry in walkdir::WalkDir::new(src).into_iter().flatten() {
-                if entry.file_type().is_file() {
-                    if let Ok(rel) = entry.path().strip_prefix(src) {
-                        out.push((entry.path().to_path_buf(), rel.to_path_buf()));
+            for entry in walkdir::WalkDir::new(src) {
+                let Ok(entry) = entry else {
+                    unreadable += 1;
+                    continue;
+                };
+                if entry.file_type().is_dir() {
+                    continue;
+                }
+                match entry.path().strip_prefix(src) {
+                    Ok(rel) if entry.file_type().is_file() => {
+                        out.push((entry.path().to_path_buf(), rel.to_path_buf()))
                     }
+                    _ => unreadable += 1,
                 }
             }
+        } else {
+            unreadable += 1;
         }
     }
-    out
+    (out, unreadable)
 }
 
 /// Stable key for a relative path (forward slashes).
@@ -1932,7 +1943,7 @@ fn fill_reward_plan(db: State<Db>, reward_id: i64, paths: Vec<String>) -> Result
         fill_target(&conn, reward_id)?
     };
     let mut conflicts = Vec::new();
-    for (_src, rel) in collect_fill_items(&paths) {
+    for (_src, rel) in collect_fill_items(&paths).0 {
         if target.join(&rel).exists() {
             conflicts.push(FillConflict {
                 rel: rel_key(&rel),
@@ -1959,6 +1970,8 @@ async fn fill_reward(
     resolutions: Option<std::collections::HashMap<String, String>>,
     // move the sources to the recycle bin after everything arrived (import merge answer)
     move_sources: Option<bool>,
+    // tags the "fill-progress" events so the UI's progress toast knows they're its own
+    job: Option<u64>,
 ) -> Result<FillReport, String> {
     let key = session_key(&dek);
     // the real target folder
@@ -1972,56 +1985,90 @@ async fn fill_reward(
     let resolutions = resolutions.unwrap_or_default();
     let consume = move_sources == Some(true);
     let sources = paths.clone();
-    let (added, skipped, failed) = tauri::async_runtime::spawn_blocking(
-        move || -> Result<(u32, u32, u32), String> {
+    // phase "copy" counts bytes, "encrypt" files, "index" has no count
+    let progress = {
+        let app = app.clone();
+        move |phase: &str, done: u64, total: u64| {
+            let _ = app.emit(
+                "fill-progress",
+                serde_json::json!({ "job": job, "phase": phase, "done": done, "total": total }),
+            );
+        }
+    };
+    let (added, skipped, failed, arrived) = tauri::async_runtime::spawn_blocking(
+        move || -> Result<(u32, u32, u32, transfer::Arrived), String> {
             std::fs::create_dir_all(&target2).map_err(map_err)?;
             let mut added = 0u32;
             let mut skipped = 0u32;
-            let mut failed = 0u32;
-            for (src, rel) in collect_fill_items(&paths) {
+            let (items, unreadable) = collect_fill_items(&paths);
+            let mut failed = unreadable;
+            // every source file that was copied and checked at the destination
+            let mut arrived = transfer::Arrived::new();
+            // what this run wrote: two sources with the same name never replace each other
+            let mut written = std::collections::HashSet::new();
+            let sizes: Vec<u64> = items
+                .iter()
+                .map(|(src, _)| std::fs::metadata(src).map(|m| m.len()).unwrap_or(0))
+                .collect();
+            let total: u64 = sizes.iter().sum();
+            let mut done = 0u64;
+            progress("copy", 0, total);
+            for ((src, rel), size) in items.into_iter().zip(sizes) {
+                progress("copy", done, total);
+                // counted when the file is through, whatever happened to it
+                done += size;
                 let dest = target2.join(&rel);
-                if let Some(parent) = dest.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                if dest.exists() {
-                    match resolutions.get(&rel_key(&rel)).map(String::as_str) {
-                        Some("skip") => {
-                            skipped += 1;
-                            continue;
-                        }
-                        Some("replace") => match std::fs::copy(&src, &dest) {
-                            Ok(_) => added += 1,
-                            Err(_) => failed += 1,
-                        },
-                        // "rename" (or unknown): never overwrite
-                        _ => {
-                            let parent = dest.parent().unwrap_or(&target2);
-                            let name = dest.file_name().unwrap_or(rel.as_os_str());
-                            let uniq = unique_dest(parent, name);
-                            match std::fs::copy(&src, &uniq) {
-                                Ok(_) => added += 1,
-                                Err(_) => failed += 1,
-                            }
-                        }
-                    }
+                let parent = dest.parent().unwrap_or(&target2).to_path_buf();
+                let _ = std::fs::create_dir_all(&parent);
+                let choice = if written.contains(&dest) {
+                    "rename"
+                } else if dest.exists() {
+                    // "rename" (or unknown): never overwrite
+                    resolutions.get(&rel_key(&rel)).map(String::as_str).unwrap_or("rename")
                 } else {
-                    match std::fs::copy(&src, &dest) {
-                        Ok(_) => added += 1,
-                        Err(_) => failed += 1,
+                    "new"
+                };
+                // each copy is checked (same size as the source) or taken back
+                let res = match choice {
+                    "skip" => {
+                        skipped += 1;
+                        continue;
                     }
+                    "new" => transfer::copy_file_checked(&src, &dest).map(|n| (n, dest.clone())),
+                    "replace" => transfer::replace_file_checked(&src, &dest).map(|n| (n, dest.clone())),
+                    _ => {
+                        let name = dest.file_name().unwrap_or(rel.as_os_str());
+                        let uniq = unique_dest(&parent, name);
+                        transfer::copy_file_checked(&src, &uniq).map(|n| (n, uniq))
+                    }
+                };
+                match res {
+                    Ok((n, at)) => {
+                        added += 1;
+                        arrived.insert(src, n);
+                        written.insert(at);
+                    }
+                    Err(_) => failed += 1,
                 }
             }
+            progress("copy", total, total);
             // encrypt the new files if encryption is on and unlocked
             if let Some(k) = key {
                 let dek = crypto::Dek::from_bytes(k);
-                for entry in walkdir::WalkDir::new(&target2).into_iter().flatten() {
-                    let p = entry.path();
-                    if p.is_file() {
-                        let _ = crypto::encrypt_file_in_place(&dek, p);
-                    }
+                let files: Vec<std::path::PathBuf> = walkdir::WalkDir::new(&target2)
+                    .into_iter()
+                    .flatten()
+                    .filter(|e| e.file_type().is_file())
+                    .map(|e| e.into_path())
+                    .collect();
+                let n = files.len() as u64;
+                for (i, p) in files.iter().enumerate() {
+                    progress("encrypt", i as u64, n);
+                    let _ = crypto::encrypt_file_in_place(&dek, p);
                 }
             }
-            Ok((added, skipped, failed))
+            progress("index", 0, 0);
+            Ok((added, skipped, failed, arrived))
         },
     )
     .await
@@ -2042,22 +2089,40 @@ async fn fill_reward(
     }
     drop(conn);
 
-    // delete the sources last, only if every file is indexed. A skip or a failure
-    // means the source still has something, so it stays
+    // delete the sources last, only if every file arrived and is indexed. A skip, a
+    // failure or an unreadable file means the source still has something, so it stays
+    let all_arrived = skipped == 0 && failed == 0;
     let mut kept_sources = Vec::new();
-    if consume && skipped == 0 && failed == 0 {
+    if consume && all_arrived {
+        // an archive's unpack folder is a temp copy, the frontend deletes it
+        let unpacked = app_cache(&app).ok().map(|c| c.join("extracted"));
         for p in &sources {
             let src = std::path::Path::new(p);
-            if src.exists() {
-                if let Some(msg) = trash_dir(src) {
-                    kept_sources.push(msg);
+            if !src.exists() || unpacked.as_ref().is_some_and(|u| src.starts_with(u)) {
+                continue;
+            }
+            // look once more: everything in it must be a file that arrived, unchanged
+            // (one added while copying keeps the whole source)
+            let check = if src.is_file() {
+                match arrived.get(src) {
+                    Some(&n) if std::fs::metadata(src).map(|m| m.len()).ok() == Some(n) => Ok(()),
+                    _ => Err(format!("{} changed while it was copied", src.display())),
                 }
+            } else {
+                transfer::all_arrived(src, &arrived, &|_| false)
+            };
+            if let Err(e) = check {
+                kept_sources.push(e);
+                continue;
+            }
+            if let Some(msg) = trash_dir(src) {
+                kept_sources.push(msg);
             }
         }
     }
 
     allow_asset_dir(&app, &target.to_string_lossy());
-    Ok(FillReport { added, skipped, failed, kept_sources })
+    Ok(FillReport { added, skipped, failed, kept_sources, all_arrived })
 }
 
 /// Create an empty reward folder in a period ("New folder"). Returns the reward id.
@@ -2348,8 +2413,7 @@ async fn move_images(
                 }
                 if let Some(name) = src.file_name() {
                     let dest = unique_dest(&dest_dir2, name);
-                    let ok = std::fs::rename(src, &dest).is_ok()
-                        || (std::fs::copy(src, &dest).is_ok() && std::fs::remove_file(src).is_ok());
+                    let ok = move_file_checked(src, &dest);
                     if ok {
                         moved.push((p.clone(), dest.to_string_lossy().to_string()));
                     }
@@ -2529,8 +2593,7 @@ async fn merge_rewards(
                 }
                 if let Some(name) = src.file_name() {
                     let dest = unique_dest(&dest_dir2, name);
-                    let ok = std::fs::rename(src, &dest).is_ok()
-                        || (std::fs::copy(src, &dest).is_ok() && std::fs::remove_file(src).is_ok());
+                    let ok = move_file_checked(src, &dest);
                     if ok {
                         moved.push((p.clone(), dest.to_string_lossy().to_string()));
                     }
@@ -4489,6 +4552,19 @@ async fn extract_archive(
     .map_err(|e| e.to_string())?
 }
 
+/// Delete an archive's temporary unpack folder (extract_archive without `permanent`)
+/// once its files are copied. Only touches folders under the cache's "extracted".
+#[tauri::command]
+fn discard_extracted(app: AppHandle, path: String) -> Result<(), String> {
+    let base = app_cache(&app)?.join("extracted");
+    let p = std::path::Path::new(&path);
+    // <cache>/extracted/<nanos>/<name> -> remove the <nanos> folder
+    let Some(run) = p.ancestors().find(|a| a.parent() == Some(base.as_path())) else {
+        return Err("Not an unpack folder".to_string());
+    };
+    std::fs::remove_dir_all(run).map_err(map_err)
+}
+
 /// Send a file or folder to the recycle bin.
 #[tauri::command]
 fn trash_path(path: String) -> Result<(), String> {
@@ -4555,9 +4631,11 @@ fn extract_zip(path: &std::path::Path, dest: &std::path::Path) -> Result<(), Str
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| format!("zip entry {i}: {e}"))?;
         // enclosed_name strips .. and absolute parts (zip-slip safe)
+        // an unsafe path stops the unpack instead of being left out quietly (the
+        // archive would go to the recycle bin with that file missing)
         let rel = match entry.enclosed_name() {
             Some(p) => p.to_path_buf(),
-            None => continue,
+            None => return Err(format!("zip entry “{}” has an unsafe path", entry.name())),
         };
         let out = dest.join(rel);
         if entry.is_dir() {
@@ -4567,7 +4645,11 @@ fn extract_zip(path: &std::path::Path, dest: &std::path::Path) -> Result<(), Str
                 std::fs::create_dir_all(parent).map_err(map_err)?;
             }
             let mut w = std::fs::File::create(&out).map_err(map_err)?;
-            std::io::copy(&mut entry, &mut w).map_err(map_err)?;
+            // the reader checks the CRC at the end, the length is checked here
+            let n = std::io::copy(&mut entry, &mut w).map_err(map_err)?;
+            if n != entry.size() {
+                return Err(format!("zip entry “{}” came out incomplete", entry.name()));
+            }
         }
     }
     Ok(())
@@ -8794,6 +8876,7 @@ pub fn run() {
             open_megacmd,
             extract_archive,
             trash_path,
+            discard_extracted,
             set_close_to_tray,
             take_launch_action,
             is_portable,

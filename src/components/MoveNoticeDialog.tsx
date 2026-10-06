@@ -16,9 +16,12 @@ export function MoveNoticeDialog({
   busy,
   onConfirm,
   onCancel,
+  dropped,
 }: {
   collectionRoot: string;
   busy: boolean;
+  /** The files are dropped already (nothing to pick), the button just continues. */
+  dropped?: boolean;
   onConfirm: (dontShowAgain: boolean) => void;
   onCancel: () => void;
 }) {
@@ -92,7 +95,7 @@ export function MoveNoticeDialog({
           </Button>
           {/* no dlg.primary, the primary Button already has each theme's fill */}
           <Button variant="primary" onClick={() => onConfirm(dontShow)} disabled={busy}>
-            {busy ? t("Working…") : t("Choose folder & continue")}
+            {busy ? t("Working…") : dropped ? t("Continue") : t("Choose folder & continue")}
           </Button>
         </div>
       </motion.div>

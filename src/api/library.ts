@@ -1175,6 +1175,11 @@ export async function extractArchive(path: string, permanent = false): Promise<s
   return invoke<string>("extract_archive", { path, permanent });
 }
 
+/** Delete an archive's temporary unpack folder (from extractArchive without permanent). */
+export async function discardExtracted(path: string): Promise<void> {
+  await invoke("discard_extracted", { path });
+}
+
 /** Send a file/folder to the OS recycle bin. */
 export async function trashPath(path: string): Promise<void> {
   await invoke("trash_path", { path });
@@ -1388,8 +1393,16 @@ export interface FillReport {
   added: number;
   skipped: number;
   failed: number;
-  /** Only for moveSources: source folders the recycle bin refused (the copy worked). */
+  /**
+   * Only for moveSources: sources that stayed (the recycle bin refused, or something in
+   * them wasn't copied). The copy worked.
+   */
   keptSources: string[];
+  /**
+   * Every file arrived and was checked (nothing skipped, failed or unreadable). Only then
+   * may a source be removed, also an archive that was unpacked for this.
+   */
+  allArrived: boolean;
 }
 
 /** What the user chose for an incoming file that clashes with an existing one. */
@@ -1422,13 +1435,27 @@ export async function fillReward(
    * Move the sources to the recycle bin after copying (used by the import's merge answer).
    */
   moveSources?: boolean,
+  /** Tags the "fill-progress" events (see FillProgress). */
+  job?: number,
 ): Promise<FillReport> {
   return invoke<FillReport>("fill_reward", {
     rewardId: Number(rewardId),
     paths,
     resolutions,
     moveSources,
+    job,
   });
+}
+
+/**
+ * "fill-progress" event of fill_reward: copy = bytes, encrypt = files, index = no count
+ * (the last step).
+ */
+export interface FillProgress {
+  job: number | null;
+  phase: "copy" | "encrypt" | "index";
+  done: number;
+  total: number;
 }
 
 /** Create a new (empty) reward folder under a period — the "New folder" action. */

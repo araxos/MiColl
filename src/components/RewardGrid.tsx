@@ -316,7 +316,7 @@ export function RewardGrid({
     setAddErr(null);
     setAddingId(r.id);
     try {
-      const report = await fillRewardInteractive(r.id, paths);
+      const report = await fillRewardInteractive(r.id, paths, { label: r.title });
       if (report === null) return; // user cancelled the whole import
       await refresh();
       const plural = (n: number) => (n === 1 ? "file" : "files");

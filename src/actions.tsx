@@ -22,6 +22,7 @@ import { MoveNoticeDialog } from "@/components/MoveNoticeDialog";
 import { ImportReviewTree } from "@/components/ImportReviewTree";
 import { ConflictDialog } from "@/components/ConflictDialog";
 import { Toaster, type ToastData } from "@/components/Toast";
+import { fmtBytes } from "@/components/RewardDetails";
 import { useLibraryActions } from "@/store";
 import { useT, useTf, useTp } from "@/lib/i18n";
 import * as api from "@/api/library";
@@ -94,7 +95,8 @@ interface ActionsCtx {
   fillRewardInteractive: (
     rewardId: string,
     paths: string[],
-    opts?: { moveSources?: boolean },
+    /** label = the target's name for the progress toast */
+    opts?: { moveSources?: boolean; label?: string },
   ) => Promise<api.FillReport | null>;
   /**
    * Bring rewards back from the MiSD disk, with the same blocking overlay as a
@@ -104,7 +106,8 @@ interface ActionsCtx {
   /** Open a file with its default app. If there's none, show it in Explorer. */
   openExternally: (path?: string) => void;
   /** Show a toast in the bottom right. */
-  showToast: (t: Omit<ToastData, "id">) => void;
+  /** Returns the toast's id (for updateToast / dismissToast). */
+  showToast: (t: Omit<ToastData, "id">) => number;
 }
 
 /** Info from the element a drag was dropped on. */
@@ -142,7 +145,13 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
   const showToast = useCallback((t: Omit<ToastData, "id">) => {
     const id = ++toastSeq.current;
     setToasts((prev) => [...prev, { ...t, id }]);
+    return id;
   }, []);
+  const updateToast = useCallback(
+    (id: number, patch: Partial<Omit<ToastData, "id">>) =>
+      setToasts((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x))),
+    [],
+  );
   const dismissToast = useCallback(
     (id: number) => setToasts((prev) => prev.filter((t) => t.id !== id)),
     [],
@@ -150,6 +159,8 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
 
   // add-rewards state
   const [moveNotice, setMoveNotice] = useState(false);
+  // the same notice for a drop onto a reward card, answered through a promise
+  const [dropMoveAsk, setDropMoveAsk] = useState<((ok: boolean) => void) | null>(null);
   const [collectionRoot, setCollectionRoot] = useState("");
   const [importPlan, setImportPlan] = useState<api.ImportPlan | null>(null);
   const [importSource, setImportSource] = useState("");
@@ -180,10 +191,36 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       setConflict({ conflicts, resolve }),
     );
 
+  // rewards that are being filled right now: a second drop on one would copy everything
+  // again next to the first run
+  const filling = useRef(new Set<string>());
+  const fillJob = useRef(0);
+
   const fillRewardInteractive = async (
     rewardId: string,
     paths: string[],
-    opts?: { moveSources?: boolean },
+    opts?: { moveSources?: boolean; label?: string },
+  ): Promise<api.FillReport | null> => {
+    if (filling.current.has(rewardId)) {
+      showToast({
+        tone: "warn",
+        title: t("Still adding files here"),
+        detail: t("Wait until the running copy is done."),
+      });
+      return null;
+    }
+    filling.current.add(rewardId);
+    try {
+      return await fillRewardRun(rewardId, paths, opts);
+    } finally {
+      filling.current.delete(rewardId);
+    }
+  };
+
+  const fillRewardRun = async (
+    rewardId: string,
+    paths: string[],
+    opts?: { moveSources?: boolean; label?: string },
   ): Promise<api.FillReport | null> => {
     let resolutions: Record<string, api.ConflictChoice> | undefined;
     // check for name clashes first and ask per file
@@ -198,7 +235,35 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       // if checking fails, just let the backend rename on clash
       console.error("conflict plan failed", e);
     }
-    return api.fillReward(rewardId, paths, resolutions, opts?.moveSources);
+    // bottom right: a bar that fills while the files are copied
+    const job = ++fillJob.current;
+    const detail = opts?.label ? tf("to {name}", { name: opts.label }) : undefined;
+    const toastId = showToast({ tone: "progress", title: t("Adding files…"), detail, progress: null });
+    const off = await listen<api.FillProgress>("fill-progress", (e) => {
+      const p = e.payload;
+      if (p.job !== job) return;
+      if (p.phase === "copy") {
+        updateToast(toastId, {
+          title: t("Adding files…"),
+          detail: [`${fmtBytes(p.done)} / ${fmtBytes(p.total)}`, opts?.label].filter(Boolean).join(" · "),
+          progress: p.total > 0 ? p.done / p.total : null,
+        });
+      } else if (p.phase === "encrypt") {
+        updateToast(toastId, {
+          title: t("Encrypting…"),
+          detail: `${p.done} / ${p.total}`,
+          progress: p.total > 0 ? p.done / p.total : null,
+        });
+      } else {
+        updateToast(toastId, { title: t("Indexing…"), detail, progress: null });
+      }
+    });
+    try {
+      return await api.fillReward(rewardId, paths, resolutions, opts?.moveSources, job);
+    } finally {
+      off();
+      dismissToast(toastId);
+    }
   };
 
   const reveal = (path?: string) => {
@@ -608,21 +673,54 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
 
   const importIntoReward = async (rewardId: string, paths: string[], label?: string) => {
     if (!backed || paths.length === 0) return;
+    // like a normal import: in a managed collection the dropped files are moved (copy,
+    // then the originals go to the Recycle Bin), with the same notice first
+    const [enabled, root, ask] = await Promise.all([
+      api.getSetting("managed_enabled"),
+      api.getSetting("collection_root"),
+      api.getSetting("managed_move_ask"),
+    ]);
+    const managed = enabled === "true" && !!root;
+    if (managed && ask !== "false") {
+      setCollectionRoot(root ?? "");
+      const ok = await new Promise<boolean>((resolve) => setDropMoveAsk(() => resolve));
+      setDropMoveAsk(null);
+      if (!ok) return;
+    }
     setBusy(true);
+    // archives unpack into a temp folder, that one is deleted once the files are copied
+    const unpacked: string[] = [];
     try {
-      // extract archives first, fill_reward copies the files into the reward folder
       const resolved: string[] = [];
       for (const p of paths) {
-        resolved.push(/\.(zip|rar|7z)$/i.test(p) ? await api.extractArchive(p) : p);
+        if (/\.(zip|rar|7z)$/i.test(p)) {
+          const dir = await api.extractArchive(p);
+          unpacked.push(dir);
+          resolved.push(dir);
+        } else {
+          resolved.push(p);
+        }
       }
-      const report = await fillRewardInteractive(rewardId, resolved);
+      // managed: the backend sends the dropped folders/files to the Recycle Bin, but only
+      // once every single file arrived and was checked
+      const report = await fillRewardInteractive(rewardId, resolved, { label, moveSources: managed });
       if (report === null) return; // user cancelled the whole import
       await refresh();
       const problems: string[] = [];
       if (report.failed > 0) problems.push(tf("{n} couldn’t be imported", { n: report.failed }));
       if (report.skipped > 0) problems.push(tf("{n} skipped", { n: report.skipped }));
+      const kept = report.keptSources.map((k) => k.split(/[\\/]/).pop() || k);
+      // the archives themselves, same rule (their unpacked copy went in)
+      if (managed && report.allArrived) {
+        for (const p of paths.filter((x) => /\.(zip|rar|7z)$/i.test(x))) {
+          await api.trashPath(p).catch(() => kept.push(p.split(/[\\/]/).pop() || p));
+        }
+      }
+      if (kept.length) problems.push(tf("Still in place: {names}", { names: kept.join(", ") }));
+      // not everything arrived: nothing was removed
+      if (managed && !report.allArrived) problems.push(t("The originals stay where they are."));
       showToast({
-        tone: report.failed > 0 ? "warn" : "success",
+        tone: report.failed > 0 || kept.length > 0 ? "warn" : "success",
         title: tf("{n} added", { n: tp("{n} files", report.added) }),
         detail: label ? tf("to {name}", { name: label }) : undefined,
         problem: problems.length ? problems.join(" · ") : undefined,
@@ -631,6 +729,7 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       console.error("add to reward failed", e);
       showToast({ tone: "error", title: t("Couldn’t add files"), detail: `${e}` });
     } finally {
+      for (const d of unpacked) await api.discardExtracted(d).catch(() => {});
       setBusy(false);
     }
   };
@@ -643,9 +742,12 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
 
   const doImport = async (
     rewards: api.ResolvedReward[],
-    opts: { styles: api.StyleChoice[] },
+    opts: { styles: api.StyleChoice[]; keepArchive?: boolean },
   ) => {
     setBusy(true);
+    // the dropped archive goes to the Recycle Bin only when every file landed: any
+    // organize problem keeps it (its files might still be in the temp unpack folder)
+    let archiveSafe = !opts.keepArchive;
     try {
       await api.commitImport(rewards, importSource, opts.styles);
       if (importManaged) {
@@ -654,6 +756,7 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
         await api.clearRoots();
         // show organize problems (e.g. leftover duplicates) instead of ignoring them
         if (org.failed > 0 || org.errors.length > 0) {
+          archiveSafe = false;
           showToast({
             tone: "warn",
             title: t("Imported, but the collection needs a look"),
@@ -673,7 +776,7 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       await refresh();
       // import worked, move the dropped archive to the recycle bin
       if (archiveSource) {
-        await api.trashPath(archiveSource).catch(() => {});
+        if (archiveSafe) await api.trashPath(archiveSource).catch(() => {});
         setArchiveSource(null);
       }
     } catch (e) {
@@ -789,6 +892,18 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
           busy={busy}
           onConfirm={(dontShow) => void onMoveConfirm(dontShow)}
           onCancel={() => setMoveNotice(false)}
+        />
+      )}
+      {dropMoveAsk && (
+        <MoveNoticeDialog
+          collectionRoot={collectionRoot}
+          busy={false}
+          dropped
+          onConfirm={(dontShow) => {
+            if (dontShow) void api.setSetting("managed_move_ask", "false");
+            dropMoveAsk(true);
+          }}
+          onCancel={() => dropMoveAsk(false)}
         />
       )}
       {importPlan && (

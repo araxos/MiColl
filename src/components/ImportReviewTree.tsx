@@ -229,7 +229,8 @@ export function ImportReviewTree({
   defaultNumber?: number;
   onConfirm: (
     rewards: ResolvedReward[],
-    opts: { styles: StyleChoice[] },
+    /** keepArchive: a merge didn't get every file in, so the dropped archive stays */
+    opts: { styles: StyleChoice[]; keepArchive?: boolean },
   ) => void;
   onCancel: () => void;
 }) {
@@ -855,6 +856,8 @@ export function ImportReviewTree({
         }
         done.add(c.folder);
         kept.push(...(report.keptSources ?? []));
+        // not every file arrived (skipped/failed): its folder stays, and says so
+        if (!report.allArrived) kept.push(c.folder);
       }
     } catch (e) {
       setMerging(false);
@@ -864,8 +867,15 @@ export function ImportReviewTree({
     setMerging(false);
     const rest = pend.rewards.filter((r) => !done.has(r.folder));
     if (rest.length > 0) {
+      if (kept.length > 0) {
+        showToast({
+          tone: "warn",
+          title: t("Added to the existing reward"),
+          problem: `${t("Couldn’t remove the source folder — it’s still on disk:")}\n${kept.join("\n")}`,
+        });
+      }
       // the merged files are in place, the rest goes through the normal import
-      onConfirm(rest, { styles: pend.styles });
+      onConfirm(rest, { styles: pend.styles, keepArchive: kept.length > 0 });
       return;
     }
     await refresh();

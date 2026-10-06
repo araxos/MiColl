@@ -9,7 +9,6 @@ use crate::indexer;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
 
 #[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -64,31 +63,6 @@ fn is_same_or_under(inner: &Path, base: &Path) -> bool {
     a == b || a.starts_with(&format!("{b}\\"))
 }
 
-/// Copy a folder tree (when rename can't cross disks).
-/// Skips dst if it's inside src, otherwise it would copy forever.
-fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
-    for entry in WalkDir::new(src)
-        .into_iter()
-        .filter_entry(|e| !is_same_or_under(e.path(), dst))
-    {
-        let entry = entry.map_err(std::io::Error::other)?;
-        let rel = entry
-            .path()
-            .strip_prefix(src)
-            .map_err(std::io::Error::other)?;
-        let target = dst.join(rel);
-        if entry.file_type().is_dir() {
-            std::fs::create_dir_all(&target)?;
-        } else {
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::copy(entry.path(), &target)?;
-        }
-    }
-    Ok(())
-}
-
 /// Move a folder, copy + delete across disks.
 /// If the copy worked but the source can't be deleted, it's still a successful move
 /// (returns Moved), otherwise the DB would keep pointing at the old copy.
@@ -111,9 +85,16 @@ fn move_dir(src: &Path, dst: &Path) -> std::io::Result<Moved> {
     if std::fs::rename(src, dst).is_ok() {
         return Ok(Moved::Clean);
     }
-    // rename failed (other disk, or a file is open). copy_dir fails on any error,
-    // so after this line all files are at the destination
-    copy_dir(src, dst)?;
+    // rename failed (other disk, or a file is open). The copy checks every file and
+    // fails on any problem (taking back what it made), so after this line every file is
+    // at the destination. dst inside src is left out, otherwise it would copy forever
+    let keep_out = |p: &Path| is_same_or_under(p, dst);
+    let copied = crate::transfer::copy_tree_checked(src, dst, &keep_out)
+        .map_err(std::io::Error::other)?;
+    // something was added or changed meanwhile: the source stays whole
+    if crate::transfer::all_arrived(src, &copied.arrived, &keep_out).is_err() {
+        return Ok(Moved::LeftBehind);
+    }
     let _ = std::fs::remove_dir_all(src);
     // ask the filesystem if anything is still there (a delete can stop half way)
     Ok(if src.exists() { Moved::LeftBehind } else { Moved::Clean })

@@ -1891,6 +1891,8 @@ export function ImageViewer({
                 {g.items.map((it, j) => {
                   const i = g.from + j;
                   const isSel = selected.has(it.id);
+                  // the loaded list is fresher than the snapshot (a version saved just now)
+                  const vers = it.path ? verMap[it.path]?.versions.length ?? it.versionCount ?? 0 : 0;
                   return (
                     <button
                       key={it.id}
@@ -1941,6 +1943,19 @@ export function ImageViewer({
                       <span className="pointer-events-none absolute inset-x-0 bottom-0 block truncate bg-gradient-to-t from-black/90 via-black/60 to-transparent px-1.5 pb-1 pt-5 text-left text-[11px] text-zinc-100">
                         {it.name ?? it.title}
                       </span>
+                      {/* has edit versions: same icon as the versions button, left of the checkbox */}
+                      {vers > 0 && (
+                        <span
+                          title={`Versions (${vers})`}
+                          className={cn(
+                            "viewer-thumb-versions absolute top-1.5 flex h-5 w-5 items-center justify-center rounded-md bg-black/60 ring-1 ring-white/15 backdrop-blur-sm",
+                            selectMode ? "right-7" : "right-1.5",
+                            verTheme.accentText,
+                          )}
+                        >
+                          <Layers className="h-3 w-3 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]" />
+                        </span>
+                      )}
                       {selectMode && (
                         <span
                           data-sel={isSel ? "" : undefined}
