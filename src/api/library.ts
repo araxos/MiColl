@@ -1403,6 +1403,21 @@ export interface FillReport {
    * may a source be removed, also an archive that was unpacked for this.
    */
   allArrived: boolean;
+  /** Cancelled by the user: the copies were taken back, nothing changed. */
+  cancelled: boolean;
+}
+
+/** Stop a running fillReward (by its job): what it copied so far is taken back. */
+export async function cancelFill(job: number): Promise<void> {
+  await invoke("cancel_fill", { job });
+}
+
+/**
+ * After a managed import: the loose dropped files go to the Recycle Bin, each only when an
+ * identical copy is in the library now. Returns the loose files that stayed.
+ */
+export async function trashImportedOriginals(paths: string[]): Promise<string[]> {
+  return invoke<string[]>("trash_imported_originals", { paths });
 }
 
 /** What the user chose for an incoming file that clashes with an existing one. */

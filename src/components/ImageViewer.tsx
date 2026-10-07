@@ -1013,6 +1013,13 @@ export function ImageViewer({
     ? activeVersion?.filePath ?? current.path ?? current.displayPath
     : current.displayPath ?? current.path;
   const versionCount = curVer?.versions.length ?? current.versionCount ?? 0;
+  /** The picture a tile shows: its active version (as loaded, else the snapshot's). */
+  const tilePath = (it: ViewerItem) => {
+    const v = it.path ? verMap[it.path] : undefined;
+    if (!v) return it.displayPath ?? it.path;
+    if (v.activeId == null) return it.path;
+    return v.versions.find((x) => x.id === v.activeId)?.filePath ?? it.path;
+  };
   const onOriginal = curVer ? curVer.activeId == null : current.onOriginal ?? true;
 
   // load the version list for the current original
@@ -1924,7 +1931,7 @@ export function ImageViewer({
                             : "ring-transparent hover:ring-white/40",
                       )}
                     >
-                      <Cover path={it.path} seed={it.title} size={256} rounded="rounded-none" />
+                      <Cover path={tilePath(it)} seed={it.title} size={256} rounded="rounded-none" />
                       {it.kind === "video" && (
                         <span className="pointer-events-none absolute inset-0 grid place-items-center">
                           <PlayCircle className="h-7 w-7 text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]" />
@@ -2188,7 +2195,7 @@ export function ImageViewer({
                     : "ring-transparent opacity-50 hover:opacity-90",
               )}
             >
-              <Cover path={it.path} seed={it.title} size={128} rounded="rounded-none" />
+              <Cover path={tilePath(it)} seed={it.title} size={128} rounded="rounded-none" />
               {it.kind === "video" && (
                 <span className="pointer-events-none absolute inset-0 grid place-items-center">
                   <PlayCircle className="h-5 w-5 text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]" />

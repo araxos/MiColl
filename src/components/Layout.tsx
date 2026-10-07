@@ -144,7 +144,7 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
         {...(customChrome && tauri ? { "data-tauri-drag-region": true } : {})}
         className={cn(
           // z-30 so the header stays above the dashboard's Creators bar (z-20)
-          "relative z-30 flex h-14 shrink-0 items-center gap-3 px-4",
+          "app-header relative z-30 flex h-14 shrink-0 items-center gap-3 px-4",
           irid
             ? // Iridescent: a translucent dark glass bar so the title/search stay
               // readable over the shader, translateZ(0) so the blur doesn't flicker

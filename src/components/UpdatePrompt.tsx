@@ -10,6 +10,7 @@ import { useT, useTf } from "@/lib/i18n";
 import { isTauri } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { useActions } from "@/actions";
+import { openUrl } from "@/api/library";
 import {
   dismissUpdatePrompt,
   installUpdate,
@@ -49,6 +50,10 @@ export function UpdatePrompt({ active }: { active: boolean }) {
         title: tf("Updated to version {version}", { version: v }),
         detail: t("Downloaded and installed successfully."),
         duration: 12000,
+        action: {
+          label: t("What’s new"),
+          onClick: () => void openUrl(`https://github.com/araxos/MiColl/releases/tag/v${v}`),
+        },
       });
     });
   }, [active, showToast, t, tf]);

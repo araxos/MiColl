@@ -1911,6 +1911,8 @@ struct FillReport {
     /// Every file arrived and was checked (nothing skipped, failed or unreadable). Only
     /// then may a source go, also the archive the frontend unpacked.
     all_arrived: bool,
+    /// Cancelled by the user: the copies were taken back, nothing was indexed or removed.
+    cancelled: bool,
 }
 
 /// An incoming file that would overwrite an existing one. rel = path inside the
@@ -2014,6 +2016,24 @@ fn fill_reward_plan(db: State<Db>, reward_id: i64, paths: Vec<String>) -> Result
     Ok(FillPlan { conflicts })
 }
 
+/// Fill jobs the user cancelled (job ids). The copy loop checks it before every file.
+static FILL_CANCELS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
+
+fn fill_cancelled(job: Option<u64>) -> bool {
+    job.is_some_and(|j| FILL_CANCELS.lock().map(|c| c.contains(&j)).unwrap_or(false))
+}
+
+/// Stop a running fill_reward (the X on its progress toast). What it copied so far is
+/// taken back, the sources aren't touched.
+#[tauri::command]
+fn cancel_fill(job: u64) {
+    if let Ok(mut c) = FILL_CANCELS.lock() {
+        if !c.contains(&job) {
+            c.push(job);
+        }
+    }
+}
+
 /// Fill a (missing) reward: copy the files into its month folder, index them -> owned.
 #[tauri::command]
 async fn fill_reward(
@@ -2052,8 +2072,10 @@ async fn fill_reward(
             );
         }
     };
-    let (added, skipped, failed, arrived) = tauri::async_runtime::spawn_blocking(
-        move || -> Result<(u32, u32, u32, transfer::Arrived), String> {
+    let (added, skipped, failed, arrived, cancelled) = tauri::async_runtime::spawn_blocking(
+        move || -> Result<(u32, u32, u32, transfer::Arrived, bool), String> {
+            // the folder may be new (a missing reward): a cancel removes it again if empty
+            let made_target = !target2.exists();
             std::fs::create_dir_all(&target2).map_err(map_err)?;
             let mut added = 0u32;
             let mut skipped = 0u32;
@@ -2070,7 +2092,30 @@ async fn fill_reward(
             let total: u64 = sizes.iter().sum();
             let mut done = 0u64;
             progress("copy", 0, total);
+            // new files this run made (a cancel removes exactly these)
+            let mut created: Vec<std::path::PathBuf> = Vec::new();
             for ((src, rel), size) in items.into_iter().zip(sizes) {
+                if fill_cancelled(job) {
+                    for f in created.iter().rev() {
+                        let _ = std::fs::remove_file(f);
+                    }
+                    // folders this run made, deepest first; remove_dir keeps any with a file
+                    let mut dirs: Vec<std::path::PathBuf> = created
+                        .iter()
+                        .filter_map(|f| f.parent().map(|p| p.to_path_buf()))
+                        .collect();
+                    dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+                    dirs.dedup();
+                    for d in dirs {
+                        if d != target2 && d.starts_with(&target2) {
+                            let _ = std::fs::remove_dir(&d);
+                        }
+                    }
+                    if made_target {
+                        let _ = std::fs::remove_dir(&target2);
+                    }
+                    return Ok((0, 0, 0, transfer::Arrived::new(), true));
+                }
                 progress("copy", done, total);
                 // counted when the file is through, whatever happened to it
                 done += size;
@@ -2103,6 +2148,10 @@ async fn fill_reward(
                     Ok((n, at)) => {
                         added += 1;
                         arrived.insert(src, n);
+                        // a replaced file isn't ours to remove on cancel, a new one is
+                        if choice != "replace" {
+                            created.push(at.clone());
+                        }
                         written.insert(at);
                     }
                     Err(_) => failed += 1,
@@ -2125,11 +2174,24 @@ async fn fill_reward(
                 }
             }
             progress("index", 0, 0);
-            Ok((added, skipped, failed, arrived))
+            Ok((added, skipped, failed, arrived, false))
         },
     )
     .await
     .map_err(|e| e.to_string())??;
+    if let (Some(j), Ok(mut c)) = (job, FILL_CANCELS.lock()) {
+        c.retain(|x| *x != j);
+    }
+    if cancelled {
+        return Ok(FillReport {
+            added: 0,
+            skipped: 0,
+            failed: 0,
+            kept_sources: Vec::new(),
+            all_arrived: false,
+            cancelled: true,
+        });
+    }
 
     // index the folder and attach it to the reward
     let (images, cover) = indexer::collect_reward_images(&target);
@@ -2179,7 +2241,7 @@ async fn fill_reward(
     }
 
     allow_asset_dir(&app, &target.to_string_lossy());
-    Ok(FillReport { added, skipped, failed, kept_sources, all_arrived })
+    Ok(FillReport { added, skipped, failed, kept_sources, all_arrived, cancelled: false })
 }
 
 /// Create an empty reward folder in a period ("New folder"). Returns the reward id.
@@ -4604,6 +4666,71 @@ async fn extract_archive(
             .then(|| std::path::Path::new(&path).parent().map(|p| p.to_path_buf()))
             .flatten();
         extract_archive_blocking(&cache, &path, beside.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// After a managed import: send the loose dropped files to the Recycle Bin, each only when
+/// a byte-for-byte copy of it is in the library now (the import copied it via staging).
+/// Folders and archives are skipped (they have their own way). A file that is itself a
+/// library file, or has no identical copy indexed, stays. Returns the ones that stayed
+/// although they were loose files.
+#[tauri::command]
+async fn trash_imported_originals(db: State<'_, Db>, paths: Vec<String>) -> Result<Vec<String>, String> {
+    let is_archive = |p: &std::path::Path| {
+        matches!(
+            p.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).as_deref(),
+            Some("zip") | Some("rar") | Some("7z")
+        )
+    };
+    // per loose file: is it a library file itself, and where could its copy be
+    let mut checks: Vec<(String, bool, Vec<String>)> = Vec::new();
+    {
+        let conn = db.lock().map_err(map_err)?;
+        for p in &paths {
+            let path = std::path::Path::new(p);
+            if !path.is_file() || is_archive(path) {
+                continue;
+            }
+            let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+                continue;
+            };
+            let own: bool = conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM images WHERE file_path = ?1 COLLATE NOCASE)",
+                    rusqlite::params![p],
+                    |r| r.get(0),
+                )
+                .unwrap_or(true);
+            let mut stmt = conn
+                .prepare("SELECT file_path FROM images WHERE rel_name = ?1 COLLATE NOCASE")
+                .map_err(map_err)?;
+            let cands: Vec<String> = stmt
+                .query_map(rusqlite::params![name], |r| r.get(0))
+                .map_err(map_err)?
+                .flatten()
+                .collect();
+            checks.push((p.clone(), own, cands));
+        }
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let key = |s: &str| s.replace('/', "\\").to_lowercase();
+        let mut kept = Vec::new();
+        for (p, own, cands) in checks {
+            // a file that belongs to the library is never removed here
+            if own {
+                continue;
+            }
+            let src = std::path::Path::new(&p);
+            let copied = cands
+                .iter()
+                .any(|c| key(c) != key(&p) && transfer::same_bytes(src, std::path::Path::new(c)));
+            if !copied || trash_dir(src).is_some() {
+                kept.push(p);
+            }
+        }
+        Ok(kept)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -8944,6 +9071,8 @@ pub fn run() {
             extract_archive,
             trash_path,
             discard_extracted,
+            trash_imported_originals,
+            cancel_fill,
             set_close_to_tray,
             take_launch_action,
             is_portable,

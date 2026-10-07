@@ -21,6 +21,10 @@ export interface ToastData {
   duration?: number;
   /** progress tone: how far (0..1), null = running without a count. */
   progress?: number | null;
+  /** A link under the text, e.g. "What's new". */
+  action?: { label: string; onClick: () => void };
+  /** progress tone: shows an X that stops the job. */
+  onCancel?: () => void;
 }
 
 const toneStyles: Record<ToastTone, { ring: string; bar: string; Icon: typeof CheckCircle2; icon: string }> = {
@@ -132,8 +136,28 @@ function ToastCard({ toast, onDismiss }: { toast: ToastData; onDismiss: (id: num
           {toast.problem && (
             <div className="mt-0.5 break-words text-xs text-amber-300">{toast.problem}</div>
           )}
+          {toast.action && (
+            <button
+              onClick={() => {
+                toast.action?.onClick();
+                onDismiss(toast.id);
+              }}
+              className={cn("mt-1 text-xs font-medium underline-offset-2 hover:underline", accentText)}
+            >
+              {toast.action.label}
+            </button>
+          )}
         </div>
-        {/* a running job can't be closed, it goes away when it's done */}
+        {/* a running job can't be closed, it goes away when it's done (some can be stopped) */}
+        {running && toast.onCancel && (
+          <button
+            onClick={toast.onCancel}
+            className="-mr-1 -mt-1 rounded-md p-1 text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-200"
+            title={t("Cancel")}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
         {!running && (
           <button
             onClick={() => onDismiss(toast.id)}

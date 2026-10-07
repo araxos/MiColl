@@ -49,6 +49,7 @@ const SYNCED = [
   "micoll.viewerStart",
   "micoll.viewerGridSize",
   "micoll.animatedBg",
+  "micoll.classicLuxe",
   "micoll.cardFx",
   "micoll.idlePause",
   "micoll.holoFreq",

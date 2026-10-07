@@ -86,6 +86,7 @@ import { getShowHidden, setShowHidden } from "@/lib/showHidden";
 import { getWindowButtons, setWindowButtons } from "@/lib/windowButtons";
 import { getStripCreator, setStripCreator } from "@/lib/stripCreator";
 import { getAnimatedBg, setAnimatedBg } from "@/lib/animatedBg";
+import { getClassicLuxe, setClassicLuxe } from "@/lib/classicLuxe";
 import { getCyberFrame, setCyberFrame } from "@/lib/cyberFrame";
 import { getSakuraFrame, setSakuraFrame } from "@/lib/sakuraFrame";
 import { getIriFrame, setIriFrame } from "@/lib/iriFrame";
@@ -137,7 +138,7 @@ const SECTIONS: NavSection[] = [
     label: "Appearance",
     Icon: Palette,
     keywords:
-      "theme accent colour color premium unlock beta iridescent sakura cyberpunk animation animations motion background wallpaper custom picture image dim darken brightness reset hide creator names card shapes reward tiles tile shape format ratio square card poster banner portrait 4x5 4x6 5x10 10x5 creator page month page app icon taskbar logo colour rose purple blue green yellow overview grid gallery thumbnails tiles open reward folder explorer viewer first picture start mode",
+      "theme accent colour color premium look sand grain crystal glints classic unlock beta iridescent sakura cyberpunk animation animations motion background wallpaper custom picture image dim darken brightness reset hide creator names card shapes reward tiles tile shape format ratio square card poster banner portrait 4x5 4x6 5x10 10x5 creator page month page app icon taskbar logo colour rose purple blue green yellow overview grid gallery thumbnails tiles open reward folder explorer viewer first picture start mode",
   },
   {
     id: "performance",
@@ -440,6 +441,11 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     setViewerStartsInGrid(on);
   };
   const [animatedBg, setAnimatedBgOn] = useState(getAnimatedBg());
+  const [classicLuxe, setClassicLuxeOn] = useState(getClassicLuxe());
+  const toggleClassicLuxe = (on: boolean) => {
+    setClassicLuxeOn(on);
+    setClassicLuxe(on);
+  };
   const toggleAnimatedBg = (on: boolean) => {
     setAnimatedBgOn(on);
     setAnimatedBg(on);
@@ -785,7 +791,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
 
   // frosted glass panel for each section
   const glass =
-    "rounded-2xl border border-white/10 bg-zinc-900/55 p-5 shadow-xl shadow-black/20 backdrop-blur-lg";
+    "settings-glass rounded-2xl border border-white/10 bg-zinc-900/55 p-5 shadow-xl shadow-black/20 backdrop-blur-lg";
   // light frosted inner cards on iridescent
   const irid = accent === "iridescent";
   const sak = accent === "sakura";
@@ -1232,6 +1238,21 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
             title={fxHint}
           />
         </div>
+        {/* classic accents only: the sand/crystal backdrop and glassier surfaces.
+            Off = the old look, untouched. */}
+        {!fxLive && (
+          <div className={cn("mt-3 flex items-center justify-between gap-3", cardInner)}>
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-zinc-100">{t("Premium look")}</h2>
+              <p className="settings-desc mt-0.5 text-sm text-zinc-400">
+                {t(
+                  "A sand-grain backdrop with crystal glints and glassier panels, cards and header for the classic themes. Turn it off for the plain look.",
+                )}
+              </p>
+            </div>
+            <Toggle checked={classicLuxe} onChange={toggleClassicLuxe} />
+          </div>
+        )}
         {/* custom wallpaper with a dark veil */}
         <div className={cn("mt-3", cardInner)}>
           <div className="flex items-center justify-between gap-3">

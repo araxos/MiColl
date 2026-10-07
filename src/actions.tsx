@@ -197,6 +197,9 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
   const [pickMode, setPickMode] = useState<"folder" | "archive">("folder");
   // the dropped archive, goes to the recycle bin after a successful import
   const [archiveSource, setArchiveSource] = useState<string | null>(null);
+  // loose files that were dropped (copied in via staging): they go to the Recycle Bin after
+  // a managed import, each only when an identical copy is in the library
+  const looseDropped = useRef<string[]>([]);
 
   // current conflict prompt, resolve gets the choices or null if cancelled
   const [conflict, setConflict] = useState<{
@@ -257,7 +260,17 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
     // bottom right: a bar that fills while the files are copied
     const job = ++fillJob.current;
     const detail = opts?.label ? tf("to {name}", { name: opts.label }) : undefined;
-    const toastId = showToast({ tone: "progress", title: t("Adding files…"), detail, progress: null });
+    const toastId = showToast({
+      tone: "progress",
+      title: t("Adding files…"),
+      detail,
+      progress: null,
+      // the X stops it: what was copied is taken back, the originals stay
+      onCancel: () => {
+        void api.cancelFill(job).catch(() => {});
+        updateToast(toastId, { title: t("Cancelling…"), onCancel: undefined });
+      },
+    });
     const off = await listen<api.FillProgress>("fill-progress", (e) => {
       const p = e.payload;
       if (p.job !== job) return;
@@ -268,17 +281,24 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
           progress: p.total > 0 ? p.done / p.total : null,
         });
       } else if (p.phase === "encrypt") {
+        // past the copy there's nothing to stop anymore
         updateToast(toastId, {
+          onCancel: undefined,
           title: t("Encrypting…"),
           detail: `${p.done} / ${p.total}`,
           progress: p.total > 0 ? p.done / p.total : null,
         });
       } else {
-        updateToast(toastId, { title: t("Indexing…"), detail, progress: null });
+        updateToast(toastId, { title: t("Indexing…"), detail, progress: null, onCancel: undefined });
       }
     });
     try {
-      return await api.fillReward(rewardId, paths, resolutions, opts?.moveSources, job);
+      const report = await api.fillReward(rewardId, paths, resolutions, opts?.moveSources, job);
+      if (report.cancelled) {
+        showToast({ tone: "warn", title: t("Copy cancelled"), detail: t("Nothing was changed.") });
+        return null; // like a cancelled prompt for the callers
+      }
+      return report;
     } finally {
       off();
       dismissToast(toastId);
@@ -666,14 +686,21 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
     noDates?: boolean;
     style?: ReleaseStyle;
     pick?: "folder" | "archive";
-  }) => beginImport({ artist: opts?.artist, noDates: opts?.noDates, style: opts?.style, pick: opts?.pick });
+  }) => {
+    looseDropped.current = [];
+    return beginImport({ artist: opts?.artist, noDates: opts?.noDates, style: opts?.style, pick: opts?.pick });
+  };
 
   const importDropped = async (paths: string[], ctx?: DropContext) => {
     // single loose files are put into a temp reward folder first
     let source: string | null = paths[0] ?? null;
+    looseDropped.current = [];
     try {
       const staged = await api.stageFilesForImport(paths);
-      if (staged) source = staged;
+      if (staged) {
+        source = staged;
+        looseDropped.current = paths;
+      }
     } catch (e) {
       console.error("stage files failed", e);
     }
@@ -774,6 +801,20 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
         const org = await api.organizeCollection();
         await api.clearRoots();
         // show organize problems (e.g. leftover duplicates) instead of ignoring them
+        // the loose dropped files: only after a clean organize, and before encrypting (the
+        // check compares the bytes)
+        if (org.failed === 0 && org.errors.length === 0 && looseDropped.current.length > 0) {
+          const kept = await api.trashImportedOriginals(looseDropped.current).catch(() => []);
+          if (kept.length > 0) {
+            showToast({
+              tone: "warn",
+              title: t("Imported"),
+              problem: tf("Still in place: {names}", {
+                names: kept.map((k) => k.split(/[\\/]/).pop() || k).join(", "),
+              }),
+            });
+          }
+        }
         if (org.failed > 0 || org.errors.length > 0) {
           archiveSafe = false;
           showToast({
@@ -807,6 +848,7 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.error("import failed", e);
     } finally {
+      looseDropped.current = [];
       setBusy(false);
     }
   };

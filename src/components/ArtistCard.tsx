@@ -524,7 +524,11 @@ function TypeCorner({
   return (
     <div
       {...buttonProps}
-      className="absolute right-0 top-0 z-20 h-12 w-12 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+      className={cn(
+        "absolute right-0 top-0 z-20 h-12 w-12 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-white/70",
+        // classic accents: hooks for the "Premium look" (index.css), inert without it
+        !cyber && !sakura && "classic-corner-wrap",
+      )}
     >
       {cyber ? (
         <>
@@ -566,7 +570,7 @@ function TypeCorner({
         </>
       ) : (
         <div
-          className="absolute inset-0 bg-gradient-to-bl from-brand-400 to-brand-600"
+          className="classic-corner absolute inset-0 bg-gradient-to-bl from-brand-400 to-brand-600"
           style={{ clipPath: tri }}
         />
       )}
@@ -574,6 +578,7 @@ function TypeCorner({
         className={cn(
           "pointer-events-none absolute right-3 top-2 text-[13px] font-extrabold leading-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]",
           qClass,
+          !cyber && !sakura && "classic-corner-q",
         )}
       >
         ?
@@ -957,7 +962,7 @@ function ArtistCardBase({
                   ? "iri-edge"
                   : sak
                     ? "sak-edge"
-                    : "border border-zinc-800 bg-zinc-900"
+                    : "classic-card border border-zinc-800 bg-zinc-900"
         }`}
         // clip to the frame outline so the cover ends at the border.
         // Not on iridescent: its cut corners are filled by the frame, a clip would remove

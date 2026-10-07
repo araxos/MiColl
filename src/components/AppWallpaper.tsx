@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { useAccent } from "@/lib/theme";
+import { isPremium, useAccent } from "@/lib/theme";
 import { useAnimatedBg } from "@/lib/animatedBg";
+import { useClassicLuxe } from "@/lib/classicLuxe";
 import { useIridSnapshot } from "@/lib/iridSnapshot";
 import {
   useWallpaper,
@@ -30,6 +31,13 @@ export function AppWallpaper() {
   const irid = animated && accent === "iridescent";
   // iridescent without animation: show the saved shader snapshot (see iridSnapshot)
   const snapshot = useIridSnapshot();
+  // "Premium look" on a classic accent. The flag on <html> drives all of its CSS
+  // (index.css, "Classic premium look"), this is just the one place that sets it.
+  const luxePref = useClassicLuxe();
+  const luxe = luxePref && !isPremium(accent);
+  useEffect(() => {
+    document.documentElement.dataset.classicLuxe = luxe ? "1" : "0";
+  }, [luxe]);
 
   // chosen wallpaper: a preset (bundled image) or a file path (read here)
   // if the file is gone we fall back to the theme
@@ -80,6 +88,13 @@ export function AppWallpaper() {
       </div>
       {/* grain/vignette so cards stay readable */}
       <div className="app-veil absolute inset-0 bg-zinc-950/40" />
+      {/* classic premium look: the setup screens' sand + glow, with crystal glints */}
+      {luxe && !custom && (
+        <>
+          <div className="classic-luxe-bg absolute inset-0" />
+          <div className="classic-luxe-glints absolute inset-0" />
+        </>
+      )}
       {/* static iridescent wallpaper when animation is off */}
       {iridStill && (
         <div

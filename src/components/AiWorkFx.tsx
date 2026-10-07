@@ -403,10 +403,27 @@ export function BusyNote({
       </div>
     );
   }
+  // the other themes: the pill with a bar in the theme color (fills when the job says how
+  // far it is, else a piece slides through like on the toasts)
   return (
-    <div className="flex items-center gap-2 rounded-xl bg-zinc-900/90 px-4 py-2.5 text-sm text-zinc-100 shadow-2xl">
-      <Loader2 className="h-4 w-4 animate-spin text-brand-300" />
-      {msg}
+    <div className="flex min-w-[16rem] flex-col gap-2 rounded-xl bg-zinc-900/90 px-4 py-2.5 text-sm text-zinc-100 shadow-2xl">
+      <div className="flex items-center gap-2">
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-brand-300" />
+        <span className="flex-1">{msg}</span>
+        {progress != null && (
+          <span className="text-xs tabular-nums text-zinc-400">{Math.round(progress * 100)}%</span>
+        )}
+      </div>
+      <div className="relative h-1 overflow-hidden rounded-full bg-white/10">
+        {progress == null ? (
+          <div className="toast-indeterminate absolute inset-y-0 w-1/3 rounded-full bg-brand-400" />
+        ) : (
+          <div
+            className="h-full rounded-full bg-brand-400 transition-[width] duration-300 ease-out"
+            style={{ width: `${Math.max(2, Math.min(1, progress) * 100)}%` }}
+          />
+        )}
+      </div>
     </div>
   );
 }

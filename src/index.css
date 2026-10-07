@@ -4960,6 +4960,14 @@ html[data-fx-idle="1"] .app-content .animate-bounce {
 .toast-indeterminate {
   animation: micoll-toast-indeterminate 1.3s ease-in-out infinite;
 }
+/* a loader: keeps running with the animations switched off or paused */
+[data-animations="off"] .app-content .toast-indeterminate {
+  animation: micoll-toast-indeterminate 1.3s ease-in-out infinite !important;
+}
+html[data-fx-idle="1"] .app-content .toast-indeterminate,
+html[data-holo-freq="1"][data-accent="iridescent"] .app-content .toast-indeterminate {
+  animation-play-state: running !important;
+}
 @media (prefers-reduced-motion: reduce) {
   .toast-indeterminate {
     animation-duration: 3s;
@@ -5000,5 +5008,244 @@ html[data-holo-freq="1"][data-accent="iridescent"] .app-content .card-flash,
 @media (prefers-reduced-motion: reduce) {
   .card-flash {
     animation-duration: 2.4s;
+  }
+}
+
+/* ---- Classic premium look ------------------------------------------------ */
+/* Settings → Appearance → "Premium look" on the classic accents. Everything here
+   hangs off html[data-classic-luxe="1"] (set by AppWallpaper, only on a basic
+   accent), so switching it off gives back exactly the old look. */
+
+/* the backdrop: the setup screens' sand grain and top glow, a second glow in the
+   accent2 color low on the right, a vignette. Replaces the blurred corner blobs. */
+html[data-classic-luxe="1"] .app-blobs {
+  display: none;
+}
+html[data-classic-luxe="1"] .app-veil {
+  background-color: transparent;
+}
+.classic-luxe-bg {
+  background-color: color-mix(in srgb, var(--color-brand-900) 9%, #08080a);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0 0 0 0 1'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='1' intercept='-0.23'/%3E%3CfeFuncG type='linear' slope='1' intercept='-0.23'/%3E%3CfeFuncB type='linear' slope='1' intercept='-0.23'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E"),
+    radial-gradient(
+      95% 62% at 50% 0%,
+      color-mix(in srgb, var(--color-brand-500) 19%, transparent) 0%,
+      color-mix(in srgb, var(--color-brand-700) 10%, transparent) 46%,
+      transparent 76%
+    ),
+    radial-gradient(
+      40% 26% at 46% 0%,
+      color-mix(in srgb, var(--color-brand-400) 13%, transparent) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      55% 50% at 100% 100%,
+      color-mix(in srgb, var(--color-accent2-600) 11%, transparent) 0%,
+      transparent 72%
+    ),
+    radial-gradient(125% 115% at 50% 35%, transparent 25%, rgba(0, 0, 0, 0.82) 100%);
+  background-size:
+    180px 180px,
+    auto,
+    auto,
+    auto,
+    auto;
+  background-repeat: repeat, no-repeat, no-repeat, no-repeat, no-repeat;
+  background-blend-mode: soft-light, normal, normal, normal, normal;
+}
+/* crystal glints: two sparse star tiles of different sizes (so the repeat doesn't
+   show). The fill is pale brand to white, strongest under the glow and fading toward
+   the bottom. Breathes slowly, paused with the wallpaper when the app is idle. */
+.classic-luxe-glints {
+  background-image: radial-gradient(
+    90% 80% at 50% 8%,
+    color-mix(in srgb, var(--color-brand-100) 70%, #fff) 0%,
+    rgba(255, 255, 255, 0.4) 65%,
+    color-mix(in srgb, var(--color-accent2-400) 18%, transparent) 100%
+  );
+  -webkit-mask-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='430' height='430'%3E%3Cg fill='%23fff'%3E%3Cpath d='M142.1 66.9Q142.1 70.5 145.6 70.5Q142.1 70.5 142.1 74.0Q142.1 70.5 138.6 70.5Q142.1 70.5 142.1 66.9Z' opacity='0.58'/%3E%3Cpath d='M229.9 157.1Q229.9 159.4 232.2 159.4Q229.9 159.4 229.9 161.7Q229.9 159.4 227.5 159.4Q229.9 159.4 229.9 157.1Z' opacity='0.78'/%3E%3Cpath d='M23.5 185.2Q23.5 187.5 25.9 187.5Q23.5 187.5 23.5 189.9Q23.5 187.5 21.2 187.5Q23.5 187.5 23.5 185.2Z' opacity='0.59'/%3E%3Cpath d='M183.8 347.9Q183.8 350.3 186.2 350.3Q183.8 350.3 183.8 352.8Q183.8 350.3 181.3 350.3Q183.8 350.3 183.8 347.9Z' opacity='0.65'/%3E%3Ccircle cx='269.3' cy='405.7' r='1.0' opacity='0.54'/%3E%3Ccircle cx='417.9' cy='21.8' r='1.2' opacity='0.47'/%3E%3Ccircle cx='63.5' cy='52.2' r='0.8' opacity='0.79'/%3E%3Ccircle cx='79.0' cy='249.8' r='1.0' opacity='0.52'/%3E%3Ccircle cx='235.3' cy='28.7' r='0.6' opacity='0.42'/%3E%3Ccircle cx='291.9' cy='184.2' r='0.8' opacity='0.65'/%3E%3Ccircle cx='195.1' cy='129.7' r='1.2' opacity='0.72'/%3E%3Ccircle cx='106.0' cy='246.7' r='1.0' opacity='0.83'/%3E%3Ccircle cx='312.7' cy='124.7' r='1.3' opacity='0.37'/%3E%3Ccircle cx='180.1' cy='324.5' r='0.7' opacity='0.59'/%3E%3Ccircle cx='18.7' cy='286.7' r='1.1' opacity='0.64'/%3E%3Ccircle cx='375.0' cy='135.7' r='1.1' opacity='0.66'/%3E%3Ccircle cx='249.0' cy='196.3' r='1.2' opacity='0.87'/%3E%3Ccircle cx='204.0' cy='284.9' r='0.6' opacity='0.72'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='610' height='610'%3E%3Cg fill='%23fff'%3E%3Cpath d='M557.4 567.5Q557.4 571.5 561.4 571.5Q557.4 571.5 557.4 575.5Q557.4 571.5 553.4 571.5Q557.4 571.5 557.4 567.5Z' opacity='0.59'/%3E%3Cpath d='M359.7 256.4Q359.7 259.7 362.9 259.7Q359.7 259.7 359.7 263.0Q359.7 259.7 356.4 259.7Q359.7 259.7 359.7 256.4Z' opacity='0.61'/%3E%3Cpath d='M122.0 269.4Q122.0 272.1 124.7 272.1Q122.0 272.1 122.0 274.7Q122.0 272.1 119.4 272.1Q122.0 272.1 122.0 269.4Z' opacity='0.75'/%3E%3Ccircle cx='17.0' cy='54.0' r='1.1' opacity='0.55'/%3E%3Ccircle cx='312.7' cy='446.9' r='0.9' opacity='0.33'/%3E%3Ccircle cx='476.6' cy='359.0' r='1.1' opacity='0.67'/%3E%3Ccircle cx='590.3' cy='221.9' r='1.1' opacity='0.52'/%3E%3Ccircle cx='348.7' cy='402.3' r='0.8' opacity='0.35'/%3E%3Ccircle cx='289.3' cy='437.1' r='1.0' opacity='0.57'/%3E%3Ccircle cx='391.3' cy='112.3' r='0.7' opacity='0.49'/%3E%3Ccircle cx='496.4' cy='120.5' r='0.7' opacity='0.36'/%3E%3Ccircle cx='25.6' cy='169.0' r='1.0' opacity='0.79'/%3E%3Ccircle cx='202.5' cy='226.0' r='0.8' opacity='0.48'/%3E%3C/g%3E%3C/svg%3E");
+  mask-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='430' height='430'%3E%3Cg fill='%23fff'%3E%3Cpath d='M142.1 66.9Q142.1 70.5 145.6 70.5Q142.1 70.5 142.1 74.0Q142.1 70.5 138.6 70.5Q142.1 70.5 142.1 66.9Z' opacity='0.58'/%3E%3Cpath d='M229.9 157.1Q229.9 159.4 232.2 159.4Q229.9 159.4 229.9 161.7Q229.9 159.4 227.5 159.4Q229.9 159.4 229.9 157.1Z' opacity='0.78'/%3E%3Cpath d='M23.5 185.2Q23.5 187.5 25.9 187.5Q23.5 187.5 23.5 189.9Q23.5 187.5 21.2 187.5Q23.5 187.5 23.5 185.2Z' opacity='0.59'/%3E%3Cpath d='M183.8 347.9Q183.8 350.3 186.2 350.3Q183.8 350.3 183.8 352.8Q183.8 350.3 181.3 350.3Q183.8 350.3 183.8 347.9Z' opacity='0.65'/%3E%3Ccircle cx='269.3' cy='405.7' r='1.0' opacity='0.54'/%3E%3Ccircle cx='417.9' cy='21.8' r='1.2' opacity='0.47'/%3E%3Ccircle cx='63.5' cy='52.2' r='0.8' opacity='0.79'/%3E%3Ccircle cx='79.0' cy='249.8' r='1.0' opacity='0.52'/%3E%3Ccircle cx='235.3' cy='28.7' r='0.6' opacity='0.42'/%3E%3Ccircle cx='291.9' cy='184.2' r='0.8' opacity='0.65'/%3E%3Ccircle cx='195.1' cy='129.7' r='1.2' opacity='0.72'/%3E%3Ccircle cx='106.0' cy='246.7' r='1.0' opacity='0.83'/%3E%3Ccircle cx='312.7' cy='124.7' r='1.3' opacity='0.37'/%3E%3Ccircle cx='180.1' cy='324.5' r='0.7' opacity='0.59'/%3E%3Ccircle cx='18.7' cy='286.7' r='1.1' opacity='0.64'/%3E%3Ccircle cx='375.0' cy='135.7' r='1.1' opacity='0.66'/%3E%3Ccircle cx='249.0' cy='196.3' r='1.2' opacity='0.87'/%3E%3Ccircle cx='204.0' cy='284.9' r='0.6' opacity='0.72'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='610' height='610'%3E%3Cg fill='%23fff'%3E%3Cpath d='M557.4 567.5Q557.4 571.5 561.4 571.5Q557.4 571.5 557.4 575.5Q557.4 571.5 553.4 571.5Q557.4 571.5 557.4 567.5Z' opacity='0.59'/%3E%3Cpath d='M359.7 256.4Q359.7 259.7 362.9 259.7Q359.7 259.7 359.7 263.0Q359.7 259.7 356.4 259.7Q359.7 259.7 359.7 256.4Z' opacity='0.61'/%3E%3Cpath d='M122.0 269.4Q122.0 272.1 124.7 272.1Q122.0 272.1 122.0 274.7Q122.0 272.1 119.4 272.1Q122.0 272.1 122.0 269.4Z' opacity='0.75'/%3E%3Ccircle cx='17.0' cy='54.0' r='1.1' opacity='0.55'/%3E%3Ccircle cx='312.7' cy='446.9' r='0.9' opacity='0.33'/%3E%3Ccircle cx='476.6' cy='359.0' r='1.1' opacity='0.67'/%3E%3Ccircle cx='590.3' cy='221.9' r='1.1' opacity='0.52'/%3E%3Ccircle cx='348.7' cy='402.3' r='0.8' opacity='0.35'/%3E%3Ccircle cx='289.3' cy='437.1' r='1.0' opacity='0.57'/%3E%3Ccircle cx='391.3' cy='112.3' r='0.7' opacity='0.49'/%3E%3Ccircle cx='496.4' cy='120.5' r='0.7' opacity='0.36'/%3E%3Ccircle cx='25.6' cy='169.0' r='1.0' opacity='0.79'/%3E%3Ccircle cx='202.5' cy='226.0' r='0.8' opacity='0.48'/%3E%3C/g%3E%3C/svg%3E");
+  -webkit-mask-size: 430px 430px, 610px 610px;
+  mask-size: 430px 430px, 610px 610px;
+  -webkit-mask-position: 0 0, 170px 90px;
+  mask-position: 0 0, 170px 90px;
+  animation: classic-glint 9s ease-in-out infinite alternate;
+}
+@keyframes classic-glint {
+  from {
+    opacity: 0.3;
+  }
+  to {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .classic-luxe-glints {
+    animation: none;
+    opacity: 0.42;
+  }
+}
+
+/* header: frosted glass with a lit hairline underneath (brand into accent2) */
+html[data-classic-luxe="1"] .app-header {
+  border-bottom-color: transparent;
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.012)),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-brand-900) 30%, transparent),
+      rgba(9, 9, 11, 0.45) 50%,
+      color-mix(in srgb, var(--color-brand-900) 24%, transparent)
+    );
+  backdrop-filter: blur(20px) saturate(1.3);
+}
+html[data-classic-luxe="1"] .app-header::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 1px;
+  pointer-events: none;
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-brand-400) 55%, transparent) 25%,
+    color-mix(in srgb, var(--color-accent2-400) 40%, transparent) 70%,
+    transparent
+  );
+}
+
+/* Settings sections: the setup panel's glass, lit from the top left */
+html[data-classic-luxe="1"] .settings-glass {
+  border-color: rgba(255, 255, 255, 0.11);
+  background-color: rgba(14, 13, 17, 0.5);
+  background-image:
+    radial-gradient(
+      70% 55% at 0% 0%,
+      color-mix(in srgb, var(--color-brand-500) 9%, transparent),
+      transparent 70%
+    ),
+    linear-gradient(157deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.025) 38%, rgba(0, 0, 0, 0.2) 100%);
+  box-shadow:
+    0 30px 70px -36px rgba(0, 0, 0, 0.9),
+    0 2px 10px -4px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.13);
+  backdrop-filter: blur(22px) saturate(1.25);
+}
+/* the boxes inside them: a faint brand wash and a tinted hairline */
+html[data-classic-luxe="1"] .glass-box {
+  border-color: color-mix(in srgb, var(--color-brand-300) 18%, rgba(255, 255, 255, 0.06));
+  background-color: rgba(255, 255, 255, 0.03);
+  background-image: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-brand-400) 11%, transparent),
+    color-mix(in srgb, var(--color-brand-600) 4%, transparent) 45%,
+    transparent 75%,
+    color-mix(in srgb, var(--color-accent2-500) 6%, transparent)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+/* section titles: white running into the accent (the icon keeps its own color) */
+html[data-classic-luxe="1"] .settings-title {
+  width: fit-content;
+  color: transparent;
+  background-image: linear-gradient(90deg, #fff 0%, var(--color-brand-100) 35%, var(--color-brand-300) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--color-brand-500) 22%, transparent));
+}
+
+/* creator cards: a brand-tinted rim, a glass sheen over the top of the cover and a
+   colored lift on hover */
+html[data-classic-luxe="1"] .classic-card {
+  border-color: color-mix(in srgb, var(--color-brand-300) 22%, rgba(255, 255, 255, 0.08));
+  box-shadow:
+    0 14px 34px -18px rgba(0, 0, 0, 0.85),
+    0 0 0 1px rgba(0, 0, 0, 0.35);
+  transition:
+    box-shadow 0.3s ease,
+    border-color 0.3s ease;
+}
+html[data-classic-luxe="1"] .classic-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.13) 0%,
+    rgba(255, 255, 255, 0.03) 22%,
+    transparent 40%
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+html[data-classic-luxe="1"] .group:hover > .classic-card {
+  border-color: color-mix(in srgb, var(--color-brand-300) 45%, transparent);
+  box-shadow:
+    0 18px 40px -16px color-mix(in srgb, var(--color-brand-500) 45%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--color-brand-400) 25%, transparent);
+}
+
+/* the "set type" corner on classic cards: a deeper fold gradient, a glint now and
+   then and a soft shadow under it */
+html[data-classic-luxe="1"] .classic-corner-wrap {
+  filter: drop-shadow(-1px 2px 3px rgba(0, 0, 0, 0.5))
+    drop-shadow(0 0 7px color-mix(in srgb, var(--color-brand-500) 45%, transparent));
+}
+html[data-classic-luxe="1"] .classic-corner {
+  background-image:
+    linear-gradient(
+      225deg,
+      var(--color-brand-400) 0%,
+      var(--color-brand-500) 38%,
+      var(--color-brand-700) 72%,
+      color-mix(in srgb, var(--color-accent2-600) 70%, var(--color-brand-700)) 100%
+    );
+}
+html[data-classic-luxe="1"] .classic-corner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    115deg,
+    transparent 40%,
+    rgba(255, 255, 255, 0.8) 50%,
+    transparent 60%
+  );
+  background-size: 260% 100%;
+  background-repeat: no-repeat;
+  background-position: 160% 0;
+  animation: classic-corner-glint 7s ease-in-out infinite;
+}
+/* a glint only reads as one if it's quick inside a long rest */
+@keyframes classic-corner-glint {
+  0%,
+  84% {
+    background-position: 160% 0;
+  }
+  96%,
+  100% {
+    background-position: -60% 0;
+  }
+}
+/* the "?": bigger and thinner than the plain corner's, no outline or shadow */
+html[data-classic-luxe="1"] .classic-corner-q {
+  top: 8px;
+  right: 9px;
+  font-size: 17px;
+  font-weight: 500;
+  color: #fff;
+  text-shadow: none;
+  filter: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-classic-luxe="1"] .classic-corner::after {
+    animation: none;
   }
 }
