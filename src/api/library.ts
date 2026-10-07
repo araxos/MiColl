@@ -1181,8 +1181,65 @@ export async function discardExtracted(path: string): Promise<void> {
 }
 
 /** Send a file/folder to the OS recycle bin. */
-export async function trashPath(path: string): Promise<void> {
-  await invoke("trash_path", { path });
+export async function trashPath(path: string, reason?: "import"): Promise<void> {
+  // "import" = the dropped archive after its import, the history logs it
+  await invoke("trash_path", { path, reason: reason ?? null });
+}
+
+/** One file/folder an action touched (history.rs Item). */
+export interface HistoryItem {
+  name: string;
+  /** The name before a rename. */
+  was?: string;
+  from?: string;
+  to?: string;
+}
+
+/** One row of the activity history (history.rs Row). */
+export interface HistoryRow {
+  id: number;
+  /** UTC "YYYY-MM-DD HH:MM:SS" */
+  at: string;
+  action: "delete" | "move" | "rename" | "merge" | "trash";
+  kind: string;
+  artist: string | null;
+  place: string | null;
+  /** deletes: "trash" = to the Recycle Bin, "kept" = only removed from MiColl */
+  files: "trash" | "kept" | null;
+  /** how many items it touched (items may hold fewer) */
+  count: number;
+  items: HistoryItem[];
+  /** already taken back */
+  undone: boolean;
+  /** a rename or move that can be taken back */
+  undoable: boolean;
+}
+
+/** What an undo took back. */
+export interface UndoDone {
+  action: string;
+  kind: string;
+  /** the names it has again */
+  names: string[];
+}
+
+/**
+ * Take back a history row: the newest one (Ctrl+Z) or a given one. Fails with a code:
+ * undo:nothing, undo:already, undo:not-yet:<action>, undo:changed:<name>,
+ * undo:taken:<path>.
+ */
+export async function undoHistory(id?: number): Promise<UndoDone> {
+  return invoke<UndoDone>("undo_history", { id: id ?? null });
+}
+
+/** The activity history, newest first. before = the last id of the previous page. */
+export async function listHistory(before?: number, limit = 100): Promise<HistoryRow[]> {
+  return invoke<HistoryRow[]>("list_history", { before: before ?? null, limit });
+}
+
+/** Empty the history log (nothing else changes). */
+export async function clearHistory(): Promise<void> {
+  await invoke("clear_history");
 }
 
 /** Write a consistent snapshot of the library database to `dest`. */

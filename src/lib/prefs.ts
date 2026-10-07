@@ -39,6 +39,7 @@ const SYNCED = [
   "micoll.stripCreator",
   "micoll.showHidden",
   "micoll.wishlistButton",
+  "micoll.historyButton",
   "micoll.cinemaButton",
   "micoll.graveyardButton",
   "micoll.topbarHintSeen",

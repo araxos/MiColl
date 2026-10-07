@@ -478,6 +478,8 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_collab_artist  ON reward_collabs(artist_id);
         "#,
     )?;
+    // activity history (what was deleted / moved / renamed), see history.rs
+    crate::history::ensure_table(conn)?;
     // add columns for old databases (ignore "duplicate column" errors)
     let _ = conn.execute("ALTER TABLE artists ADD COLUMN manual INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE artists ADD COLUMN no_dates INTEGER NOT NULL DEFAULT 0", []);

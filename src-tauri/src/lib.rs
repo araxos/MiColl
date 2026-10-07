@@ -15,6 +15,7 @@ mod single_instance;
 mod template;
 mod thumbs;
 mod transfer;
+mod history;
 mod wshare;
 
 use db::{Artist, Db, Root};
@@ -1255,6 +1256,133 @@ fn add_skipped_period(
     Ok(())
 }
 
+/* ---- trash journal: which paths a delete sent to the Recycle Bin ----------- */
+
+thread_local! {
+    static TRASH_JOURNAL: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Recycle a path and, while a delete runs (TrashJournal), note it: undoing the delete
+/// fetches exactly these back.
+fn recycle(p: &std::path::Path) -> Result<(), trash::Error> {
+    trash::delete(p)?;
+    TRASH_JOURNAL.with(|j| {
+        if let Some(v) = j.borrow_mut().as_mut() {
+            v.push(p.to_string_lossy().to_string());
+        }
+    });
+    Ok(())
+}
+
+/// Notes the recycled paths of one delete command (same thread, they run without
+/// awaiting). Dropping it stops the noting.
+struct TrashJournal;
+
+impl TrashJournal {
+    fn start() -> Self {
+        TRASH_JOURNAL.with(|j| *j.borrow_mut() = Some(Vec::new()));
+        TrashJournal
+    }
+    fn take(&self) -> Vec<String> {
+        TRASH_JOURNAL.with(|j| j.borrow_mut().replace(Vec::new()).unwrap_or_default())
+    }
+}
+
+impl Drop for TrashJournal {
+    fn drop(&mut self) {
+        TRASH_JOURNAL.with(|j| *j.borrow_mut() = None);
+    }
+}
+
+fn ids_sql(ids: &[i64]) -> String {
+    let s = ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+    if s.is_empty() { "NULL".into() } else { s }
+}
+
+/// What deleting these rewards removes: the rewards, their period (it can be pruned),
+/// images, collabs, versions, favourites and collection memberships of their files.
+fn snap_rewards(conn: &rusqlite::Connection, snap: &mut history::Snapshot, rewards_sql: &str) {
+    let files = format!("SELECT file_path FROM images WHERE reward_id IN ({rewards_sql})");
+    snap.add(conn, "periods", &format!("id IN (SELECT period_id FROM rewards WHERE id IN ({rewards_sql}))"), &[]);
+    snap.add(conn, "rewards", &format!("id IN ({rewards_sql})"), &[]);
+    snap.add(conn, "images", &format!("reward_id IN ({rewards_sql})"), &[]);
+    snap.add(conn, "reward_collabs", &format!("reward_id IN ({rewards_sql})"), &[]);
+    snap.add(conn, "image_versions", &format!("orig_path IN ({files})"), &[]);
+    snap.add(conn, "image_active_version", &format!("orig_path IN ({files})"), &[]);
+    for t in ["favorites", "wallpaper_favs", "collection_items"] {
+        snap.add(conn, t, &format!("file_path IN ({files})"), &[]);
+    }
+}
+
+/// A whole creator: its row, everything below it and what hangs on it.
+fn snap_artist(conn: &rusqlite::Connection, artist_id: i64) -> history::Snapshot {
+    let mut snap = history::Snapshot::default();
+    snap.add(conn, "artists", &format!("id = {artist_id}"), &[]);
+    snap.add(conn, "periods", &format!("artist_id = {artist_id}"), &[]);
+    snap_rewards(
+        conn,
+        &mut snap,
+        &format!("SELECT r.id FROM rewards r JOIN periods p ON p.id = r.period_id WHERE p.artist_id = {artist_id}"),
+    );
+    snap.add(conn, "reward_collabs", &format!("artist_id = {artist_id}"), &[]);
+    for t in ["platform_no_dates", "applied_templates", "sd_year_rules"] {
+        snap.add(conn, t, &format!("artist_id = {artist_id}"), &[]);
+    }
+    snap.add(conn, "roots", &format!("label = (SELECT name FROM artists WHERE id = {artist_id})"), &[]);
+    snap
+}
+
+/* ---- history helpers ---------------------------------------------------- */
+
+/// A folder path for the history, None for a placeholder (template / missing reward).
+fn real_path(p: &str) -> Option<String> {
+    (!p.contains('\u{1}')).then(|| p.to_string())
+}
+
+/// The creator and a short place of a period for the history ("Patreon › 2025-08").
+fn period_place(conn: &rusqlite::Connection, period_id: i64) -> (Option<String>, Option<String>) {
+    match db::period_scope(conn, period_id).ok().flatten() {
+        Some((artist, platform, year, month, number)) => {
+            let when = match (number, year, month) {
+                (Some(n), _, _) => indexer::fmt_number_label(n),
+                (None, Some(y), Some(m)) => format!("{y}-{m:02}"),
+                (None, Some(y), None) => y.to_string(),
+                _ => "Misc".to_string(),
+            };
+            let platform = platform.unwrap_or_else(|| "Unsorted".to_string());
+            (Some(artist), Some(format!("{platform} › {when}")))
+        }
+        None => (None, None),
+    }
+}
+
+/// Creator + place of a reward, the place ending with the reward's title.
+fn reward_place(conn: &rusqlite::Connection, reward_id: i64) -> (Option<String>, Option<String>) {
+    match db::reward_scope(conn, reward_id).ok().flatten() {
+        Some((title, _, period_id)) => {
+            let (artist, place) = period_place(conn, period_id);
+            (artist, Some(place.map(|p| format!("{p} › {title}")).unwrap_or(title)))
+        }
+        None => (None, None),
+    }
+}
+
+/// The rewards as history items (title + folder), read before they go.
+fn reward_items(conn: &rusqlite::Connection, ids: &[i64]) -> Vec<history::Item> {
+    ids.iter()
+        .filter_map(|id| db::reward_scope(conn, *id).ok().flatten())
+        .map(|(title, folder, _)| history::Item { name: title, from: real_path(&folder), ..Default::default() })
+        .collect()
+}
+
+/// A file's name for the history.
+fn file_name_of(p: &str) -> String {
+    std::path::Path::new(p)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| p.to_string())
+}
+
 /// Move one file: rename, or a checked copy (same size) before the original is deleted.
 /// A failed copy is taken back, the original stays.
 fn move_file_checked(src: &std::path::Path, dest: &std::path::Path) -> bool {
@@ -2212,6 +2340,8 @@ async fn fill_reward(
     // failure or an unreadable file means the source still has something, so it stays
     let all_arrived = skipped == 0 && failed == 0;
     let mut kept_sources = Vec::new();
+    // sources that went to the Recycle Bin, for the history
+    let mut trashed: Vec<history::Item> = Vec::new();
     if consume && all_arrived {
         // an archive's unpack folder is a temp copy, the frontend deletes it
         let unpacked = app_cache(&app).ok().map(|c| c.join("extracted"));
@@ -2234,9 +2364,19 @@ async fn fill_reward(
                 kept_sources.push(e);
                 continue;
             }
-            if let Some(msg) = trash_dir(src) {
-                kept_sources.push(msg);
+            match trash_dir(src) {
+                Some(msg) => kept_sources.push(msg),
+                None => trashed.push(history::Item::at(file_name_of(p), p.clone())),
             }
+        }
+    }
+    if !trashed.is_empty() {
+        if let Ok(conn) = db.lock() {
+            let (artist, place) = reward_place(&conn, reward_id);
+            history::log(
+                &conn,
+                history::Entry { action: "trash", kind: "source", artist, place, files: history::Files::Trash, items: trashed },
+            );
         }
     }
 
@@ -2438,7 +2578,8 @@ async fn move_rewards(
         period_month_dir(&conn, dest_period_id)
             .ok_or_else(|| "Couldn't locate the destination folder.".to_string())?
     };
-    // (id, title, old_folder) of every movable reward
+    // (id, title, old_folder) of every movable reward, and its period (for undo)
+    let mut back_period: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
     let sources: Vec<(i64, String, String)> = {
         let conn = db.lock().map_err(map_err)?;
         let mut out = Vec::new();
@@ -2446,6 +2587,9 @@ async fn move_rewards(
             if let Some((title, folder, _)) = db::reward_scope(&conn, *id).map_err(map_err)? {
                 if !folder.contains('\u{1}') {
                     out.push((*id, title, folder));
+                }
+                if let Some((_, _, pid)) = db::reward_scope(&conn, *id).map_err(map_err)? {
+                    back_period.insert(*id, pid);
                 }
             }
         }
@@ -2478,6 +2622,22 @@ async fn move_rewards(
         for (id, old, new) in &moved {
             db::move_reward(&conn, *id, dest_period_id, old, new).map_err(map_err)?;
         }
+        let (artist, place) = period_place(&conn, dest_period_id);
+        let items = moved
+            .iter()
+            .map(|(id, old, new)| {
+                let title = db::reward_scope(&conn, *id).ok().flatten().map(|(t, _, _)| t);
+                history::Item {
+                    id: Some(*id),
+                    back: back_period.get(id).copied(),
+                    ..history::Item::moved(title.unwrap_or_else(|| file_name_of(new)), old.clone(), new.clone())
+                }
+            })
+            .collect();
+        history::log(
+            &conn,
+            history::Entry { action: "move", kind: "reward", artist, place, files: history::Files::None, items },
+        );
     }
     allow_asset_dir(&app, &dest_dir.to_string_lossy());
     Ok(count)
@@ -2568,6 +2728,19 @@ async fn move_images(
         for (old, new) in &moved {
             db::remap_preview_exact(&conn, old, new).map_err(map_err)?;
         }
+        let (artist, place) = reward_place(&conn, dest_reward_id);
+        let items = moved
+            .iter()
+            .map(|(old, new)| history::Item {
+                back: srcs.iter().find(|(p, _)| p == old).map(|(_, rid)| *rid),
+                into: Some(dest_reward_id),
+                ..history::Item::moved(file_name_of(new), old.clone(), new.clone())
+            })
+            .collect();
+        history::log(
+            &conn,
+            history::Entry { action: "move", kind: "image", artist, place, files: history::Files::None, items },
+        );
     }
     allow_asset_dir(&app, &dest_dir.to_string_lossy());
     Ok(count)
@@ -2614,6 +2787,30 @@ async fn merge_rewards(
             }
         }
         out
+    };
+    // for the history: what goes in, read before the rows go
+    let (merge_items, merge_artist, merge_place) = {
+        let conn = db.lock().map_err(map_err)?;
+        let ids: Vec<i64> = sources.iter().map(|(id, _)| *id).collect();
+        let (artist, place) = reward_place(&conn, dest_reward_id);
+        (reward_items(&conn, &ids), artist, place)
+    };
+    let log_merge = |conn: &rusqlite::Connection, to: &str| {
+        let items = merge_items
+            .iter()
+            .map(|it| history::Item { to: Some(to.to_string()), ..it.clone() })
+            .collect();
+        history::log(
+            conn,
+            history::Entry {
+                action: "merge",
+                kind: "reward",
+                artist: merge_artist.clone(),
+                place: merge_place.clone(),
+                files: history::Files::None,
+                items,
+            },
+        );
     };
 
     // "keep folder": move each source folder in as a subfolder
@@ -2677,6 +2874,7 @@ async fn merge_rewards(
             let (images, cover) = indexer::collect_reward_images(&dest_dir);
             db::set_reward_content(&conn, dest_reward_id, &dest_dir.to_string_lossy(), cover.as_deref(), &images)
                 .map_err(map_err)?;
+            log_merge(&conn, &dest_dir.to_string_lossy());
         }
         allow_asset_dir(&app, &dest_dir.to_string_lossy());
         return Ok(count);
@@ -2752,6 +2950,7 @@ async fn merge_rewards(
         let (images, cover) = indexer::collect_reward_images(&dest_dir);
         db::set_reward_content(&conn, dest_reward_id, &dest_dir.to_string_lossy(), cover.as_deref(), &images)
             .map_err(map_err)?;
+        log_merge(&conn, &dest_dir.to_string_lossy());
     }
 
     // trash the source folders that are empty now. Only the indexed files moved, a
@@ -2797,6 +2996,28 @@ fn period_own_dir(conn: &rusqlite::Connection, period_id: i64) -> Option<std::pa
 #[tauri::command]
 async fn delete_period(db: State<'_, Db>, period_id: i64, also_files: bool) -> Result<(), String> {
     let conn = db.lock().map_err(map_err)?;
+    // for the history, read before anything goes
+    let (h_artist, h_place) = period_place(&conn, period_id);
+    let h_ids = db::period_reward_ids(&conn, period_id).map_err(map_err)?;
+    let h_items = reward_items(&conn, &h_ids);
+    let files = if also_files { history::Files::Trash } else { history::Files::Kept };
+    // what undoing it needs: the rows now, the recycled paths as they go
+    let journal = TrashJournal::start();
+    let mut snap = history::Snapshot::default();
+    snap.add(&conn, "periods", &format!("id = {period_id}"), &[]);
+    snap_rewards(&conn, &mut snap, &format!("SELECT id FROM rewards WHERE period_id = {period_id}"));
+    let log_period = |conn: &rusqlite::Connection, items: Vec<history::Item>, files: history::Files, snap: Option<history::Snapshot>| {
+        let items = if items.is_empty() {
+            vec![history::Item::named(h_place.clone().unwrap_or_default())]
+        } else {
+            items
+        };
+        history::log_with_snapshot(
+            conn,
+            history::Entry { action: "delete", kind: "period", artist: h_artist.clone(), place: h_place.clone(), files, items },
+            snap,
+        );
+    };
     // disk first, the rows only go once the files are really gone
     if also_files {
         let boundaries = delete_boundaries(&conn);
@@ -2807,7 +3028,21 @@ async fn delete_period(db: State<'_, Db>, period_id: i64, also_files: bool) -> R
         let plan = plan_reward_trash(&conn, &ids).map_err(map_err)?;
         let (done, failed) = trash_rewards(&plan, &boundaries);
         if !failed.is_empty() {
+            let items = reward_items(&conn, &done);
             db::delete_rewards(&conn, &done).map_err(map_err)?;
+            if !items.is_empty() {
+                history::log(
+                    &conn,
+                    history::Entry {
+                        action: "delete",
+                        kind: "reward",
+                        artist: h_artist.clone(),
+                        place: h_place.clone(),
+                        files: history::Files::Trash,
+                        items,
+                    },
+                );
+            }
             return Err(trash_failure_message(&failed));
         }
         // a break's note is ours
@@ -2819,7 +3054,10 @@ async fn delete_period(db: State<'_, Db>, period_id: i64, also_files: bool) -> R
             return Err(trash_failure_message(&[why]));
         }
     }
-    db::delete_period(&conn, period_id).map_err(map_err)
+    db::delete_period(&conn, period_id).map_err(map_err)?;
+    snap.trashed = journal.take();
+    log_period(&conn, h_items, files, Some(snap));
+    Ok(())
 }
 
 /// Total disk size of all images (off the main thread).
@@ -3103,14 +3341,53 @@ fn rename_collection(db: State<Db>, id: i64, name: String) -> Result<(), String>
         return Err("A collection needs a name.".into());
     }
     let conn = db.lock().map_err(map_err)?;
-    db::rename_collection(&conn, id, name).map_err(map_err)
+    let old: Option<String> = conn
+        .query_row("SELECT name FROM collections WHERE id = ?1", rusqlite::params![id], |r| r.get(0))
+        .ok();
+    db::rename_collection(&conn, id, name).map_err(map_err)?;
+    if old.as_deref() != Some(name) {
+        history::log(
+            &conn,
+            history::Entry {
+                action: "rename",
+                kind: "collection",
+                artist: None,
+                place: None,
+                files: history::Files::None,
+                items: vec![history::Item { name: name.to_string(), was: old, id: Some(id), ..Default::default() }],
+            },
+        );
+    }
+    Ok(())
 }
 
 /// Delete a collection (only the grouping, no files).
 #[tauri::command]
 fn delete_collection(db: State<Db>, id: i64) -> Result<(), String> {
     let conn = db.lock().map_err(map_err)?;
-    db::delete_collection(&conn, id).map_err(map_err)
+    let name: Option<String> = conn
+        .query_row("SELECT name FROM collections WHERE id = ?1", rusqlite::params![id], |r| r.get(0))
+        .ok();
+    let mut snap = history::Snapshot::default();
+    snap.add(&conn, "collections", &format!("id = {id}"), &[]);
+    snap.add(&conn, "collection_items", &format!("collection_id = {id}"), &[]);
+    db::delete_collection(&conn, id).map_err(map_err)?;
+    if let Some(name) = name {
+        // only the grouping, the files are untouched
+        history::log_with_snapshot(
+            &conn,
+            history::Entry {
+                action: "delete",
+                kind: "collection",
+                artist: None,
+                place: None,
+                files: history::Files::Kept,
+                items: vec![history::Item::named(name)],
+            },
+            Some(snap),
+        );
+    }
+    Ok(())
 }
 
 /// Add/remove one file to/from a collection.
@@ -3375,7 +3652,7 @@ fn trash_dir(path: &std::path::Path) -> Option<String> {
     if !path.exists() {
         return None;
     }
-    match trash::delete(path) {
+    match recycle(path) {
         Ok(()) => None,
         Err(e) => Some(format!("{} — {}", path.display(), e)),
     }
@@ -3405,7 +3682,7 @@ fn prune_empty_dirs(mut dir: std::path::PathBuf, boundaries: &std::collections::
                 if entries.next().is_some() {
                     break; // not empty — keep it (and everything above)
                 }
-                if trash::delete(&dir).is_err() {
+                if recycle(&dir).is_err() {
                     break;
                 }
                 match dir.parent() {
@@ -3491,7 +3768,7 @@ fn trash_reward(
         RewardTrash::Files(files) => {
             let mut failed = Vec::new();
             for f in files.iter().filter(|f| f.exists()) {
-                if let Err(e) = trash::delete(f) {
+                if let Err(e) = recycle(f) {
                     failed.push(format!("{} — {}", f.display(), e));
                 }
             }
@@ -3580,6 +3857,11 @@ fn replace_last_segment(rel: &str, new_seg: &str) -> String {
 #[tauri::command]
 fn rename_rewards(db: State<Db>, items: Vec<RenameItem>) -> Result<(), String> {
     let conn = db.lock().map_err(map_err)?;
+    rename_rewards_in(&conn, &items, true)
+}
+
+/// rename_rewards on a held connection. log = write the history row (an undo doesn't).
+fn rename_rewards_in(conn: &rusqlite::Connection, items: &[RenameItem], log: bool) -> Result<(), String> {
     // resolve everything first
     struct Job {
         id: i64,
@@ -3590,7 +3872,7 @@ fn rename_rewards(db: State<Db>, items: Vec<RenameItem>) -> Result<(), String> {
         final_title: String,
     }
     let mut jobs: Vec<Job> = Vec::new();
-    for it in &items {
+    for it in items {
         let (cur_title, folder) = db::reward_title_folder(&conn, it.id)
             .map_err(map_err)?
             .ok_or("Reward not found.")?;
@@ -3651,6 +3933,32 @@ fn rename_rewards(db: State<Db>, items: Vec<RenameItem>) -> Result<(), String> {
             }
         }
     }
+    let (artist, place) = jobs
+        .first()
+        .and_then(|j| db::reward_scope(&conn, j.id).ok().flatten())
+        .map(|(_, _, pid)| period_place(&conn, pid))
+        .unwrap_or((None, None));
+    let items = finals
+        .iter()
+        .map(|(i, target)| {
+            let j = &jobs[*i];
+            history::Item {
+                name: j.final_title.clone(),
+                was: Some(j.cur_title.clone()),
+                from: real_path(&j.old_folder),
+                to: real_path(target),
+                id: Some(j.id),
+                ..Default::default()
+            }
+        })
+        .filter(|it| it.was.as_deref() != Some(it.name.as_str()) || it.from != it.to)
+        .collect();
+    if log {
+        history::log(
+            &conn,
+            history::Entry { action: "rename", kind: "reward", artist, place, files: history::Files::None, items },
+        );
+    }
     Ok(())
 }
 
@@ -3659,6 +3967,11 @@ fn rename_rewards(db: State<Db>, items: Vec<RenameItem>) -> Result<(), String> {
 #[tauri::command]
 fn rename_images(db: State<Db>, items: Vec<RenameItem>) -> Result<(), String> {
     let conn = db.lock().map_err(map_err)?;
+    rename_images_in(&conn, &items, true)
+}
+
+/// rename_images on a held connection. log = write the history row (an undo doesn't).
+fn rename_images_in(conn: &rusqlite::Connection, items: &[RenameItem], log: bool) -> Result<(), String> {
     struct Job {
         id: i64,
         old_path: String,
@@ -3668,7 +3981,7 @@ fn rename_images(db: State<Db>, items: Vec<RenameItem>) -> Result<(), String> {
         final_stem: String,
     }
     let mut jobs: Vec<Job> = Vec::new();
-    for it in &items {
+    for it in items {
         let (path, rel, _rid) = db::image_row(&conn, it.id).map_err(map_err)?.ok_or("Image not found.")?;
         let stem = sanitize_name(it.name.trim());
         if stem.is_empty() {
@@ -3699,6 +4012,7 @@ fn rename_images(db: State<Db>, items: Vec<RenameItem>) -> Result<(), String> {
         temps.push((i, temp_s));
     }
     // phase 2 -> final
+    let mut renamed: Vec<history::Item> = Vec::new();
     for (i, temp) in temps {
         let j = &jobs[i];
         let target = unique_path(&j.parent, &j.final_stem, j.ext.as_deref());
@@ -3711,6 +4025,27 @@ fn rename_images(db: State<Db>, items: Vec<RenameItem>) -> Result<(), String> {
             target.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default().as_str(),
         );
         db::apply_image_rename(&conn, j.id, &temp, &target_s, &new_rel).map_err(map_err)?;
+        if target_s != j.old_path {
+            renamed.push(history::Item {
+                name: file_name_of(&target_s),
+                was: Some(file_name_of(&j.old_path)),
+                from: Some(j.old_path.clone()),
+                to: Some(target_s.clone()),
+                id: Some(j.id),
+                ..Default::default()
+            });
+        }
+    }
+    let (artist, place) = jobs
+        .first()
+        .and_then(|j| db::image_row(&conn, j.id).ok().flatten())
+        .map(|(_, _, rid)| reward_place(&conn, rid))
+        .unwrap_or((None, None));
+    if log {
+        history::log(
+            &conn,
+            history::Entry { action: "rename", kind: "image", artist, place, files: history::Files::None, items: renamed },
+        );
     }
     Ok(())
 }
@@ -4178,6 +4513,17 @@ fn move_collection(app: AppHandle, db: State<Db>, new_root: String) -> Result<Mo
 
     db::set_setting(&conn, "collection_root", &new_root).map_err(map_err)?;
     allow_asset_dir(&app, &new_managed.to_string_lossy());
+    history::log(
+        &conn,
+        history::Entry {
+            action: "move",
+            kind: "library",
+            artist: None,
+            place: None,
+            files: history::Files::None,
+            items: vec![history::Item::moved("MiColl", old_prefix.clone(), new_prefix.clone())],
+        },
+    );
     Ok(MoveCollectionSummary { moved: true, images, new_root })
 }
 
@@ -4318,11 +4664,22 @@ fn rename_artist(
     artist_id: i64,
     new_name: String,
 ) -> Result<(), String> {
+    let conn = db.lock().map_err(map_err)?;
+    rename_artist_in(&app, &conn, artist_id, &new_name, true)
+}
+
+/// rename_artist on a held connection. log = write the history row (an undo doesn't).
+fn rename_artist_in(
+    app: &AppHandle,
+    conn: &rusqlite::Connection,
+    artist_id: i64,
+    new_name: &str,
+    log: bool,
+) -> Result<(), String> {
     let new_name = new_name.trim().to_string();
     if new_name.is_empty() {
         return Err("Enter a name.".into());
     }
-    let conn = db.lock().map_err(map_err)?;
     let (old_name, _) = db::artist_info(&conn, artist_id)
         .map_err(map_err)?
         .ok_or("Creator not found.")?;
@@ -4335,6 +4692,7 @@ fn rename_artist(
     }
 
     // rename the folder and update paths if we can find it
+    let mut moved_dir: Option<(String, String)> = None;
     if let Some(old_dir) = artist_dir_on_disk(&conn, artist_id, &old_name) {
         if old_dir.is_dir() {
             let new_dir = old_dir
@@ -4356,11 +4714,32 @@ fn rename_artist(
                 move_tree(&old_dir, &new_dir).map_err(map_err)?;
                 db::relink_prefix(&conn, &old_s, &new_s).map_err(map_err)?;
                 allow_asset_dir(&app, &new_s);
+                moved_dir = Some((old_s, new_s));
             }
         }
     }
 
     db::rename_artist(&conn, artist_id, &new_name).map_err(map_err)?;
+    if log {
+        history::log(
+            &conn,
+            history::Entry {
+                action: "rename",
+                kind: "artist",
+                artist: Some(new_name.clone()),
+                place: None,
+                files: history::Files::None,
+                items: vec![history::Item {
+                    name: new_name.clone(),
+                    was: Some(old_name.clone()),
+                    from: moved_dir.as_ref().map(|(o, _)| o.clone()),
+                    to: moved_dir.as_ref().map(|(_, n)| n.clone()),
+                    id: Some(artist_id),
+                    ..Default::default()
+                }],
+            },
+        );
+    }
     db::checkpoint(&conn);
     Ok(())
 }
@@ -4375,6 +4754,16 @@ async fn delete_platform(
 ) -> Result<(), String> {
     let conn = db.lock().map_err(map_err)?;
     let name = db::artist_info(&conn, artist_id).map_err(map_err)?.map(|(n, _)| n);
+    // for the history, read before anything goes
+    let h_ids = db::platform_reward_ids(&conn, artist_id, platform.trim()).map_err(map_err)?;
+    let h_items = reward_items(&conn, &h_ids);
+    let journal = TrashJournal::start();
+    let mut snap = history::Snapshot::default();
+    let plat_where = format!(
+        "artist_id = {artist_id} AND (platform = ?1 OR (?1 = 'Unsorted' AND platform IS NULL))"
+    );
+    snap.add(&conn, "periods", &plat_where, &[&platform.trim()]);
+    snap_rewards(&conn, &mut snap, &ids_sql(&h_ids));
 
     let mut failed: Vec<String> = Vec::new();
     if also_files {
@@ -4384,7 +4773,19 @@ async fn delete_platform(
         let plan = plan_reward_trash(&conn, &ids).map_err(map_err)?;
         let (done, trash_failed) = trash_rewards(&plan, &boundaries);
         if !trash_failed.is_empty() {
+            let items = reward_items(&conn, &done);
             db::delete_rewards(&conn, &done).map_err(map_err)?;
+            history::log(
+                &conn,
+                history::Entry {
+                    action: "delete",
+                    kind: "reward",
+                    artist: name.clone(),
+                    place: Some(platform.trim().to_string()),
+                    files: history::Files::Trash,
+                    items,
+                },
+            );
             return Err(trash_failure_message(&trash_failed));
         }
         // the platform folder itself only when nothing is left in it
@@ -4416,7 +4817,22 @@ async fn delete_platform(
     if !failed.is_empty() {
         return Err(trash_failure_message(&failed));
     }
-    db::delete_artist_platform(&conn, artist_id, platform.trim()).map_err(map_err)
+    db::delete_artist_platform(&conn, artist_id, platform.trim()).map_err(map_err)?;
+    let items = if h_items.is_empty() { vec![history::Item::named(platform.trim())] } else { h_items };
+    snap.trashed = journal.take();
+    history::log_with_snapshot(
+        &conn,
+        history::Entry {
+            action: "delete",
+            kind: "platform",
+            artist: name,
+            place: Some(platform.trim().to_string()),
+            files: if also_files { history::Files::Trash } else { history::Files::Kept },
+            items,
+        },
+        Some(snap),
+    );
+    Ok(())
 }
 
 /// Delete rewards (one, a month or an artist), optionally to the recycle bin.
@@ -4428,12 +4844,25 @@ async fn delete_rewards(
     also_files: bool,
 ) -> Result<(), String> {
     let conn = db.lock().map_err(map_err)?;
+    // for the history, read before anything goes
+    let (h_artist, h_place) = reward_ids
+        .first()
+        .and_then(|id| db::reward_scope(&conn, *id).ok().flatten())
+        .map(|(_, _, pid)| period_place(&conn, pid))
+        .unwrap_or((None, None));
+    let h_items: Vec<(i64, history::Item)> = reward_ids
+        .iter()
+        .filter_map(|id| reward_items(&conn, &[*id]).pop().map(|it| (*id, it)))
+        .collect();
+    let journal = TrashJournal::start();
+    let mut snap = history::Snapshot::default();
+    snap_rewards(&conn, &mut snap, &ids_sql(&reward_ids));
     // trash the edit versions of these images first
     let orig_paths = db::image_paths_for_rewards(&conn, &reward_ids).map_err(map_err)?;
     for f in db::version_files_for_orig_paths(&conn, &orig_paths).map_err(map_err)? {
         let vp = std::path::PathBuf::from(&f);
         if vp.exists() {
-            let _ = trash::delete(&vp);
+            let _ = recycle(&vp);
         }
     }
     // only rewards whose files really left the disk leave the library
@@ -4451,6 +4880,24 @@ async fn delete_rewards(
     }
     if !removable.is_empty() {
         db::delete_rewards(&conn, &removable).map_err(map_err)?;
+        let items = h_items
+            .into_iter()
+            .filter(|(id, _)| removable.contains(id))
+            .map(|(_, it)| it)
+            .collect();
+        snap.trashed = journal.take();
+        history::log_with_snapshot(
+            &conn,
+            history::Entry {
+                action: "delete",
+                kind: "reward",
+                artist: h_artist,
+                place: h_place,
+                files: if also_files { history::Files::Trash } else { history::Files::Kept },
+                items,
+            },
+            Some(snap),
+        );
     }
     if failed.is_empty() {
         Ok(())
@@ -4469,13 +4916,18 @@ async fn delete_artist(
 ) -> Result<(), String> {
     let conn = db.lock().map_err(map_err)?;
     let name = db::artist_info(&conn, artist_id).map_err(map_err)?.map(|(n, _)| n);
+    // for the history, read before anything goes
+    let h_ids = db::artist_reward_ids(&conn, artist_id).map_err(map_err)?;
+    let h_items = reward_items(&conn, &h_ids);
+    let journal = TrashJournal::start();
+    let mut snap = snap_artist(&conn, artist_id);
 
     // trash the artist's edit versions first
     let orig_paths = db::image_paths_for_artist(&conn, artist_id).map_err(map_err)?;
     for f in db::version_files_for_orig_paths(&conn, &orig_paths).map_err(map_err)? {
         let vp = std::path::PathBuf::from(&f);
         if vp.exists() {
-            let _ = trash::delete(&vp);
+            let _ = recycle(&vp);
         }
     }
 
@@ -4542,7 +4994,26 @@ async fn delete_artist(
     for id in own_roots {
         let _ = db::remove_root(&conn, id);
     }
-    db::delete_artist(&conn, artist_id).map_err(map_err)
+    db::delete_artist(&conn, artist_id).map_err(map_err)?;
+    let items = if h_items.is_empty() {
+        vec![history::Item::named(name.clone().unwrap_or_default())]
+    } else {
+        h_items
+    };
+    snap.trashed = journal.take();
+    history::log_with_snapshot(
+        &conn,
+        history::Entry {
+            action: "delete",
+            kind: "artist",
+            artist: name,
+            place: None,
+            files: if also_files { history::Files::Trash } else { history::Files::Kept },
+            items,
+        },
+        Some(snap),
+    );
+    Ok(())
 }
 
 /// Add a platform to an artist: create its folder and an empty period so it shows
@@ -4594,43 +5065,76 @@ fn add_artist_platform(
     Ok(())
 }
 
+/// History row + snapshot for deleting images (built first: the rows hold the names
+/// and paths). Its reward and period come along, the last image takes the reward.
+fn image_delete_entry(conn: &rusqlite::Connection, ids: &[i64], also_files: bool) -> (history::Entry, history::Snapshot) {
+    let rows: Vec<(String, i64)> = ids
+        .iter()
+        .filter_map(|id| db::image_row(conn, *id).ok().flatten())
+        .map(|(path, _, rid)| (path, rid))
+        .collect();
+    let (artist, place) = rows.first().map(|(_, rid)| reward_place(conn, *rid)).unwrap_or((None, None));
+    let items = rows.iter().map(|(p, _)| history::Item::at(file_name_of(p), p.clone())).collect();
+    let list = ids_sql(ids);
+    let mut snap = history::Snapshot::default();
+    let rewards = format!("SELECT reward_id FROM images WHERE id IN ({list})");
+    let files = format!("SELECT file_path FROM images WHERE id IN ({list})");
+    snap.add(conn, "periods", &format!("id IN (SELECT period_id FROM rewards WHERE id IN ({rewards}))"), &[]);
+    snap.add(conn, "rewards", &format!("id IN ({rewards})"), &[]);
+    snap.add(conn, "images", &format!("id IN ({list})"), &[]);
+    snap.add(conn, "reward_collabs", &format!("reward_id IN ({rewards})"), &[]);
+    snap.add(conn, "image_versions", &format!("orig_path IN ({files})"), &[]);
+    snap.add(conn, "image_active_version", &format!("orig_path IN ({files})"), &[]);
+    for t in ["favorites", "wallpaper_favs", "collection_items"] {
+        snap.add(conn, t, &format!("file_path IN ({files})"), &[]);
+    }
+    (
+        history::Entry {
+            action: "delete",
+            kind: "image",
+            artist,
+            place,
+            files: if also_files { history::Files::Trash } else { history::Files::Kept },
+            items,
+        },
+        snap,
+    )
+}
+
 /// Delete one image, optionally trashing the file.
 #[tauri::command]
 fn delete_image(db: State<Db>, image_id: i64, also_files: bool) -> Result<(), String> {
     let conn = db.lock().map_err(map_err)?;
-    if let Some(p) = db::image_path(&conn, image_id).map_err(map_err)? {
-        if also_files && std::path::Path::new(&p).exists() {
-            let _ = trash::delete(&p);
-        }
-        // always trash its edit versions
-        for f in db::version_files_for_orig_paths(&conn, &[p]).map_err(map_err)? {
-            let vp = std::path::PathBuf::from(&f);
-            if vp.exists() {
-                let _ = trash::delete(&vp);
-            }
-        }
-    }
-    db::delete_image(&conn, image_id).map_err(map_err)
+    delete_images_in(&conn, &[image_id], also_files)
 }
 
 /// Delete several images at once (viewer selection), under one DB lock.
 #[tauri::command]
 fn delete_images(db: State<Db>, image_ids: Vec<i64>, also_files: bool) -> Result<(), String> {
     let conn = db.lock().map_err(map_err)?;
-    for image_id in image_ids {
-        if let Some(p) = db::image_path(&conn, image_id).map_err(map_err)? {
+    delete_images_in(&conn, &image_ids, also_files)
+}
+
+fn delete_images_in(conn: &rusqlite::Connection, image_ids: &[i64], also_files: bool) -> Result<(), String> {
+    let (entry, mut snap) = image_delete_entry(conn, image_ids, also_files);
+    let journal = TrashJournal::start();
+    for &image_id in image_ids {
+        if let Some(p) = db::image_path(conn, image_id).map_err(map_err)? {
             if also_files && std::path::Path::new(&p).exists() {
-                let _ = trash::delete(&p);
+                let _ = recycle(std::path::Path::new(&p));
             }
-            for f in db::version_files_for_orig_paths(&conn, &[p]).map_err(map_err)? {
+            // always trash its edit versions
+            for f in db::version_files_for_orig_paths(conn, &[p]).map_err(map_err)? {
                 let vp = std::path::PathBuf::from(&f);
                 if vp.exists() {
-                    let _ = trash::delete(&vp);
+                    let _ = recycle(&vp);
                 }
             }
         }
-        db::delete_image(&conn, image_id).map_err(map_err)?;
+        db::delete_image(conn, image_id).map_err(map_err)?;
     }
+    snap.trashed = journal.take();
+    history::log_with_snapshot(conn, entry, Some(snap));
     Ok(())
 }
 
@@ -4714,9 +5218,10 @@ async fn trash_imported_originals(db: State<'_, Db>, paths: Vec<String>) -> Resu
             checks.push((p.clone(), own, cands));
         }
     }
-    tauri::async_runtime::spawn_blocking(move || {
+    let res = tauri::async_runtime::spawn_blocking(move || {
         let key = |s: &str| s.replace('/', "\\").to_lowercase();
         let mut kept = Vec::new();
+        let mut trashed = Vec::new();
         for (p, own, cands) in checks {
             // a file that belongs to the library is never removed here
             if own {
@@ -4728,12 +5233,337 @@ async fn trash_imported_originals(db: State<'_, Db>, paths: Vec<String>) -> Resu
                 .any(|c| key(c) != key(&p) && transfer::same_bytes(src, std::path::Path::new(c)));
             if !copied || trash_dir(src).is_some() {
                 kept.push(p);
+            } else {
+                trashed.push(p);
             }
         }
-        Ok(kept)
+        (kept, trashed)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    let (kept, trashed) = res;
+    if !trashed.is_empty() {
+        let conn = db.lock().map_err(map_err)?;
+        history::log(
+            &conn,
+            history::Entry {
+                action: "trash",
+                kind: "source",
+                artist: None,
+                place: None,
+                files: history::Files::Trash,
+                items: trashed.iter().map(|p| history::Item::at(file_name_of(p), p.clone())).collect(),
+            },
+        );
+    }
+    Ok(kept)
+}
+
+/// Re-read rewards from their folders (images, cover, count), like after a move.
+fn reindex_rewards(conn: &rusqlite::Connection, ids: &[i64]) -> Result<(), String> {
+    let mut ids = ids.to_vec();
+    ids.sort_unstable();
+    ids.dedup();
+    for rid in ids {
+        if let Some((title, folder, period_id)) = db::reward_scope(conn, rid).map_err(map_err)? {
+            let dir = if folder.contains('\u{1}') {
+                period_month_dir(conn, period_id).map(|d| d.join(sanitize_name(&title)))
+            } else {
+                Some(std::path::PathBuf::from(&folder))
+            };
+            if let Some(dir) = dir {
+                let (images, cover) = indexer::collect_reward_images(&dir);
+                db::set_reward_content(conn, rid, &dir.to_string_lossy(), cover.as_deref(), &images)
+                    .map_err(map_err)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Is this Recycle Bin item the path we recycled? Same folder, and the same name. Windows
+/// lists files without a known extension ("img 01" for img 01.png), then the extension
+/// of the bin's own copy ($R….png, it keeps it) has to match too.
+fn bin_item_is(it: &trash::TrashItem, want: &std::path::Path) -> bool {
+    let Some(parent) = want.parent() else { return false };
+    if norm_path(&it.original_parent) != norm_path(parent) {
+        return false;
+    }
+    let name = it.name.to_string_lossy();
+    let Some(file) = want.file_name().map(|f| f.to_string_lossy().to_string()) else { return false };
+    if name.eq_ignore_ascii_case(&file) {
+        return true;
+    }
+    match (want.file_stem(), want.extension()) {
+        (Some(stem), Some(ext)) => {
+            name.eq_ignore_ascii_case(&stem.to_string_lossy())
+                && std::path::Path::new(&it.id)
+                    .extension()
+                    .is_some_and(|e| e.to_string_lossy().eq_ignore_ascii_case(&ext.to_string_lossy()))
+        }
+        _ => false,
+    }
+}
+
+/// Take a delete back: the recycled paths come out of the Recycle Bin and the rows
+/// from the snapshot go back in. Order, so nothing is left half: check everything
+/// (each path still in the bin and free at its old place, kept files still on disk),
+/// write the rows in a transaction (anything in the way rolls it back), fetch the
+/// files (a failure rolls the rows back), then commit.
+fn undo_delete(app: &AppHandle, conn: &rusqlite::Connection, row: &history::Row) -> Result<(), String> {
+    let snap = history::get_snapshot(conn, row.id).map_err(map_err)?.ok_or("undo:not-yet:delete")?;
+    // the bin's times are UTC like ours; generous, the newest match wins anyway
+    let since = history::at_epoch(conn, row.id) - 14 * 3600;
+    let mut pending: Vec<trash::TrashItem> = Vec::new();
+    if !snap.trashed.is_empty() {
+        let bin = trash::os_limited::list().map_err(map_err)?;
+        for p in &snap.trashed {
+            if std::path::Path::new(p).exists() {
+                return Err(format!("undo:taken:{p}"));
+            }
+            let want = std::path::Path::new(p);
+            let hit = bin
+                .iter()
+                .filter(|it| it.time_deleted >= since && bin_item_is(it, want))
+                .max_by_key(|it| it.time_deleted)
+                .cloned();
+            match hit {
+                Some(mut h) => {
+                    // the bin may show it without its extension: come back under the full name
+                    if let Some(name) = want.file_name() {
+                        h.name = name.to_os_string();
+                    }
+                    pending.push(h)
+                }
+                None => return Err(format!("undo:gone:{p}")),
+            }
+        }
+    }
+    // "only removed from MiColl": the folders must still be where they were
+    if row.files.as_deref() == Some("kept") {
+        for t in snap.tables.iter().filter(|t| t.table == "rewards") {
+            for r in &t.rows {
+                let folder = r.get("folder_path").and_then(|v| v.as_str()).unwrap_or_default();
+                if !folder.contains('\u{1}') && !std::path::Path::new(folder).exists() {
+                    let title = r.get("title").and_then(|v| v.as_str()).unwrap_or(folder);
+                    return Err(format!("undo:changed:{title}"));
+                }
+            }
+        }
+    }
+
+    let tx = conn.unchecked_transaction().map_err(map_err)?;
+    history::restore_rows(&tx, &snap)?;
+    // the folders above first (they went last)
+    for it in pending.into_iter().rev() {
+        let _ = std::fs::create_dir_all(&it.original_parent);
+        let path = it.original_path();
+        trash::os_limited::restore_all([it])
+            .map_err(|e| format!("undo:restore:{} — {e}", path.display()))?;
+    }
+    tx.commit().map_err(map_err)?;
+    for t in snap.tables.iter().filter(|t| t.table == "rewards") {
+        for r in &t.rows {
+            if let Some(folder) = r.get("folder_path").and_then(|v| v.as_str()) {
+                if !folder.contains('\u{1}') {
+                    allow_asset_dir(app, folder);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// What an undo took back, for the toast.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UndoDone {
+    action: String,
+    kind: String,
+    names: Vec<String>,
+}
+
+/// Same place on disk (Windows paths don't care about case or slash direction).
+fn same_path(a: &str, b: &str) -> bool {
+    norm_path(std::path::Path::new(a)) == norm_path(std::path::Path::new(b))
+}
+
+/// Take a history row back (Ctrl+Z = the newest one, the History's button = that one).
+/// Renames and moves only. Everything is checked first: if anything was changed since
+/// (renamed again, moved, deleted) or something else sits at the old place, nothing is
+/// touched. Errors are codes the UI words: undo:nothing, undo:already,
+/// undo:not-yet:<action>, undo:changed:<name>, undo:taken:<path>.
+#[tauri::command]
+fn undo_history(app: AppHandle, db: State<Db>, id: Option<i64>) -> Result<UndoDone, String> {
+    let conn = db.lock().map_err(map_err)?;
+    let row = match id {
+        Some(id) => history::get(&conn, id),
+        None => history::latest_open(&conn),
+    }
+    .map_err(map_err)?
+    .ok_or("undo:nothing")?;
+    if row.undone {
+        return Err("undo:already".into());
+    }
+    if !history::undoable(&row) {
+        return Err(format!("undo:not-yet:{}", row.action));
+    }
+    let changed = |name: &str| format!("undo:changed:{name}");
+    let taken = |p: &str| format!("undo:taken:{p}");
+    let names: Vec<String> = row.items.iter().map(|i| i.was.clone().unwrap_or_else(|| i.name.clone())).collect();
+
+    match (row.action.as_str(), row.kind.as_str()) {
+        ("rename", "reward") => {
+            for it in &row.items {
+                let (title, folder) = db::reward_title_folder(&conn, it.id.unwrap_or_default())
+                    .map_err(map_err)?
+                    .ok_or_else(|| changed(&it.name))?;
+                let moved_since = it.to.as_deref().is_some_and(|to| !same_path(to, &folder));
+                if title != it.name || moved_since {
+                    return Err(changed(&it.name));
+                }
+                if let Some(from) = &it.from {
+                    if !same_path(from, &folder) && std::path::Path::new(from).exists() {
+                        return Err(taken(from));
+                    }
+                }
+            }
+            let back: Vec<RenameItem> = row
+                .items
+                .iter()
+                .map(|i| RenameItem { id: i.id.unwrap_or_default(), name: i.was.clone().unwrap_or_default() })
+                .collect();
+            rename_rewards_in(&conn, &back, false)?;
+        }
+        ("rename", "image") => {
+            for it in &row.items {
+                let (path, _, _) = db::image_row(&conn, it.id.unwrap_or_default())
+                    .map_err(map_err)?
+                    .ok_or_else(|| changed(&it.name))?;
+                if it.to.as_deref().is_some_and(|to| !same_path(to, &path)) {
+                    return Err(changed(&it.name));
+                }
+                if let Some(from) = &it.from {
+                    if !same_path(from, &path) && std::path::Path::new(from).exists() {
+                        return Err(taken(from));
+                    }
+                }
+            }
+            // rename_images keeps the extension, it wants the bare name
+            let back: Vec<RenameItem> = row
+                .items
+                .iter()
+                .map(|i| {
+                    let was = i.was.clone().unwrap_or_default();
+                    let stem = std::path::Path::new(&was)
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or(was);
+                    RenameItem { id: i.id.unwrap_or_default(), name: stem }
+                })
+                .collect();
+            rename_images_in(&conn, &back, false)?;
+        }
+        ("rename", "artist") => {
+            let it = &row.items[0];
+            let id = it.id.unwrap_or_default();
+            let (name, _) = db::artist_info(&conn, id).map_err(map_err)?.ok_or_else(|| changed(&it.name))?;
+            if name != it.name {
+                return Err(changed(&it.name));
+            }
+            let was = it.was.clone().unwrap_or_default();
+            if db::artist_name_taken(&conn, &was, id).map_err(map_err)? {
+                return Err(taken(&was));
+            }
+            rename_artist_in(&app, &conn, id, &was, false)?;
+        }
+        ("rename", "collection") => {
+            let it = &row.items[0];
+            let id = it.id.unwrap_or_default();
+            let name: Option<String> = conn
+                .query_row("SELECT name FROM collections WHERE id = ?1", rusqlite::params![id], |r| r.get(0))
+                .ok();
+            if name.as_deref() != Some(it.name.as_str()) {
+                return Err(changed(&it.name));
+            }
+            db::rename_collection(&conn, id, it.was.as_deref().unwrap_or_default()).map_err(map_err)?;
+        }
+        ("move", "reward") => {
+            for it in &row.items {
+                let (_, folder, _) = db::reward_scope(&conn, it.id.unwrap_or_default())
+                    .map_err(map_err)?
+                    .ok_or_else(|| changed(&it.name))?;
+                let (from, to) = (it.from.as_deref().unwrap_or_default(), it.to.as_deref().unwrap_or_default());
+                if !same_path(&folder, to) || !std::path::Path::new(to).is_dir() {
+                    return Err(changed(&it.name));
+                }
+                if std::path::Path::new(from).exists() {
+                    return Err(taken(from));
+                }
+                if db::period_scope(&conn, it.back.unwrap_or_default()).map_err(map_err)?.is_none() {
+                    return Err(changed(&it.name));
+                }
+            }
+            for it in &row.items {
+                let (from, to) = (it.from.as_deref().unwrap_or_default(), it.to.as_deref().unwrap_or_default());
+                move_tree(std::path::Path::new(to), std::path::Path::new(from)).map_err(map_err)?;
+                db::move_reward(&conn, it.id.unwrap_or_default(), it.back.unwrap_or_default(), to, from)
+                    .map_err(map_err)?;
+                if let Some(parent) = std::path::Path::new(from).parent() {
+                    allow_asset_dir(&app, &parent.to_string_lossy());
+                }
+            }
+        }
+        ("move", "image") => {
+            for it in &row.items {
+                let (from, to) = (it.from.as_deref().unwrap_or_default(), it.to.as_deref().unwrap_or_default());
+                if !std::path::Path::new(to).is_file() {
+                    return Err(changed(&it.name));
+                }
+                if std::path::Path::new(from).exists() {
+                    return Err(taken(from));
+                }
+                if db::reward_scope(&conn, it.back.unwrap_or_default()).map_err(map_err)?.is_none() {
+                    return Err(changed(&it.name));
+                }
+            }
+            let mut rewards = Vec::new();
+            for it in &row.items {
+                let (from, to) = (it.from.as_deref().unwrap_or_default(), it.to.as_deref().unwrap_or_default());
+                if let Some(parent) = std::path::Path::new(from).parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if !move_file_checked(std::path::Path::new(to), std::path::Path::new(from)) {
+                    return Err(changed(&it.name));
+                }
+                db::remap_preview_exact(&conn, to, from).map_err(map_err)?;
+                rewards.push(it.back.unwrap_or_default());
+                rewards.push(it.into.unwrap_or_default());
+            }
+            reindex_rewards(&conn, &rewards)?;
+        }
+        ("delete", _) => {
+            undo_delete(&app, &conn, &row)?;
+        }
+        _ => return Err(format!("undo:not-yet:{}", row.action)),
+    }
+    history::mark_undone(&conn, row.id);
+    db::checkpoint(&conn);
+    Ok(UndoDone { action: row.action, kind: row.kind, names })
+}
+
+/// The activity history, newest first (`before` = an id for the next page).
+#[tauri::command]
+fn list_history(db: State<Db>, before: Option<i64>, limit: Option<i64>) -> Result<Vec<history::Row>, String> {
+    let conn = db.lock().map_err(map_err)?;
+    history::list(&conn, before, limit.unwrap_or(100).clamp(1, 500)).map_err(map_err)
+}
+
+/// Empty the activity history (only the log, nothing else changes).
+#[tauri::command]
+fn clear_history(db: State<Db>) -> Result<(), String> {
+    let conn = db.lock().map_err(map_err)?;
+    history::clear(&conn).map_err(map_err)
 }
 
 /// Delete an archive's temporary unpack folder (extract_archive without `permanent`)
@@ -4749,11 +5579,27 @@ fn discard_extracted(app: AppHandle, path: String) -> Result<(), String> {
     std::fs::remove_dir_all(run).map_err(map_err)
 }
 
-/// Send a file or folder to the recycle bin.
+/// Send a file or folder to the recycle bin. reason "import" = the dropped archive after
+/// its import (logged in the history).
 #[tauri::command]
-fn trash_path(path: String) -> Result<(), String> {
+fn trash_path(db: State<Db>, path: String, reason: Option<String>) -> Result<(), String> {
     if std::path::Path::new(&path).exists() {
         trash::delete(&path).map_err(map_err)?;
+        if reason.as_deref() == Some("import") {
+            if let Ok(conn) = db.lock() {
+                history::log(
+                    &conn,
+                    history::Entry {
+                        action: "trash",
+                        kind: "source",
+                        artist: None,
+                        place: None,
+                        files: history::Files::Trash,
+                        items: vec![history::Item::at(file_name_of(&path), path.clone())],
+                    },
+                );
+            }
+        }
     }
     Ok(())
 }
@@ -5339,16 +6185,51 @@ fn set_active_version(db: State<Db>, orig_path: String, version_id: Option<i64>)
 /// Delete one version (row + file to the recycle bin).
 #[tauri::command]
 fn delete_image_version(db: State<Db>, version_id: i64) -> Result<(), String> {
-    let file = {
+    {
         let conn = db.lock().map_err(map_err)?;
-        db::delete_image_version(&conn, version_id).map_err(map_err)?
-    };
-    if let Some(fp) = file {
-        let p = std::path::PathBuf::from(&fp);
-        if p.exists() {
-            let _ = trash::delete(&p);
+        let orig: Option<String> = conn
+            .query_row(
+                "SELECT orig_path FROM image_versions WHERE id = ?1",
+                rusqlite::params![version_id],
+                |r| r.get(0),
+            )
+            .ok();
+        let mut snap = history::Snapshot::default();
+        snap.add(&conn, "image_versions", &format!("id = {version_id}"), &[]);
+        snap.add(&conn, "image_active_version", &format!("version_id = {version_id}"), &[]);
+        let file = db::delete_image_version(&conn, version_id).map_err(map_err)?;
+        let journal = TrashJournal::start();
+        if let Some(fp) = &file {
+            let p = std::path::PathBuf::from(fp);
+            if p.exists() {
+                let _ = recycle(&p);
+            }
         }
-    }
+        snap.trashed = journal.take();
+        if let (Some(orig), Some(fp)) = (&orig, &file) {
+            let (artist, place) = conn
+                .query_row(
+                    "SELECT reward_id FROM images WHERE file_path = ?1",
+                    rusqlite::params![orig],
+                    |r| r.get::<_, i64>(0),
+                )
+                .ok()
+                .map(|rid| reward_place(&conn, rid))
+                .unwrap_or((None, None));
+            history::log_with_snapshot(
+                &conn,
+                history::Entry {
+                    action: "delete",
+                    kind: "version",
+                    artist,
+                    place,
+                    files: history::Files::Trash,
+                    items: vec![history::Item::at(file_name_of(orig), fp.clone())],
+                },
+                Some(snap),
+            );
+        }
+    };
     Ok(())
 }
 
@@ -9073,6 +9954,9 @@ pub fn run() {
             discard_extracted,
             trash_imported_originals,
             cancel_fill,
+            list_history,
+            clear_history,
+            undo_history,
             set_close_to_tray,
             take_launch_action,
             is_portable,

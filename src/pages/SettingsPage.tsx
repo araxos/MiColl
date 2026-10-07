@@ -22,6 +22,7 @@ import {
   Layers,
   Sparkles,
   DatabaseBackup,
+  History,
   Eye,
   Info,
   Image as ImageIcon,
@@ -42,6 +43,7 @@ import { TemplatesPanel } from "@/components/TemplatesPanel";
 import { ThemeUnlockDialog } from "@/components/ThemeUnlockDialog";
 import { SecurityPanel } from "@/components/SecurityPanel";
 import { BackupPanel } from "@/components/BackupPanel";
+import { HistoryPanel } from "@/components/HistoryPanel";
 import { SdPanel } from "@/components/SdPanel";
 import { ContentPanel } from "@/components/ContentPanel";
 import { VersionPanel } from "@/components/VersionPanel";
@@ -109,6 +111,7 @@ import { APP_ICONS, autoAppIcon, setAppIconChoice, useAppIconChoice } from "@/li
 import { useConcise, setConcise } from "@/lib/concise";
 import { resetAllWarnings } from "@/lib/warnings";
 import { useUpNavigate } from "@/lib/nav";
+import { useLocation } from "react-router-dom";
 
 /**
  * One settings section: a link in the left rail and a search target.
@@ -174,6 +177,14 @@ const SECTIONS: NavSection[] = [
       "folder folders add root roots managed collection organize move rescan reindex health missing files clear database warnings reset",
   },
   {
+    id: "history",
+    label: "History",
+    Icon: History,
+    keywords:
+      "history log activity protocol deleted delete removed moved move renamed rename merged recycle bin trash where did my files go missing lost undo",
+    desktopOnly: true,
+  },
+  {
     id: "security",
     label: "Security & lock",
     Icon: Lock,
@@ -227,6 +238,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
   const t = useT();
   const tf = useTf();
   const upNavigate = useUpNavigate();
+  const location = useLocation();
   const { backed, refresh, artists } = useData();
   const { openMenu } = useActions();
   const [roots, setRoots] = useState<api.RootDto[]>([]);
@@ -926,8 +938,26 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     setActiveId(id);
   };
 
+  // /settings#history (top bar button): jump to that section. Again a bit later,
+  // the panels above fill in async and push it down
+  useEffect(() => {
+    const id = location.hash.slice(1);
+    if (!id) return;
+    const jump = () => {
+      document.getElementById(id)?.scrollIntoView({ block: "start" });
+      setActiveId(id);
+    };
+    const raf = requestAnimationFrame(jump);
+    const late = window.setTimeout(jump, 400);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(late);
+    };
+  }, [location.key, location.hash, backed]);
+
   // collection tools, each in its own box below Library (as data so search can filter them)
   const tools = [
+    { id: "history", node: <HistoryPanel backed={backed} /> },
     { id: "security", node: <SecurityPanel backed={backed} /> },
     { id: "backup", node: <BackupPanel backed={backed} onLock={onLock} /> },
     { id: "misd", node: <SdPanel backed={backed} /> },

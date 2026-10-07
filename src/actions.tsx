@@ -108,6 +108,11 @@ interface ActionsCtx {
   /** Show a toast in the bottom right. */
   /** Returns the toast's id (for updateToast / dismissToast). */
   showToast: (t: Omit<ToastData, "id">) => number;
+  /**
+   * Take back the newest history row (Ctrl+Z) or a given one, with the toast and a
+   * library reload. Resolves true when it worked.
+   */
+  undoHistory: (id?: number) => Promise<boolean>;
 }
 
 /** Info from the element a drag was dropped on. */
@@ -133,6 +138,9 @@ const Ctx = createContext<ActionsCtx | null>(null);
 
 /** Fired after an import with the creator names that got rewards (detail: string[]). */
 export const IMPORTED_ARTISTS_EVENT = "micoll:imported-artists";
+
+/** Fired when the history changed (an undo), the History view reloads. */
+export const HISTORY_CHANGED_EVENT = "micoll:history-changed";
 
 /** Toasts shown at once, more push the oldest out. */
 const MAX_TOASTS = 4;
@@ -759,7 +767,7 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       // the archives themselves, same rule (their unpacked copy went in)
       if (managed && report.allArrived) {
         for (const p of paths.filter((x) => /\.(zip|rar|7z)$/i.test(x))) {
-          await api.trashPath(p).catch(() => kept.push(p.split(/[\\/]/).pop() || p));
+          await api.trashPath(p, "import").catch(() => kept.push(p.split(/[\\/]/).pop() || p));
         }
       }
       if (kept.length) problems.push(tf("Still in place: {names}", { names: kept.join(", ") }));
@@ -779,6 +787,70 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       setBusy(false);
     }
   };
+
+  /* ---- undo (history stage 2: renames and moves) ---------------------- */
+
+  const undoHistory = async (id?: number): Promise<boolean> => {
+    if (!backed) return false;
+    try {
+      const done = await api.undoHistory(id);
+      await refresh();
+      window.dispatchEvent(new CustomEvent(HISTORY_CHANGED_EVENT));
+      const first = done.names[0] ?? "";
+      const names = done.names.length > 1 ? tf("{name} and {n} more", { name: first, n: done.names.length - 1 }) : first;
+      showToast({
+        tone: "success",
+        title: t("Undone"),
+        detail:
+          done.action === "rename"
+            ? tf("Renamed back: {names}", { names })
+            : done.action === "delete"
+              ? tf("Restored: {names}", { names })
+              : tf("Moved back: {names}", { names }),
+      });
+      return true;
+    } catch (e) {
+      const msg = String(e);
+      const [code, ...rest] = msg.split(":").slice(1);
+      const arg = rest.join(":");
+      const text = !msg.startsWith("undo:")
+        ? msg
+        : code === "nothing"
+          ? t("There’s nothing to undo.")
+          : code === "already"
+            ? t("That was already undone.")
+            : code === "not-yet"
+              ? t("This kind of action can’t be undone. Settings → History shows where everything went.")
+              : code === "changed"
+                ? tf("“{name}” was changed since, so it can’t be undone safely.", { name: arg })
+                : code === "taken"
+                  ? tf("Something else is at the old place now: {path}", { path: arg })
+                  : code === "gone"
+                    ? tf("“{path}” isn’t in the Recycle Bin anymore, so it can’t come back.", { path: arg })
+                    : code === "restore"
+                      ? tf("Windows couldn’t take it out of the Recycle Bin: {why}", { why: arg })
+                      : msg;
+      showToast({ tone: "warn", title: t("Can’t undo"), detail: text });
+      return false;
+    }
+  };
+
+  // Ctrl+Z anywhere in the library (not while typing, not in the viewer/editor, which
+  // have their own steps)
+  const undoRef = useRef(undoHistory);
+  undoRef.current = undoHistory;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "z") return;
+      const el = e.target instanceof Element ? e.target : null;
+      if (el?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (document.querySelector(".micoll-viewer")) return;
+      e.preventDefault();
+      void undoRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const onMoveConfirm = async (dontShow: boolean) => {
     if (dontShow) await api.setSetting("managed_move_ask", "false");
@@ -842,7 +914,7 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       );
       // import worked, move the dropped archive to the recycle bin
       if (archiveSource) {
-        if (archiveSafe) await api.trashPath(archiveSource).catch(() => {});
+        if (archiveSafe) await api.trashPath(archiveSource, "import").catch(() => {});
         setArchiveSource(null);
       }
     } catch (e) {
@@ -870,6 +942,7 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
     bringBackFromSd,
     openExternally,
     showToast,
+    undoHistory,
   };
   const live = useRef(latest);
   useLayoutEffect(() => {
@@ -893,6 +966,7 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       bringBackFromSd: fwd("bringBackFromSd"),
       openExternally: fwd("openExternally"),
       showToast,
+      undoHistory: fwd("undoHistory"),
     };
   }, [backed, showToast]);
 

@@ -1,13 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
-import { Lock, Search, Settings, Tv, TvMinimal, Gift, Eye, EyeOff } from "lucide-react";
+import { Lock, Search, Settings, Tv, TvMinimal, Gift, Eye, EyeOff, History } from "lucide-react";
 import { CyberHomeIcon } from "@/lib/classIcons";
 import { GlobeSearchIcon } from "@/lib/globeSearchIcon";
 import { BrandMark } from "@/components/BrandMark";
 import { WindowControls } from "@/components/WindowControls";
 import { SdTransportButton } from "@/components/SdTransportButton";
 import { UpdateButton } from "@/components/UpdateButton";
+import { HistoryDrawer } from "@/components/HistoryDrawer";
+import { AnimatePresence } from "framer-motion";
 import { SakuraMark } from "@/components/SakuraMark";
 import { useNavigate, useLocation } from "react-router-dom";
 import { isTauri } from "@/lib/tauri";
@@ -22,6 +24,7 @@ import { useActions } from "@/actions";
 import { useData } from "@/store";
 import { useShowHidden, toggleShowHidden } from "@/lib/showHidden";
 import { useWishlistButton, setWishlistButton } from "@/lib/wishlistButton";
+import { useHistoryButton, setHistoryButton } from "@/lib/historyButton";
 import {
   useGraveyardButton,
   setGraveyardButton,
@@ -109,10 +112,18 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
   const tauri = isTauri();
 
   const { openMenu } = useActions();
-  const { artists } = useData();
+  const { artists, backed } = useData();
   const showHidden = useShowHidden();
   const hiddenCount = artists.filter((a) => a.hidden).length;
   const wishlistButton = useWishlistButton();
+  const historyButton = useHistoryButton();
+  // the log lives in the backend, so only with a desktop library
+  const showHistory = !safe && backed && historyButton;
+  const [historyOpen, setHistoryOpen] = useState(false);
+  // a page change closes the drawer
+  useEffect(() => setHistoryOpen(false), [location.pathname]);
+  const historyLit =
+    historyOpen || (location.pathname === "/settings" && location.hash === "#history");
   const graveyardButton = useGraveyardButton();
   const graveyardMode = useGraveyardMode();
   // only lit on the dashboard
@@ -382,6 +393,34 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
           {!safe && <SdTransportButton />}
           {/* only while a new version is ready, can't be hidden */}
           {!safe && <UpdateButton />}
+          {/* opens Settings → History (hidden in safe mode) */}
+          {showHistory && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setHistoryOpen((o) => !o)}
+              onContextMenu={(e) =>
+                openMenu(e, [
+                  {
+                    label: t("Hide this button"),
+                    icon: <EyeOff className="h-4 w-4" />,
+                    onClick: () => setHistoryButton(false),
+                  },
+                  { label: t("Right-click the gear to bring it back"), info: true },
+                ])
+              }
+              title={t("History — what was renamed, moved or deleted (right-click to hide)")}
+              aria-pressed={historyOpen}
+              data-lit={historyLit || undefined}
+              className={
+                historyLit
+                  ? "bg-brand-500/20 text-brand-200 hover:bg-brand-500/30 hover:text-brand-100"
+                  : "hover:bg-brand-500/15 hover:text-brand-200"
+              }
+            >
+              <History className="h-4 w-4" />
+            </Button>
+          )}
           {/* safe mode: no settings gear (the route is guarded too) */}
           {!safe && (
             <Button
@@ -422,6 +461,15 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
                           onClick: () => setWishlistButton(true),
                         },
                       ]),
+                  ...(historyButton || !backed
+                    ? []
+                    : [
+                        {
+                          label: t("Show the history button"),
+                          icon: <History className="h-4 w-4" />,
+                          onClick: () => setHistoryButton(true),
+                        },
+                      ]),
                   ...(graveyardButton
                     ? []
                     : [
@@ -457,6 +505,20 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
           {/* minimize/close on every page (also on the lock screen) */}
           {tauri && <WindowControls />}
         </div>
+        <AnimatePresence>
+          {historyOpen && (
+            <HistoryDrawer
+              onClose={() => setHistoryOpen(false)}
+              onOpenSettings={(id) => {
+                setHistoryOpen(false);
+                navigate(
+                  { pathname: "/settings", hash: "history" },
+                  id != null ? { state: { historyOpen: id } } : undefined,
+                );
+              }}
+            />
+          )}
+        </AnimatePresence>
       </header>
   );
 }
