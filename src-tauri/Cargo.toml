@@ -1,6 +1,6 @@
 [package]
 name = "micoll"
-version = "0.2.5"
+version = "0.2.6"
 description = "MiColl — organize content-creator collections"
 authors = ["araxos"]
 publish = false
