@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { queuePrefsSync } from "@/lib/prefs";
 import { isTauri } from "@/lib/tauri";
@@ -99,6 +100,26 @@ export async function checkForUpdates({ manual }: { manual: boolean }): Promise<
   }
 }
 
+/**
+ * The version an update is installing, kept in the database (saved with the checkpoint
+ * before the app closes). After the restart takeFinishedUpdate compares it with the
+ * running version.
+ */
+const INSTALLING_KEY = "update_installing";
+
+/**
+ * Once per start: the version that was just installed by an in-app update, or null.
+ * Clears the mark either way (a failed update just doesn't say anything).
+ */
+export async function takeFinishedUpdate(): Promise<string | null> {
+  if (!isTauri()) return null;
+  const want = await invoke<string | null>("get_setting", { key: INSTALLING_KEY }).catch(() => null);
+  if (!want) return null;
+  await invoke("set_setting", { key: INSTALLING_KEY, value: "" }).catch(() => {});
+  const now = await getVersion().catch(() => null);
+  return now === want ? want : null;
+}
+
 /** Download + install the update, then restart. */
 export async function installUpdate(): Promise<void> {
   const u = pending;
@@ -108,6 +129,8 @@ export async function installUpdate(): Promise<void> {
   let done = 0;
   set({ state: { kind: "downloading", version, done, total }, prompt: true });
   try {
+    // after the restart this says "updated to …" (see takeFinishedUpdate)
+    await invoke("set_setting", { key: INSTALLING_KEY, value: version }).catch(() => {});
     // a portable copy must not run the installer (that would install a second, normal
     // MiColl and start it with the AppData library). It swaps its own exe instead.
     if (await invoke<boolean>("is_portable").catch(() => false)) {
@@ -129,6 +152,7 @@ export async function installUpdate(): Promise<void> {
     const { relaunch } = await import("@tauri-apps/plugin-process");
     await relaunch();
   } catch (e) {
+    await invoke("set_setting", { key: INSTALLING_KEY, value: "" }).catch(() => {});
     set({ state: { kind: "error", detail: `${e}`, during: "install" }, prompt: true });
   }
 }

@@ -26,6 +26,11 @@ interface VirtualGridProps<T> {
   animate?: boolean;
   /** Stable key per item (needed for animate). */
   keyOf?: (item: T) => React.Key;
+  /**
+   * Scroll this item into view (centered, smooth) unless it's fully visible already.
+   * A new token repeats it for the same index.
+   */
+  reveal?: { index: number; token: number } | null;
 }
 
 /**
@@ -44,6 +49,7 @@ export function VirtualGrid<T>({
   containerRef,
   animate = false,
   keyOf,
+  reveal,
 }: VirtualGridProps<T>) {
   const outerRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLElement | null>(null);
@@ -175,6 +181,24 @@ export function VirtualGrid<T>({
       ro?.disconnect();
     };
   }, [recompute, items.length, animate, suspendLayout]);
+
+  // scroll an item into view: its row is known even while it isn't mounted
+  const revealToken = reveal?.token;
+  useEffect(() => {
+    if (!reveal) return;
+    const outer = outerRef.current;
+    const sc = scrollRef.current;
+    if (!outer || !sc) return;
+    const width = outer.clientWidth;
+    const c = Math.max(1, Math.floor((width + gap) / (minColWidth + gap)));
+    const rowH = ((width - (c - 1) * gap) / c) * aspectRatio + gap;
+    const gridTop = outer.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop;
+    const top = gridTop + Math.floor(reveal.index / c) * rowH;
+    const bottom = top + rowH - gap;
+    if (top >= sc.scrollTop && bottom <= sc.scrollTop + sc.clientHeight) return;
+    sc.scrollTo({ top: Math.max(0, top - (sc.clientHeight - (rowH - gap)) / 2), behavior: "smooth" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealToken]);
 
   const { cols, rowHeight } = metrics;
   const totalRows = Math.max(1, Math.ceil(items.length / cols));

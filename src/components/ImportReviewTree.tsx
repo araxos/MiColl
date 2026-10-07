@@ -15,6 +15,7 @@ import {
   Undo2,
   FolderTree,
   ArrowUpRight,
+  RotateCcw,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
@@ -163,6 +164,8 @@ type DraftRow = {
   creator: string;
   platform: string; // MISC / UNSORTED sentinel or a platform name
   title: string;
+  /** The reward folder's own name, the reset button brings it back (cleanup undone). */
+  origTitle?: string;
   category: string | null;
   root: boolean;
   /** Import as an extra: stays in its period but doesn't stand in for it (month card). */
@@ -419,6 +422,7 @@ export function ImportReviewTree({
         creator,
         platform: platformFor(r.platform, creator),
         title: cleanTitle(r.title, creator),
+        origTitle: baseName(r.folder),
         category: r.category,
         root: r.root,
         extra: false,
@@ -1388,14 +1392,36 @@ export function ImportReviewTree({
                                         <span className="truncate text-zinc-600">{baseName(r.folder)}</span>
                                       </button>
                                     ) : (
-                                      <input
-                                        value={r.title}
-                                        // data-field so the clash dialog can focus this row
-                                        data-field={`${r.folder}::title`}
-                                        onChange={(e) => patchRow(r.folder, { title: e.target.value })}
-                                        title={t("Reward name")}
-                                        className={cn("h-7 min-w-0 flex-1", inputCls)}
-                                      />
+                                      <div className="relative flex min-w-0 flex-1">
+                                        <input
+                                          value={r.title}
+                                          // data-field so the clash dialog can focus this row
+                                          data-field={`${r.folder}::title`}
+                                          onChange={(e) => patchRow(r.folder, { title: e.target.value })}
+                                          title={t("Reward name")}
+                                          className={cn(
+                                            "h-7 min-w-0 flex-1",
+                                            inputCls,
+                                            r.origTitle && r.title !== r.origTitle && "pr-7",
+                                          )}
+                                        />
+                                        {/* the name was changed (cleanup or by hand): back to the folder's
+                                            own name */}
+                                        {r.origTitle && r.title !== r.origTitle && (
+                                          <button
+                                            type="button"
+                                            onClick={() => patchRow(r.folder, { title: r.origTitle ?? r.title })}
+                                            title={tf("Back to the folder name: {name}", { name: r.origTitle })}
+                                            // theme accent, a bit muted until hovered
+                                            className={cn(
+                                              "absolute right-1 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded opacity-60 transition hover:bg-white/10 hover:opacity-100",
+                                              dlg.accentText,
+                                            )}
+                                          >
+                                            <RotateCcw className="h-3 w-3" />
+                                          </button>
+                                        )}
+                                      </div>
                                     )}
                                     {r.category && <Badge tone="zinc">{r.category}</Badge>}
                                     {node.style === "monthly" && (

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useMotionValue, useTransform } from "framer-motion";
 import { CheckCircle2, AlertTriangle, XCircle, X, Loader2 } from "lucide-react";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { cn } from "@/lib/utils";
@@ -56,6 +56,11 @@ function ToastCard({ toast, onDismiss }: { toast: ToastData; onDismiss: (id: num
   const elapsedRef = useRef(0);
   const lastRef = useRef(0);
   const hoverRef = useRef(false);
+  // swipe to the right to dismiss: the card follows the pointer and fades, past the
+  // threshold (or with a quick flick) it flies out, otherwise it springs back
+  const x = useMotionValue(0);
+  const fade = useTransform(x, [0, 220], [1, 0.25]);
+  const [gone, setGone] = useState(false);
 
   useEffect(() => {
     // a running job stays until it's done (the caller replaces it)
@@ -83,18 +88,39 @@ function ToastCard({ toast, onDismiss }: { toast: ToastData; onDismiss: (id: num
   return (
     <motion.div
       layout
+      style={{ x }}
       initial={{ opacity: 0, x: 40, scale: 0.96 }}
-      animate={{ opacity: 1, x: 0, scale: 1 }}
-      exit={{ opacity: 0, x: 40, scale: 0.96 }}
-      transition={{ type: "spring", stiffness: 420, damping: 32 }}
+      animate={gone ? { opacity: 0, x: 420 } : { opacity: 1, x: 0, scale: 1 }}
+      exit={gone ? { opacity: 0 } : { opacity: 0, x: 40, scale: 0.96 }}
+      transition={
+        gone ? { duration: 0.18, ease: "easeIn" } : { type: "spring", stiffness: 420, damping: 32 }
+      }
+      onAnimationComplete={() => {
+        if (gone) onDismiss(toast.id);
+      }}
+      // a running job can't be closed, so it can't be swiped either
+      drag={running || gone ? false : "x"}
+      dragConstraints={{ left: 0, right: 0 }}
+      dragElastic={{ left: 0, right: 1 }}
+      dragSnapToOrigin
+      onDragStart={() => {
+        hoverRef.current = true;
+      }}
+      onDragEnd={(_, info) => {
+        if (info.offset.x > 90 || info.velocity.x > 600) setGone(true);
+      }}
       onMouseEnter={() => {
         hoverRef.current = true;
       }}
       onMouseLeave={() => {
         hoverRef.current = false;
       }}
-      className={cn("pointer-events-auto overflow-hidden border", s.ring, surface)}
+      className={cn("pointer-events-auto touch-pan-y", !running && "cursor-grab active:cursor-grabbing")}
     >
+      <motion.div
+        style={{ opacity: fade }}
+        className={cn("select-none overflow-hidden border", s.ring, surface)}
+      >
       <div className="flex items-start gap-3 p-3.5">
         <s.Icon className={cn("mt-0.5 h-5 w-5 shrink-0", s.icon, running && accentText)} />
         {/* text wraps (break-words for long paths) */}
@@ -136,6 +162,7 @@ function ToastCard({ toast, onDismiss }: { toast: ToastData; onDismiss: (id: num
           <div className={`h-full ${s.bar}`} style={{ width: `${pct}%` }} />
         </div>
       )}
+      </motion.div>
     </motion.div>
   );
 }

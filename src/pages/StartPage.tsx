@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { IMPORTED_ARTISTS_EVENT } from "@/actions";
 import { AnimatePresence, motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
@@ -460,6 +461,44 @@ export function StartPage({ onLock }: { onLock: () => void }) {
     matchesType,
     sortList,
   ]);
+
+  /* ---- After an import: scroll to the creator and light up its card ---- */
+
+  // names waiting for the list to have them (the event comes right after the reload)
+  const [revealWant, setRevealWant] = useState<{ names: string[]; at: number } | null>(null);
+  const [reveal, setReveal] = useState<{ index: number; token: number } | null>(null);
+  const [flashIds, setFlashIds] = useState<Set<string>>(new Set());
+  const flashTimers = useRef<number[]>([]);
+  useEffect(() => {
+    const on = (e: Event) => {
+      const names = (e as CustomEvent<string[]>).detail ?? [];
+      if (names.length) setRevealWant({ names: names.map((n) => n.toLowerCase()), at: Date.now() });
+    };
+    window.addEventListener(IMPORTED_ARTISTS_EVENT, on);
+    return () => window.removeEventListener(IMPORTED_ARTISTS_EVENT, on);
+  }, []);
+  useEffect(() => {
+    if (!revealWant) return;
+    const hits = filtered
+      .map((a, i) => ({ a, i }))
+      .filter(({ a }) => revealWant.names.includes(a.name.toLowerCase()));
+    if (hits.length === 0) {
+      // a new creator shows up a moment later, give up after a few seconds
+      if (Date.now() - revealWant.at > 3000) setRevealWant(null);
+      return;
+    }
+    setRevealWant(null);
+    setReveal({ index: hits[0].i, token: Date.now() });
+    // light up once the scroll is (about) done. Timers in a ref: this effect runs again
+    // as soon as revealWant is cleared, a cleanup would cancel them
+    const ids = new Set(hits.map(({ a }) => a.id));
+    flashTimers.current.forEach((x) => window.clearTimeout(x));
+    flashTimers.current = [
+      window.setTimeout(() => setFlashIds(ids), 450),
+      window.setTimeout(() => setFlashIds(new Set()), 450 + 1700),
+    ];
+  }, [revealWant, filtered]);
+  useEffect(() => () => flashTimers.current.forEach((x) => window.clearTimeout(x)), []);
 
   /* ---- Custom order: pick it up, then drag the cards ------------------- */
 
@@ -1001,6 +1040,7 @@ export function StartPage({ onLock }: { onLock: () => void }) {
             // cards glide to their new spot on sort/filter/add/remove
             animate
             keyOf={(a) => a.id}
+            reveal={reveal}
             renderItem={(a, { index, cols }) => {
               const going = fade.leaving.has(a.id);
               const coming = fade.entering.has(a.id);
@@ -1008,7 +1048,12 @@ export function StartPage({ onLock }: { onLock: () => void }) {
                 <div
                   // the wrapper always stays, otherwise the card remounts and reloads its
                   // cover
-                  className={cn("grid", going && "card-leaving", coming && "card-entering")}
+                  className={cn(
+                    "grid",
+                    going && "card-leaving",
+                    coming && "card-entering",
+                    flashIds.has(a.id) && "card-flash",
+                  )}
                   // short stagger so it clears/fills like a wave
                   style={
                     going || coming

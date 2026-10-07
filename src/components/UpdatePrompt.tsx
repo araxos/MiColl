@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Download, Loader2 } from "lucide-react";
@@ -9,10 +9,12 @@ import { useAccent } from "@/lib/theme";
 import { useT, useTf } from "@/lib/i18n";
 import { isTauri } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
+import { useActions } from "@/actions";
 import {
   dismissUpdatePrompt,
   installUpdate,
   startAutoUpdateChecks,
+  takeFinishedUpdate,
   useUpdater,
 } from "@/lib/updater";
 
@@ -33,6 +35,23 @@ export function UpdatePrompt({ active }: { active: boolean }) {
   const [current, setCurrent] = useState<string | null>(null);
 
   useEffect(() => startAutoUpdateChecks(), []);
+
+  // first start after an in-app update: say it worked (once the app is unlocked)
+  const { showToast } = useActions();
+  const askedDone = useRef(false);
+  useEffect(() => {
+    if (!active || askedDone.current) return;
+    askedDone.current = true;
+    void takeFinishedUpdate().then((v) => {
+      if (!v) return;
+      showToast({
+        tone: "success",
+        title: tf("Updated to version {version}", { version: v }),
+        detail: t("Downloaded and installed successfully."),
+        duration: 12000,
+      });
+    });
+  }, [active, showToast, t, tf]);
   useEffect(() => {
     if (!isTauri()) return;
     getVersion()

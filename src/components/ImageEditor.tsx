@@ -510,6 +510,25 @@ export function ImageEditor({
     return () => window.removeEventListener("keydown", onKey);
   }, [closeOrAsk]);
 
+  // [ and ] make the brush smaller / bigger (like in Photoshop), Shift = bigger steps
+  const brushKeyRef = useRef({ brush, tool, setBrush });
+  brushKeyRef.current = { brush, tool, setBrush };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "[" && e.key !== "]") return;
+      const el = e.target as HTMLElement | null;
+      if (el?.closest('input:not([type="range"]), textarea, [contenteditable="true"]')) return;
+      const k = brushKeyRef.current;
+      if (k.tool !== "erase") return;
+      e.preventDefault();
+      const step = e.shiftKey ? 10 : 4;
+      const next = Math.min(90, Math.max(6, k.brush + (e.key === "]" ? step : -step)));
+      if (next !== k.brush) k.setBrush(next);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   /* ---- canvas / coordinate helpers ------------------------------------- */
   // fit the image in the stage so the mask/crop overlay lines up exactly
   const computeBox = useCallback(() => {
@@ -1338,7 +1357,10 @@ export function ImageEditor({
                 onClick={() => setMaskMode("subtract")}
               />
             </div>
-            <label className="viewer-chip flex h-9 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 text-xs text-zinc-300">
+            <label
+              title={t("Brush size — [ and ] change it")}
+              className="viewer-chip flex h-9 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 text-xs text-zinc-300"
+            >
               {t("Brush")}
               <input
                 type="range"

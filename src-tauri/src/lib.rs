@@ -695,6 +695,63 @@ fn sweep_import_staging(conn: &rusqlite::Connection) {
     }
 }
 
+/// Archive unpack folders (<cache>/extracted/<run>) that hold no file anymore: what's
+/// left once the files were filed into the collection. Strict on purpose:
+/// - a run with even one file in it stays (it could be the only copy), so does one that
+///   can't be read completely, one a reward still points into, or one younger than
+///   max_age (an unpack could be running);
+/// - it only ever calls remove_dir, which refuses a folder that isn't empty, so no file
+///   can be deleted here even by mistake.
+/// Returns how many runs were removed.
+fn sweep_empty_unpacked(
+    conn: &rusqlite::Connection,
+    root: &std::path::Path,
+    max_age: std::time::Duration,
+) -> u32 {
+    let now = std::time::SystemTime::now();
+    let mut removed = 0;
+    let Ok(entries) = std::fs::read_dir(root) else { return 0 };
+    for e in entries.flatten() {
+        let run = e.path();
+        if !e.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        let old = e
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| now.duration_since(t).ok())
+            .is_some_and(|age| age >= max_age);
+        if !old {
+            continue;
+        }
+        // folders only, deepest first. Anything that isn't a folder (a file, a link) or
+        // can't be read keeps the whole run
+        let mut dirs = Vec::new();
+        let mut only_dirs = true;
+        for entry in walkdir::WalkDir::new(&run) {
+            match entry {
+                Ok(d) if d.file_type().is_dir() => dirs.push((d.depth(), d.into_path())),
+                _ => {
+                    only_dirs = false;
+                    break;
+                }
+            }
+        }
+        if !only_dirs || db::any_reward_under(conn, &run.to_string_lossy()).unwrap_or(true) {
+            continue;
+        }
+        dirs.sort_by(|a, b| b.0.cmp(&a.0));
+        for (_, d) in &dirs {
+            let _ = std::fs::remove_dir(d);
+        }
+        if !run.exists() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
 /// The folder part of the sweep, with the folder and age passed in (so tests can use a
 /// fixture).
 fn sweep_staging_folders(
@@ -8643,6 +8700,7 @@ pub fn run() {
             // first, so the first library read still sees the result.
             let handle = app.handle().clone();
             let covers = covers_dir(app).ok();
+            let unpacked = app_cache(app).ok().map(|c| c.join("extracted"));
             let versions = dir.join("versions");
             std::thread::spawn(move || {
                 let db = handle.state::<Db>();
@@ -8682,6 +8740,15 @@ pub fn run() {
                 });
                 // remove staging folders from earlier sessions
                 startup_step("import staging sweep", || sweep_import_staging(&conn));
+                // empty leftovers of unpacked archives (never a folder with a file in it)
+                if let Some(dir) = &unpacked {
+                    startup_step("unpack leftovers sweep", || {
+                        let n = sweep_empty_unpacked(&conn, dir, STAGING_MAX_AGE);
+                        if n > 0 {
+                            eprintln!("micoll: removed {n} empty unpack folder(s)");
+                        }
+                    });
+                }
                 if let Some(dir) = &covers {
                     startup_step("orphan cover sweep", || sweep_orphan_covers(&conn, dir));
                 }
@@ -9459,6 +9526,45 @@ mod tests {
         assert!(occupied.is_dir(), "not one that still holds an indexed reward");
         assert!(foreign.is_dir(), "and never a folder that isn't ours");
 
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn unpack_sweep_only_removes_runs_without_any_file() {
+        use std::time::Duration;
+        let base = std::env::temp_dir().join(format!("micoll_unpack_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("extracted");
+        // run a: only empty folders left -> goes
+        std::fs::create_dir_all(root.join("a/Set/sub")).unwrap();
+        // run b: one file deep inside -> stays, the file untouched
+        std::fs::create_dir_all(root.join("b/Set/sub")).unwrap();
+        std::fs::write(root.join("b/Set/sub/keep.png"), b"x").unwrap();
+        // run c: empty, but a reward points into it -> stays
+        std::fs::create_dir_all(root.join("c/Set")).unwrap();
+        let conn = db::open(&base.join("t.db")).unwrap();
+        conn.execute("INSERT INTO artists(name) VALUES('Nora')", []).unwrap();
+        let aid: i64 = conn.query_row("SELECT id FROM artists", [], |r| r.get(0)).unwrap();
+        conn.execute(
+            "INSERT INTO periods(artist_id, label, folder_path) VALUES(?1, 'Misc', 'k1')",
+            rusqlite::params![aid],
+        )
+        .unwrap();
+        let pid: i64 = conn.query_row("SELECT id FROM periods", [], |r| r.get(0)).unwrap();
+        conn.execute(
+            "INSERT INTO rewards(period_id, title, folder_path) VALUES(?1, 'Set', ?2)",
+            rusqlite::params![pid, root.join("c/Set").to_string_lossy()],
+        )
+        .unwrap();
+
+        // all just made, a one-day threshold takes nothing
+        assert_eq!(sweep_empty_unpacked(&conn, &root, Duration::from_secs(24 * 60 * 60)), 0);
+        assert!(root.join("a").is_dir());
+
+        assert_eq!(sweep_empty_unpacked(&conn, &root, Duration::ZERO), 1);
+        assert!(!root.join("a").exists(), "only empty folders: gone");
+        assert_eq!(std::fs::read(root.join("b/Set/sub/keep.png")).unwrap(), b"x", "a file keeps its run");
+        assert!(root.join("c/Set").is_dir(), "a reward still points there");
         let _ = std::fs::remove_dir_all(&base);
     }
 

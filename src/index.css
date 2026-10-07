@@ -4965,3 +4965,40 @@ html[data-fx-idle="1"] .app-content .animate-bounce {
     animation-duration: 3s;
   }
 }
+
+/* a creator that just got rewards: its frame lights up twice in the theme color
+   (drop-shadow follows the card's shape, also the clipped premium frames) */
+@keyframes micoll-card-flash {
+  0%,
+  100% {
+    filter: none;
+  }
+  25%,
+  70% {
+    filter: brightness(1.07)
+      drop-shadow(0 0 2px var(--color-brand-300))
+      drop-shadow(0 0 14px color-mix(in srgb, var(--color-brand-400) 75%, transparent));
+  }
+  48% {
+    filter: brightness(1.05) drop-shadow(0 0 6px color-mix(in srgb, var(--color-brand-400) 40%, transparent));
+  }
+}
+.card-flash {
+  animation: micoll-card-flash 1.6s ease-in-out both;
+}
+/* feedback like a loader: it runs even with the animations switched off or paused */
+[data-animations="off"] .app-content .card-flash {
+  animation: micoll-card-flash 1.6s ease-in-out both !important;
+}
+/* and the idle / holo-frequency / off-screen pauses don't freeze it either */
+html[data-fx-idle="1"] .app-content .card-flash,
+html[data-holo-freq="1"][data-accent="iridescent"] .app-content .card-flash,
+[data-offscreen="1"] .card-flash,
+.card-flash[data-offscreen="1"] {
+  animation-play-state: running !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-flash {
+    animation-duration: 2.4s;
+  }
+}

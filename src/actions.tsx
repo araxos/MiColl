@@ -131,6 +131,12 @@ export interface DropContext {
 
 const Ctx = createContext<ActionsCtx | null>(null);
 
+/** Fired after an import with the creator names that got rewards (detail: string[]). */
+export const IMPORTED_ARTISTS_EVENT = "micoll:imported-artists";
+
+/** Toasts shown at once, more push the oldest out. */
+const MAX_TOASTS = 4;
+
 export function ActionsProvider({ children }: { children: React.ReactNode }) {
   const t = useT();
   const tf = useTf();
@@ -144,7 +150,20 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
 
   const showToast = useCallback((t: Omit<ToastData, "id">) => {
     const id = ++toastSeq.current;
-    setToasts((prev) => [...prev, { ...t, id }]);
+    setToasts((prev) => {
+      const next = [...prev, { ...t, id }];
+      // at most MAX_TOASTS at once: the oldest finished ones make room (a running job's
+      // progress toast always stays)
+      let extra = next.length - MAX_TOASTS;
+      if (extra <= 0) return next;
+      return next.filter((x) => {
+        if (extra > 0 && x.tone !== "progress" && x.id !== id) {
+          extra--;
+          return false;
+        }
+        return true;
+      });
+    });
     return id;
   }, []);
   const updateToast = useCallback(
@@ -774,6 +793,12 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       }
       setImportPlan(null);
       await refresh();
+      // the creator overview scrolls to the creators that got rewards and lights them up
+      window.dispatchEvent(
+        new CustomEvent<string[]>(IMPORTED_ARTISTS_EVENT, {
+          detail: [...new Set(rewards.map((r) => r.artist))],
+        }),
+      );
       // import worked, move the dropped archive to the recycle bin
       if (archiveSource) {
         if (archiveSafe) await api.trashPath(archiveSource).catch(() => {});
