@@ -5249,3 +5249,176 @@ html[data-classic-luxe="1"] .classic-corner-q {
     animation: none;
   }
 }
+
+/* ---- Empty dashboard: the "create a creator" mark ---------------------- */
+/* A tile in the theme colour with a soft breathing glow, the icon lit up. */
+.empty-mark {
+  border-radius: 1.1rem;
+  color: var(--color-brand-400);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-brand-500) 38%, transparent),
+      color-mix(in srgb, var(--color-accent2-500) 24%, transparent)
+    ),
+    rgb(9 9 11 / 0.6);
+  border: 1px solid color-mix(in srgb, var(--color-brand-400) 70%, transparent);
+  --empty-glow: color-mix(in srgb, var(--color-brand-500) 55%, transparent);
+  box-shadow:
+    0 0 26px var(--empty-glow),
+    inset 0 0 14px color-mix(in srgb, var(--color-brand-400) 22%, transparent);
+  animation: empty-mark-breathe 3.2s ease-in-out infinite;
+}
+.empty-mark svg {
+  filter: drop-shadow(0 0 4px var(--color-brand-500)) drop-shadow(0 0 10px color-mix(in srgb, var(--color-brand-500) 70%, transparent));
+}
+@keyframes empty-mark-breathe {
+  50% {
+    box-shadow:
+      0 0 40px var(--empty-glow),
+      inset 0 0 18px color-mix(in srgb, var(--color-brand-400) 30%, transparent);
+  }
+}
+/* cyberpunk: square yellow plate with a cyan inner line (no clip-path, it would cut the glow) */
+[data-accent="cyberpunk"] .empty-mark {
+  border-radius: 0;
+  color: #fcee0a;
+  background: linear-gradient(135deg, rgb(252 238 10 / 0.22), rgb(0 229 255 / 0.1)), rgb(9 9 11 / 0.8);
+  border: 1px solid rgb(252 238 10 / 0.75);
+  --empty-glow: rgb(252 238 10 / 0.4);
+  box-shadow: 0 0 26px var(--empty-glow), inset 0 0 0 1px rgb(0 229 255 / 0.2);
+  animation-name: empty-mark-breathe-cyber;
+}
+[data-accent="cyberpunk"] .empty-mark svg {
+  filter: drop-shadow(0 0 5px rgb(252 238 10 / 0.9)) drop-shadow(0 0 10px rgb(252 238 10 / 0.45));
+}
+@keyframes empty-mark-breathe-cyber {
+  50% {
+    box-shadow: 0 0 42px var(--empty-glow), inset 0 0 0 1px rgb(0 229 255 / 0.35);
+  }
+}
+/* sakura: soft pink blossom glow */
+[data-accent="sakura"] .empty-mark {
+  color: #f472b6;
+  background: linear-gradient(135deg, rgb(244 114 182 / 0.34), rgb(236 72 153 / 0.16)), rgb(9 9 11 / 0.55);
+  border: 1px solid rgb(244 114 182 / 0.7);
+  --empty-glow: rgb(236 72 153 / 0.5);
+  box-shadow: 0 0 28px var(--empty-glow), inset 0 0 14px rgb(249 168 212 / 0.2);
+}
+[data-accent="sakura"] .empty-mark svg {
+  filter: drop-shadow(0 0 4px rgb(244 114 182 / 1)) drop-shadow(0 0 10px rgb(236 72 153 / 0.7));
+}
+/* iridescent: frosted glass, the icon glows in shifting cyan/violet/pink */
+[data-accent="iridescent"] .empty-mark {
+  color: #c4b5fd;
+  background:
+    linear-gradient(135deg, rgb(125 211 252 / 0.28), rgb(167 139 250 / 0.3), rgb(244 114 182 / 0.26)),
+    rgb(24 24 27 / 0.45);
+  border: 1px solid rgb(255 255 255 / 0.3);
+  backdrop-filter: blur(12px);
+  --empty-glow: rgb(139 92 246 / 0.55);
+  box-shadow: 0 0 30px var(--empty-glow), inset 0 0 14px rgb(255 255 255 / 0.14);
+}
+[data-accent="iridescent"] .empty-mark svg {
+  filter: drop-shadow(0 0 4px rgb(167 139 250 / 1)) drop-shadow(0 0 10px rgb(125 211 252 / 0.6));
+}
+@media (prefers-reduced-motion: reduce) {
+  .empty-mark {
+    animation: none;
+  }
+}
+
+/* ---- Dialog that can't be closed right now (e.g. MEGA upload running) ---- */
+.dialog-nudge {
+  animation: dialog-nudge 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+@keyframes dialog-nudge {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-7px); }
+  40%, 60% { transform: translateX(7px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dialog-nudge {
+    animation-duration: 0.2s;
+  }
+}
+
+/* ---- Import review: a reward switched to "Extra" ------------------------- */
+/* A pill in the theme colour with a soft glow (the faint tint was easy to miss). */
+.extra-on {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.5rem;
+  border-radius: 9999px;
+  color: var(--color-brand-100);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-brand-500) 40%, transparent),
+    color-mix(in srgb, var(--color-accent2-500) 28%, transparent)
+  );
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-brand-400) 75%, transparent),
+    0 0 12px color-mix(in srgb, var(--color-brand-500) 45%, transparent);
+  transition: filter 0.15s ease;
+}
+.extra-on:hover {
+  filter: brightness(1.15);
+}
+.extra-on svg {
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--color-brand-300) 90%, transparent));
+}
+/* iridescent: flowing holo foil with a pearl rim */
+[data-accent="iridescent"] .extra-on {
+  color: #fff;
+  background-image: linear-gradient(
+    110deg,
+    rgba(196, 181, 253, 0.5),
+    rgba(245, 194, 255, 0.46),
+    rgba(186, 230, 253, 0.44),
+    rgba(167, 243, 208, 0.4),
+    rgba(196, 181, 253, 0.5)
+  );
+  background-size: 200% 100%;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+    0 0 14px rgba(245, 194, 255, 0.55),
+    0 0 4px rgba(186, 230, 253, 0.7);
+  animation: micoll-iri-flow 6s ease-in-out infinite;
+}
+[data-accent="iridescent"] .extra-on svg {
+  color: #fff;
+  filter: drop-shadow(0 0 4px rgba(245, 194, 255, 0.95)) drop-shadow(0 0 2px rgba(186, 230, 253, 0.9));
+}
+/* sakura: petal pink */
+[data-accent="sakura"] .extra-on {
+  color: #fff0f7;
+  background: linear-gradient(135deg, rgba(249, 168, 212, 0.42), rgba(236, 72, 153, 0.3));
+  box-shadow:
+    inset 0 0 0 1px rgba(249, 168, 212, 0.8),
+    0 0 14px rgba(236, 72, 153, 0.45);
+}
+[data-accent="sakura"] .extra-on svg {
+  filter: drop-shadow(0 0 4px rgba(249, 168, 212, 1));
+}
+/* cyberpunk: square neon tag */
+[data-accent="cyberpunk"] .extra-on {
+  border-radius: 0;
+  color: #fcee0a;
+  background: rgba(252, 238, 10, 0.14);
+  box-shadow:
+    inset 0 0 0 1px #fcee0a,
+    inset 2px 0 0 0 #00e5ff,
+    0 0 12px rgba(252, 238, 10, 0.45);
+}
+[data-accent="cyberpunk"] .extra-on svg {
+  filter: drop-shadow(0 0 4px rgba(252, 238, 10, 0.9));
+}
+[data-animations="off"] .extra-on {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .extra-on {
+    animation: none !important;
+  }
+}

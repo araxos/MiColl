@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { listen } from "@tauri-apps/api/event";
@@ -209,6 +209,31 @@ export function MegaUploadModal({
     };
   }, [uploadSrcs]);
 
+  // While uploading the dialog can't be closed (click outside, X, Esc): it shakes
+  // instead and says why. Esc is caught here first, the viewer below would close too.
+  const [nudge, setNudge] = useState(false);
+  const [held, setHeld] = useState(false);
+  const busyRef = useRef(false);
+  busyRef.current = busy;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const tryClose = useCallback(() => {
+    if (busyRef.current) {
+      setNudge(true);
+      setHeld(true);
+    } else onCloseRef.current();
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      tryClose();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [tryClose]);
+
   // progress events from the backend
   useEffect(() => {
     const un = listen<{ phase: string; done: number; total: number }>("mega-progress", (e) =>
@@ -278,6 +303,7 @@ export function MegaUploadModal({
     if (files.length === 0) return;
     const dest = folder.trim() || "/";
     setBusy(true);
+    setHeld(false);
     setProg(null);
     try {
       // a version always needs a name (rename or the original's name with its extension)
@@ -316,9 +342,14 @@ export function MegaUploadModal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      onClick={onClose}
+      onClick={tryClose}
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 backdrop-blur-sm"
     >
+      {/* own wrapper for the shake, the panel's transform belongs to framer */}
+      <div
+        className={cn("flex max-h-[92vh] max-w-[92vw]", nudge && "dialog-nudge")}
+        onAnimationEnd={() => setNudge(false)}
+      >
       <motion.div
         initial={{ scale: 0.96, opacity: 0, y: 8 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
@@ -332,7 +363,7 @@ export function MegaUploadModal({
             <CloudUpload className={cn("h-4 w-4", accentText)} />
             {t("Upload to MEGA")}
           </h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300" title={t("Close (Esc)")}>
+          <button onClick={tryClose} className="text-zinc-500 hover:text-zinc-300" title={t("Close (Esc)")}>
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -728,10 +759,16 @@ export function MegaUploadModal({
                   />
                 </div>
               )}
+              {busy && held && (
+                <p className={cn("mt-2 text-center text-xs", accentText)}>
+                  {t("The upload is still running — this window closes by itself when it’s done.")}
+                </p>
+              )}
             </>
           )}
         </div>
       </motion.div>
+      </div>
     </motion.div>,
     document.body,
   );

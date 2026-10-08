@@ -996,8 +996,9 @@ export function StartPage({ onLock }: { onLock: () => void }) {
           </div>
         ) : artists.length === 0 ? (
           <div className="grid place-items-center gap-4 rounded-2xl border border-dashed border-zinc-800 py-24 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-800 text-zinc-400">
-              <UserPlus className="h-6 w-6" />
+            {/* glowing tile in the theme's colour (index.css .empty-mark) */}
+            <div className="empty-mark flex h-16 w-16 items-center justify-center">
+              <UserPlus className="h-7 w-7" />
             </div>
             <div>
               <p className="font-medium text-zinc-200">{t("No content yet")}</p>

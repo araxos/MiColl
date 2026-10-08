@@ -31,6 +31,8 @@ import {
   RotateCcw,
   Type,
   SquareDashed,
+  Square,
+  SquareCheck,
   X,
 } from "lucide-react";
 import { Layout } from "@/components/Layout";
@@ -318,7 +320,29 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                 info: "Liquid-drop cards with a travelling prism rim — full spectrum with a template, pale shell without. Replaces the card's holo effects with drifting caustics.",
               }
             : null;
-    if (!frame) return;
+    // classic themes: "OG - Look" = the plain old background instead of the sand/crystal
+    // one (classicLuxe off). One switch for all classic themes, off by default.
+    if (!frame) {
+      const og = { label: "OG - Look", icon: <SquareCheck className="h-4 w-4" /> };
+      const notOg = { label: "OG - Look", icon: <Square className="h-4 w-4" /> };
+      const isOg = !getClassicLuxe();
+      openMenu(e, [
+        {
+          ...(isOg ? og : notOg),
+          keepOpen: true,
+          toggled: isOg ? notOg : og,
+          // read the live value, the item can be clicked several times (keepOpen)
+          onClick: () => setClassicLuxe(!getClassicLuxe()),
+        },
+        {
+          label: t(
+            "The plain MiColl background, without the sand-and-crystal backdrop and the glassy panels. Applies to all classic themes.",
+          ),
+          info: true,
+        },
+      ]);
+      return;
+    }
     // locked themes still show their menu, plus a line that it isn't unlocked yet
     const isLocked = !premium;
     const on = { label: t("Turn off the card frame"), icon: <SquareDashed className="h-4 w-4" /> };
@@ -453,11 +477,6 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     setViewerStartsInGrid(on);
   };
   const [animatedBg, setAnimatedBgOn] = useState(getAnimatedBg());
-  const [classicLuxe, setClassicLuxeOn] = useState(getClassicLuxe());
-  const toggleClassicLuxe = (on: boolean) => {
-    setClassicLuxeOn(on);
-    setClassicLuxe(on);
-  };
   const toggleAnimatedBg = (on: boolean) => {
     setAnimatedBgOn(on);
     setAnimatedBg(on);
@@ -557,7 +576,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                 : tf("Right-click {name} for its card frame and template font options", {
                     name: t(a.label),
                   }))
-            : t(a.label)
+            : tf("{name} — right-click for the OG look", { name: t(a.label) })
         }
         className={cn(
           "group relative flex items-center gap-2.5 rounded-xl border px-3 py-2 transition-colors",
@@ -1268,21 +1287,6 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
             title={fxHint}
           />
         </div>
-        {/* classic accents only: the sand/crystal backdrop and glassier surfaces.
-            Off = the old look, untouched. */}
-        {!fxLive && (
-          <div className={cn("mt-3 flex items-center justify-between gap-3", cardInner)}>
-            <div className="min-w-0">
-              <h2 className="text-sm font-semibold text-zinc-100">{t("Premium look")}</h2>
-              <p className="settings-desc mt-0.5 text-sm text-zinc-400">
-                {t(
-                  "A sand-grain backdrop with crystal glints and glassier panels, cards and header for the classic themes. Turn it off for the plain look.",
-                )}
-              </p>
-            </div>
-            <Toggle checked={classicLuxe} onChange={toggleClassicLuxe} />
-          </div>
-        )}
         {/* custom wallpaper with a dark veil */}
         <div className={cn("mt-3", cardInner)}>
           <div className="flex items-center justify-between gap-3">

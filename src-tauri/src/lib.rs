@@ -7309,7 +7309,7 @@ fn serve_media(app: &AppHandle, request: &tauri::http::Request<Vec<u8>>) -> taur
         if huge {
             if let Ok(cache) = app_cache(app) {
                 if let Ok(jpeg) =
-                    thumbs::thumb_jpeg(&cache.join("previews"), &path, edge.clamp(1024, 4096), key)
+                    thumbs::preview_jpeg(&cache.join("previews"), &path, edge.clamp(1024, 4096), key)
                 {
                     return tauri::http::Response::builder()
                         .status(200)

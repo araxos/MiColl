@@ -2,7 +2,8 @@
  * "Premium look" for the classic (basic) accents: the setup screens' sand-and-crystal
  * backdrop behind the whole app, plus glassier panels, cards and header.
  * All of it is CSS under html[data-classic-luxe="1"], so turning it off gives back
- * exactly the old look. On by default, saved in localStorage.
+ * exactly the old look ("OG - Look", right-click a classic theme in Settings).
+ * On by default (= OG look off), saved in localStorage.
  */
 
 import { useEffect, useState } from "react";

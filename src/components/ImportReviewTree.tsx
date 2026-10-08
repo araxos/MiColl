@@ -1484,11 +1484,12 @@ export function ImportReviewTree({
                                           ? t("Imported as an extra — it stays in this period but doesn’t stand in for it. Click to import it normally")
                                           : t("Import as an extra — it stays in this period but doesn’t stand in for it (not used for the month card)")
                                       }
+                                      // switched on it becomes a glowing pill, styled per theme
+                                      // (.extra-on in index.css), the faint tint was easy to miss
                                       className={cn(
-                                        "rounded-md p-1",
                                         r.extra
-                                          ? "bg-brand-500/15 text-brand-200 hover:bg-brand-500/25"
-                                          : "text-zinc-500 micoll-hover hover:text-zinc-200",
+                                          ? "extra-on"
+                                          : "rounded-md p-1 text-zinc-500 micoll-hover hover:text-zinc-200",
                                       )}
                                     >
                                       <Sparkles className="h-3.5 w-3.5" />

@@ -46,6 +46,7 @@ import { applyAppIcon } from "@/lib/appIcon";
 import { clearThumbMemo } from "@/hooks/useThumb";
 import { LOCK_SETTINGS_EVENT } from "@/lib/lock";
 import { getModeHotkey, eventToCombo, toggleSfwMode } from "@/lib/contentMode";
+import { dismissSplash, splashReady } from "@/lib/splash";
 
 export default function App() {
   const [locked, setLocked] = useState(false);
@@ -62,6 +63,13 @@ export default function App() {
   const [dupScope, setDupScope] = useState<DuplicateScope | null>(null);
 
   const safe = useSafeMode();
+
+  // keep the splash up until the dashboard (or the lock screen) can show. The portable
+  // question and the first-run wizard don't load the library, they replace the splash.
+  useEffect(() => {
+    if (portableOffer || firstRun) dismissSplash();
+    else if (booted) splashReady("app");
+  }, [booted, portableOffer, firstRun]);
 
   // window/taskbar icon, applied at boot and when the accent changes ("auto" follows the
   // theme)

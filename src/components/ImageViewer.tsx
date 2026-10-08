@@ -49,7 +49,7 @@ import type { Collection } from "@/types";
 import { Cover } from "@/components/Cover";
 import { seedGradient, cn } from "@/lib/utils";
 import { useT, useTf, useTp } from "@/lib/i18n";
-import { isTauri, mediaUrl, previewUrl } from "@/lib/tauri";
+import { isTauri, mediaUrl, previewUrl, thumbUrl } from "@/lib/tauri";
 import { useOptimizeLargeImages } from "@/lib/optimizeLarge";
 import { enterImmersive } from "@/lib/immersive";
 // renamed: setWallpaper from the API is the DESKTOP wallpaper
@@ -242,6 +242,9 @@ const NEXT_ANIM: Record<Anim, Anim> = { cut: "fade", fade: "slide", slide: "cut"
  * Fullscreen viewer: keyboard navigation, zoom to the cursor with drag to pan,
  * and a slideshow with shuffle. The image is shown whole (object-contain).
  */
+/** Filmstrip thumbnails loading at the same time (in strip order). */
+const STRIP_PARALLEL = 4;
+
 export function ImageViewer({
   items: rawItems,
   startIndex,
@@ -1197,6 +1200,48 @@ export function ImageViewer({
     // urlFor uses the same inputs
   }, [current.id, curDisplayPath, isVideo, isArchive, index, items, optimizeLarge, originals, shownId]);
 
+  // filmstrip thumbnails load left to right in the strip's order (also after a re-sort):
+  // a few at a time, in order, and a tile shows its picture once it's loaded. Without
+  // this they all asked at once and the backend made them newest-first, so they
+  // popped in all over the strip.
+  const stripUrls = isTauri()
+    ? items.map((it) => {
+        const p = tilePath(it);
+        return p && (!it.kind || it.kind === "image") ? thumbUrl(p, 128) : "";
+      })
+    : [];
+  const stripKey = stripUrls.join("\n");
+  const [stripReady, setStripReady] = useState<Set<string>>(() => new Set());
+  const stripReadyRef = useRef(stripReady);
+  stripReadyRef.current = stripReady;
+  useEffect(() => {
+    const queue = stripKey ? stripKey.split("\n").filter((u) => u && !stripReadyRef.current.has(u)) : [];
+    const pending = new Set<HTMLImageElement>();
+    let next = 0;
+    let alive = true;
+    const pump = () => {
+      while (alive && pending.size < STRIP_PARALLEL && next < queue.length) {
+        const url = queue[next++];
+        const img = new Image();
+        const done = () => {
+          pending.delete(img);
+          if (!alive) return;
+          setStripReady((r) => (r.has(url) ? r : new Set(r).add(url)));
+          pump();
+        };
+        img.onload = done;
+        img.onerror = done;
+        pending.add(img);
+        img.src = url;
+      }
+    };
+    pump();
+    return () => {
+      alive = false;
+      for (const img of pending) img.removeAttribute("src");
+    };
+  }, [stripKey]);
+
   // a scrolled-past image that hasn't loaded gives up its download (on the DOM,
   // AnimatePresence froze it). Coming back puts it back from data-src.
   useEffect(() => {
@@ -1650,6 +1695,8 @@ export function ImageViewer({
                 src={displaySrc}
                 data-viewer-frame={current.id}
                 data-src={displaySrc}
+                // same CORS mode as the big picture, so both use one download
+                crossOrigin="anonymous"
                 draggable={false}
                 className="max-h-full max-w-full select-none object-contain"
                 style={{ filter: "blur(28px) saturate(1.6)", transform: "scale(1.03)" }}
@@ -2019,11 +2066,23 @@ export function ImageViewer({
                 : { duration: fade ? 0.22 : 0 }
             }
             className={cn(
-              "flex h-full w-full items-center justify-center",
+              // isolate: the loading placeholder sits behind the picture (-z-10)
+              "isolate flex h-full w-full items-center justify-center",
               // slide needs both frames stacked (absolute)
-              slide && "absolute inset-0",
+              slide ? "absolute inset-0" : "relative",
             )}
           >
+            {/* while a big picture is still being made, its filmstrip thumbnail (already
+                cached) stands in, blurred, so the screen isn't empty */}
+            {!isVideo && !isArchive && shownId !== current.id && current.path && isTauri() && (
+              <img
+                aria-hidden
+                src={thumbUrl(tilePath(current), 128)}
+                draggable={false}
+                className="pointer-events-none absolute inset-0 -z-10 h-full w-full select-none object-contain"
+                style={{ filter: "blur(14px)" }}
+              />
+            )}
             {isVideo ? (
               current.src || (encEnabled && current.path) ? (
                 <video
@@ -2195,7 +2254,13 @@ export function ImageViewer({
                     : "ring-transparent opacity-50 hover:opacity-90",
               )}
             >
-              <Cover path={tilePath(it)} seed={it.title} size={128} rounded="rounded-none" />
+              <Cover
+                // images wait for their turn (see stripReady), videos/files show right away
+                path={!stripUrls[i] || stripReady.has(stripUrls[i]) ? tilePath(it) : undefined}
+                seed={it.title}
+                size={128}
+                rounded="rounded-none"
+              />
               {it.kind === "video" && (
                 <span className="pointer-events-none absolute inset-0 grid place-items-center">
                   <PlayCircle className="h-5 w-5 text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]" />

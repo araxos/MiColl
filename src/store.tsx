@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { artists as mockArtists } from "@/data/mock";
 import { isTauri } from "@/lib/tauri";
-import { dismissSplash } from "@/lib/splash";
+import { splashReady } from "@/lib/splash";
 import * as api from "@/api/library";
 import type { Artist, Month, Reward } from "@/types";
 
@@ -110,7 +110,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     if (!backed) {
       setArtists(mockArtists);
-      dismissSplash();
+      splashReady("library");
       return;
     }
     if (!loadedRef.current) setLoading(true);
@@ -126,8 +126,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setError(String(e));
     } finally {
       setLoading(false);
-      // hide the splash in any case, also on error
-      dismissSplash();
+      // the splash can go in any case, also on error (App still has to be ready)
+      splashReady("library");
     }
   }, [backed]);
 

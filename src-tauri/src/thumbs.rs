@@ -15,6 +15,8 @@ use std::time::UNIX_EPOCH;
 // A fast scroll can ask for many thumbnails at once, each decodes a big image.
 // So only a few are made at the same time (cached ones aren't limited).
 // The newest request goes first, that's what's on screen now.
+// The viewer's picture (priority) doesn't queue behind grid thumbnails: it has its own
+// few slots on top, otherwise opening a big picture waited for a whole round of thumbs.
 
 struct Gate {
     state: Mutex<GateState>,
@@ -24,6 +26,8 @@ struct Gate {
 
 struct GateState {
     running: usize,
+    /// priority jobs running (their own slots, not counted in `running`)
+    prio_running: usize,
     /// tickets of the waiting threads, higher = asked later
     waiting: Vec<u64>,
     next: u64,
@@ -32,14 +36,21 @@ struct GateState {
 impl Gate {
     fn new(max: usize) -> Gate {
         Gate {
-            state: Mutex::new(GateState { running: 0, waiting: Vec::new(), next: 0 }),
+            state: Mutex::new(GateState { running: 0, prio_running: 0, waiting: Vec::new(), next: 0 }),
             cv: Condvar::new(),
             max,
         }
     }
 
-    fn acquire(&self) -> GatePass<'_> {
+    fn acquire(&self, prio: bool) -> GatePass<'_> {
         let mut s = self.state.lock().expect("thumb gate");
+        if prio {
+            while s.prio_running >= PRIO_SLOTS {
+                s = self.cv.wait(s).expect("thumb gate");
+            }
+            s.prio_running += 1;
+            return GatePass(self, true);
+        }
         let ticket = s.next;
         s.next += 1;
         s.waiting.push(ticket);
@@ -50,7 +61,7 @@ impl Gate {
         s.running += 1;
         // a slot may still be free for the next one
         self.cv.notify_all();
-        GatePass(self)
+        GatePass(self, false)
     }
 }
 
@@ -59,17 +70,59 @@ fn gate() -> &'static Gate {
     G.get_or_init(|| Gate::new(max_concurrent()))
 }
 
+/// Viewer pictures at the same time (the shown one + a preloaded neighbour).
+const PRIO_SLOTS: usize = 2;
+
 fn max_concurrent() -> usize {
     std::thread::available_parallelism()
         .map(|n| (n.get() / 2).clamp(2, 6))
         .unwrap_or(3)
 }
 
-struct GatePass<'a>(&'a Gate);
+/// A running job; the bool says which slots it took (priority or normal).
+struct GatePass<'a>(&'a Gate, bool);
 impl Drop for GatePass<'_> {
     fn drop(&mut self) {
-        self.0.state.lock().expect("thumb gate").running -= 1;
+        let mut s = self.0.state.lock().expect("thumb gate");
+        if self.1 {
+            s.prio_running -= 1;
+        } else {
+            s.running -= 1;
+        }
+        drop(s);
         self.0.cv.notify_all();
+    }
+}
+
+/* ---- one job per file ---------------------------------------------------- */
+// The same picture is often asked for twice at once (the viewer's frame and its
+// preload). The second waits for the first and then reads the cache, instead of
+// decoding the same big image again.
+
+fn in_flight() -> &'static (Mutex<std::collections::HashSet<std::path::PathBuf>>, Condvar) {
+    static F: OnceLock<(Mutex<std::collections::HashSet<std::path::PathBuf>>, Condvar)> = OnceLock::new();
+    F.get_or_init(|| (Mutex::new(std::collections::HashSet::new()), Condvar::new()))
+}
+
+/// Holds a cache file as "being made" until dropped.
+struct Making(std::path::PathBuf);
+impl Making {
+    /// Waits while another thread makes the same file, then claims it.
+    fn claim(out: &Path) -> Making {
+        let (set, cv) = in_flight();
+        let mut s = set.lock().expect("thumb in-flight");
+        while s.contains(out) {
+            s = cv.wait(s).expect("thumb in-flight");
+        }
+        s.insert(out.to_path_buf());
+        Making(out.to_path_buf())
+    }
+}
+impl Drop for Making {
+    fn drop(&mut self) {
+        let (set, cv) = in_flight();
+        set.lock().expect("thumb in-flight").remove(&self.0);
+        cv.notify_all();
     }
 }
 
@@ -95,6 +148,15 @@ fn read_source(src: &str, key: Option<[u8; 32]>) -> Result<Vec<u8>, String> {
 /// Make (or reuse) a thumbnail, returns the JPEG bytes.
 /// The disk cache is encrypted when encryption is on.
 pub fn thumb_jpeg(cache_dir: &Path, src: &str, size: u32, key: Option<[u8; 32]>) -> Result<Vec<u8>, String> {
+    make_jpeg(cache_dir, src, size, key, false)
+}
+
+/// Same as thumb_jpeg for the picture the viewer shows: doesn't wait behind thumbnails.
+pub fn preview_jpeg(cache_dir: &Path, src: &str, size: u32, key: Option<[u8; 32]>) -> Result<Vec<u8>, String> {
+    make_jpeg(cache_dir, src, size, key, true)
+}
+
+fn make_jpeg(cache_dir: &Path, src: &str, size: u32, key: Option<[u8; 32]>, prio: bool) -> Result<Vec<u8>, String> {
     let meta = match std::fs::metadata(src) {
         Ok(m) => m,
         Err(e) => {
@@ -126,9 +188,13 @@ pub fn thumb_jpeg(cache_dir: &Path, src: &str, size: u32, key: Option<[u8; 32]>)
         return Ok(cached);
     }
 
-    // not cached -> decode. Wait for a slot, then check the cache again
-    // (someone may have made it while we waited)
-    let _pass = gate().acquire();
+    // not cached -> decode. Wait while someone else makes the same file, then for a
+    // slot, then check the cache again (it may have been made while we waited)
+    let _making = Making::claim(&out);
+    if let Some(cached) = read_cache() {
+        return Ok(cached);
+    }
+    let _pass = gate().acquire(prio);
     if let Some(cached) = read_cache() {
         return Ok(cached);
     }
@@ -202,7 +268,7 @@ pub fn gif_thumb(
     }
 
     // the heaviest thing here, so it uses the same gate (and checks the cache again)
-    let _pass = gate().acquire();
+    let _pass = gate().acquire(false);
     if let Some(cached) = read_cache() {
         return Ok(Some(cached));
     }
@@ -524,7 +590,7 @@ mod tests {
 
 #[cfg(test)]
 mod gate_tests {
-    use super::Gate;
+    use super::{Gate, Making};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -533,12 +599,12 @@ mod gate_tests {
     fn the_newest_request_goes_first() {
         let gate = Arc::new(Gate::new(1));
         let order = Arc::new(Mutex::new(Vec::new()));
-        let held = gate.acquire();
+        let held = gate.acquire(false);
         let mut threads = Vec::new();
         for i in 0..4 {
             let (gate, order) = (gate.clone(), order.clone());
             threads.push(std::thread::spawn(move || {
-                let _pass = gate.acquire();
+                let _pass = gate.acquire(false);
                 order.lock().unwrap().push(i);
                 std::thread::sleep(Duration::from_millis(20));
             }));
@@ -552,19 +618,52 @@ mod gate_tests {
         assert_eq!(*order.lock().unwrap(), vec![3, 2, 1, 0]);
     }
 
+    /// the viewer's picture doesn't wait for the thumbnails holding every slot
+    #[test]
+    fn priority_skips_the_full_queue() {
+        let gate = Arc::new(Gate::new(1));
+        let held = gate.acquire(false);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let g = gate.clone();
+        let t = std::thread::spawn(move || {
+            let _pass = g.acquire(true);
+            tx.send(()).unwrap();
+        });
+        assert!(rx.recv_timeout(Duration::from_millis(500)).is_ok(), "priority waited for the thumbnails");
+        t.join().unwrap();
+        drop(held);
+    }
+
+    /// the same file is made once: the second caller waits for the first
+    #[test]
+    fn same_file_waits_for_the_first_maker() {
+        let out = std::env::temp_dir().join(format!("micoll-inflight-{}.jpg", std::process::id()));
+        let first = Making::claim(&out);
+        let done = Arc::new(Mutex::new(false));
+        let (o, d) = (out.clone(), done.clone());
+        let t = std::thread::spawn(move || {
+            let _second = Making::claim(&o);
+            assert!(*d.lock().unwrap(), "claimed while the first was still making it");
+        });
+        std::thread::sleep(Duration::from_millis(80));
+        *done.lock().unwrap() = true;
+        drop(first);
+        t.join().unwrap();
+    }
+
     /// all free slots get used
     #[test]
     fn free_slots_are_not_left_idle() {
         let gate = Arc::new(Gate::new(2));
-        let a = gate.acquire();
-        let b = gate.acquire();
+        let a = gate.acquire(false);
+        let b = gate.acquire(false);
         let running = Arc::new(Mutex::new(0usize));
         let peak = Arc::new(Mutex::new(0usize));
         let mut threads = Vec::new();
         for _ in 0..2 {
             let (gate, running, peak) = (gate.clone(), running.clone(), peak.clone());
             threads.push(std::thread::spawn(move || {
-                let _pass = gate.acquire();
+                let _pass = gate.acquire(false);
                 let now = {
                     let mut r = running.lock().unwrap();
                     *r += 1;
@@ -586,3 +685,4 @@ mod gate_tests {
         assert_eq!(*peak.lock().unwrap(), 2);
     }
 }
+
