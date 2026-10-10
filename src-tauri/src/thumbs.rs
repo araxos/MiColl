@@ -145,6 +145,14 @@ fn read_source(src: &str, key: Option<[u8; 32]>) -> Result<Vec<u8>, String> {
     }
 }
 
+/// Big enough that the viewer gets a reduced preview with "Optimize large images":
+/// over 3000 px on the long side and over 6 MP. It used to need both sides over 3000,
+/// so a 3000×4500 page (13.5 MP) was served full size and froze fast scrolling.
+/// Same rule as OPTIMIZE in ImageViewer.tsx.
+pub fn worth_a_preview(w: u32, h: u32) -> bool {
+    w.max(h) > 3000 && u64::from(w) * u64::from(h) > 6_000_000
+}
+
 /// Make (or reuse) a thumbnail, returns the JPEG bytes.
 /// The disk cache is encrypted when encryption is on.
 pub fn thumb_jpeg(cache_dir: &Path, src: &str, size: u32, key: Option<[u8; 32]>) -> Result<Vec<u8>, String> {
@@ -616,6 +624,18 @@ mod gate_tests {
             t.join().unwrap();
         }
         assert_eq!(*order.lock().unwrap(), vec![3, 2, 1, 0]);
+    }
+
+    /// which images get the viewer's reduced preview
+    #[test]
+    fn preview_rule() {
+        use super::worth_a_preview;
+        assert!(worth_a_preview(3000, 4500)); // the page size that froze
+        assert!(worth_a_preview(6000, 9000));
+        assert!(worth_a_preview(4500, 3000));
+        assert!(!worth_a_preview(2000, 3000)); // 6 MP, fine as it is
+        assert!(!worth_a_preview(3500, 1000)); // long but small
+        assert!(!worth_a_preview(2560, 2560));
     }
 
     /// the viewer's picture doesn't wait for the thumbnails holding every slot

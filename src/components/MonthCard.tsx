@@ -994,7 +994,7 @@ function MonthCardBase({
       data-drop-year={month.year ?? undefined}
       data-drop-month={month.month ?? undefined}
       // standard accents: a bit of the accent color in the card and border
-      className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-brand-500/25 bg-[color-mix(in_srgb,var(--color-brand-500)_7%,#18181b)] text-left outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+      className="classic-month group relative flex h-full flex-col overflow-hidden rounded-xl border border-brand-500/25 bg-[color-mix(in_srgb,var(--color-brand-500)_7%,#18181b)] text-left outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
     >
       <div className="relative aspect-square w-full grow overflow-hidden">
         <div className="h-full w-full transition-transform duration-500 group-hover:scale-105">
@@ -1018,7 +1018,8 @@ function MonthCardBase({
         {sdChip}
       </div>
 
-      <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+      {/* classic-month-foot: hook for the classic "Premium look" (index.css) */}
+      <div className="classic-month-foot flex items-center justify-between gap-2 px-3 py-2.5">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-zinc-100">{label}</div>
           <div className="mt-0.5">

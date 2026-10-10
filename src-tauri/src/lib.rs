@@ -7300,11 +7300,11 @@ fn serve_media(app: &AppHandle, request: &tauri::http::Request<Vec<u8>>) -> taur
         }
     }
 
-    // ?preview=N: only for images over 3000 px on both sides, cached. Anything else
+    // ?preview=N: only for big images (see thumbs::worth_a_preview), cached. Anything else
     // (or any failure) serves the original.
     if let Some(edge) = preview_size {
         let huge = thumbs::dimensions(&path, key)
-            .map(|(w, h)| w > 3000 && h > 3000)
+            .map(|(w, h)| thumbs::worth_a_preview(w, h))
             .unwrap_or(false);
         if huge {
             if let Ok(cache) = app_cache(app) {

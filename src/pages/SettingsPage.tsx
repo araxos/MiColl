@@ -90,7 +90,7 @@ import { getShowHidden, setShowHidden } from "@/lib/showHidden";
 import { getWindowButtons, setWindowButtons } from "@/lib/windowButtons";
 import { getStripCreator, setStripCreator } from "@/lib/stripCreator";
 import { getAnimatedBg, setAnimatedBg } from "@/lib/animatedBg";
-import { getClassicLuxe, setClassicLuxe } from "@/lib/classicLuxe";
+import { getClassicLuxe, setClassicLuxe, useClassicLuxe } from "@/lib/classicLuxe";
 import { getCyberFrame, setCyberFrame } from "@/lib/cyberFrame";
 import { getSakuraFrame, setSakuraFrame } from "@/lib/sakuraFrame";
 import { getIriFrame, setIriFrame } from "@/lib/iriFrame";
@@ -834,6 +834,10 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     accent === "iridescent" ? "iri-range" : accent === "sakura" ? "sak-range" : "accent-brand-500";
   // these motion settings only affect premium themes, so they're greyed out on others
   const fxLive = isPremium(accent);
+  // classic themes animate too (rising glints), unless the OG look is on
+  const classicLuxeOn = useClassicLuxe();
+  const bgLive = fxLive || classicLuxeOn;
+  const bgHint = t("Not with the OG look (right-click a classic theme)");
   const fxHint = fxLive
     ? undefined
     : t("Only affects the premium themes (sakura, cyberpunk, iridescent)");
@@ -1270,21 +1274,23 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
         </div>
         </div>
         ))}
-        <div className={cn("mt-4 flex items-center justify-between gap-3", cardInner, !fxLive && "opacity-60")}>
+        <div className={cn("mt-4 flex items-center justify-between gap-3", cardInner, !bgLive && "opacity-60")}>
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-zinc-100">{t("Animated background")}</h2>
             <p className="settings-desc mt-0.5 text-sm text-zinc-400">
-              {t(
-                "The flowing premium backdrop (iridescent foil, cyberpunk, sakura) is rendered live and can be CPU-heavy without GPU acceleration. Turn it off for a static gradient and lower CPU use.",
-              )}
-              {!fxLive && <span className="text-zinc-500"> {fxHint}.</span>}
+              {fxLive
+                ? t(
+                    "The flowing premium backdrop (iridescent foil, cyberpunk, sakura) is rendered live and can be CPU-heavy without GPU acceleration. Turn it off for a static gradient and lower CPU use.",
+                  )
+                : t("The crystal glints in the background slowly rise and fade. Turn it off for a still backdrop.")}
+              {!bgLive && <span className="text-zinc-500"> {bgHint}.</span>}
             </p>
           </div>
           <Toggle
             checked={animatedBg}
             onChange={toggleAnimatedBg}
-            disabled={!fxLive}
-            title={fxHint}
+            disabled={!bgLive}
+            title={bgLive ? undefined : bgHint}
           />
         </div>
         {/* custom wallpaper with a dark veil */}
@@ -1869,10 +1875,9 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold text-zinc-100">{t("Optimize large images")}</h2>
                 <p className="settings-desc mt-0.5 text-sm text-zinc-400">
-                  Very large images (over 3000&nbsp;px on both sides, e.g. 5000×8000) can make the
-                  viewer scroll slowly and load slowly. When on, the viewer shows a lighter
-                  downscaled preview of only those images — the original files are never resized
-                  or modified.
+                  {t(
+                    "Very large images (over 3000 px on the long side, e.g. 3000×4500) can make the viewer scroll slowly and load slowly. When on, the viewer shows a lighter downscaled preview of only those images — the original files are never resized or modified.",
+                  )}
                 </p>
               </div>
               <Toggle checked={optimizeLarge} onChange={toggleOptimizeLarge} />

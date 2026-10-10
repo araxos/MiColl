@@ -83,6 +83,14 @@ function useTopbarSlots(): TopbarSlots {
 /** The current page's scroll area (Home on the dashboard scrolls it to the top). */
 let activeMain: HTMLElement | null = null;
 
+/** Scroll the current page back to the top, smoothly like Home (e.g. the platform crumb). */
+export function scrollPageToTop(): void {
+  const main = activeMain;
+  if (!main || main.scrollTop === 0) return;
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  main.scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" });
+}
+
 /** The top bar, mounted once in App. */
 export function TopBar({ onLock }: { onLock?: () => void }) {
   const navigate = useNavigate();

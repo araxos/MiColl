@@ -1111,11 +1111,13 @@ export function ImageViewer({
       alive = false;
     };
   }, [optimizeLarge, curDisplayPath, current.kind]);
-  // same threshold as serve_media in the backend
-  const OPTIMIZE_THRESHOLD = 3000;
-  // the original is big enough to get a reduced preview
+  // the original is big enough to get a reduced preview: over 3000 px on the long side
+  // and over 6 MP, same rule as thumbs::worth_a_preview in the backend
   const bigOriginal =
-    !!optimizeLarge && !!origDims && origDims.w > OPTIMIZE_THRESHOLD && origDims.h > OPTIMIZE_THRESHOLD;
+    !!optimizeLarge &&
+    !!origDims &&
+    Math.max(origDims.w, origDims.h) > 3000 &&
+    origDims.w * origDims.h > 6_000_000;
   // ...and the preview is what's on screen
   const resized = bigOriginal && !originals.has(current.id);
   // real resolution when reduced, otherwise the loaded size

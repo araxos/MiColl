@@ -5422,3 +5422,282 @@ html[data-classic-luxe="1"] .classic-corner-q {
     animation: none !important;
   }
 }
+
+/* ---- Import loading bar (under the import review) ----------------------- */
+/* A track with a glowing fill and a light sweep running over it; per theme below. */
+.imp-track {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.imp-fill {
+  position: relative;
+  overflow: hidden;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    var(--color-brand-600),
+    var(--color-brand-400),
+    var(--color-accent2-500)
+  );
+  box-shadow: 0 0 10px color-mix(in srgb, var(--color-brand-500) 55%, transparent);
+  transition: width 0.25s ease-out;
+}
+.imp-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, 0.38) 45%, transparent 70%);
+  transform: translateX(-100%);
+  animation: imp-sweep 1.6s ease-in-out infinite;
+}
+@keyframes imp-sweep {
+  to { transform: translateX(100%); }
+}
+/* iridescent: flowing holo foil on a pearl-rimmed glass track */
+[data-accent="iridescent"] .imp-track {
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+[data-accent="iridescent"] .imp-fill {
+  background-image: linear-gradient(90deg, #c4b5fd, #f5c2ff, #bae6fd, #a7f3d0, #c4b5fd);
+  background-size: 200% 100%;
+  box-shadow:
+    0 0 12px rgba(245, 194, 255, 0.6),
+    0 0 4px rgba(186, 230, 253, 0.8);
+  animation: micoll-iri-bar-flow 3s linear infinite;
+}
+[data-accent="iridescent"] .imp-label {
+  color: #fff;
+  text-shadow: 0 0 8px rgba(245, 194, 255, 0.55);
+}
+/* sakura: petal pink with a soft bloom */
+[data-accent="sakura"] .imp-track {
+  background: rgba(249, 168, 212, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(249, 168, 212, 0.22);
+}
+[data-accent="sakura"] .imp-fill {
+  background: linear-gradient(90deg, #fbcfe8, #f9a8d4, #f472b6, #ec4899);
+  box-shadow: 0 0 12px rgba(236, 72, 153, 0.5);
+}
+/* cyberpunk: a squared charge slot, yellow with running hazard stripes and a cyan edge */
+[data-accent="cyberpunk"] .imp-track {
+  background: rgba(252, 238, 10, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(252, 238, 10, 0.4);
+}
+[data-accent="cyberpunk"] .imp-fill {
+  border-radius: 0;
+  background-color: #fcee0a;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(0, 0, 0, 0.28) 0 6px,
+    transparent 6px 12px
+  );
+  background-size: 17px 17px;
+  box-shadow:
+    0 0 12px rgba(252, 238, 10, 0.55),
+    inset -2px 0 0 #00e5ff;
+  animation: imp-stripes 0.6s linear infinite;
+}
+[data-accent="cyberpunk"] .imp-fill::after {
+  display: none;
+}
+[data-accent="cyberpunk"] .imp-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+@keyframes imp-stripes {
+  to { background-position: 17px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .imp-fill,
+  .imp-fill::after {
+    animation: none !important;
+  }
+}
+
+/* classic premium look: the unpicked platform tabs, the type / class chips and the
+   "…" tag chip. A faint brand wash with a tinted hairline and a lit top edge instead
+   of the flat grey zinc chip (same family as .glass-box). */
+html[data-classic-luxe="1"] .classic-chip {
+  border-color: color-mix(in srgb, var(--color-brand-300) 14%, rgba(255, 255, 255, 0.06));
+  background-color: rgba(255, 255, 255, 0.025);
+  background-image: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--color-brand-400) 7%, transparent),
+    transparent 60%,
+    color-mix(in srgb, var(--color-accent2-500) 4%, transparent)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 2px 10px -4px rgba(0, 0, 0, 0.5);
+  color: #d6d3d1;
+  backdrop-filter: blur(8px);
+}
+html[data-classic-luxe="1"] .classic-chip:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-brand-300) 38%, transparent);
+  background-color: color-mix(in srgb, var(--color-brand-500) 12%, transparent);
+}
+/* the picked platform tab: one flat brand tint with a crisp rim, no gradient or glow,
+   so it reads clearly against the quiet unpicked ones */
+html[data-classic-luxe="1"] .classic-chip-on {
+  color: #fff;
+  border-color: color-mix(in srgb, var(--color-brand-400) 60%, transparent);
+  background-color: color-mix(in srgb, var(--color-brand-500) 22%, rgba(255, 255, 255, 0.03));
+  background-image: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+/* its count badge: brand instead of zinc */
+html[data-classic-luxe="1"] .classic-chip-count {
+  background-color: color-mix(in srgb, var(--color-brand-500) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-brand-400) 30%, transparent);
+}
+
+/* classic animated background (ClassicGlintsFx): each glint fades in, rises a little
+   with a slight sideways drift and fades out again. Pale brand into white like the
+   still glints. */
+.classic-glint {
+  position: absolute;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-brand-100) 55%, #fff);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-brand-200) 70%, transparent);
+  opacity: 0;
+  will-change: transform, opacity;
+  animation-name: classic-glint-rise;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+.classic-glint--star {
+  border-radius: 0;
+  box-shadow: none;
+  background: linear-gradient(180deg, #fff, color-mix(in srgb, var(--color-brand-100) 70%, #fff));
+  clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%);
+}
+@keyframes classic-glint-rise {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scale(0.6);
+  }
+  18% {
+    opacity: var(--peak, 0.6);
+  }
+  60% {
+    opacity: var(--peak, 0.6);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--drift, 0px), var(--rise, -20vh), 0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .classic-glint {
+    animation: none;
+    opacity: calc(var(--peak, 0.6) * 0.7);
+  }
+}
+
+/* classic premium look: month cards. A brand-tinted rim and a soft colored lift on
+   hover like the creator cards, and the info box under the picture as smooth glass:
+   a faint brand wash from the left, a lit hairline as the seam to the picture. */
+html[data-classic-luxe="1"] .classic-month {
+  border-color: color-mix(in srgb, var(--color-brand-300) 22%, rgba(255, 255, 255, 0.07));
+  background-color: rgba(14, 13, 17, 0.72);
+  box-shadow: 0 14px 34px -20px rgba(0, 0, 0, 0.85);
+  transition:
+    box-shadow 0.3s ease,
+    border-color 0.3s ease;
+}
+html[data-classic-luxe="1"] .classic-month:hover {
+  border-color: color-mix(in srgb, var(--color-brand-300) 45%, transparent);
+  box-shadow: 0 18px 40px -18px color-mix(in srgb, var(--color-brand-500) 45%, transparent);
+}
+html[data-classic-luxe="1"] .classic-month-foot {
+  position: relative;
+  background-image:
+    linear-gradient(
+      100deg,
+      color-mix(in srgb, var(--color-brand-500) 12%, transparent),
+      transparent 70%
+    ),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.01));
+  backdrop-filter: blur(10px);
+}
+html[data-classic-luxe="1"] .classic-month-foot::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  pointer-events: none;
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-brand-300) 55%, transparent),
+    color-mix(in srgb, var(--color-accent2-400) 30%, transparent) 60%,
+    transparent
+  );
+}
+
+/* classic premium look: the month page's header box (Back / Edit total / Add rewards).
+   See-through glass, evenly in the theme's tint (no light spot), a lit top edge, and
+   the buttons inside it matched to it. */
+html[data-classic-luxe="1"] .classic-panel {
+  border-color: color-mix(in srgb, var(--color-brand-300) 24%, rgba(255, 255, 255, 0.08));
+  /* clear glass: a thin tint and no blur at all. Any blur turns the rising glints
+     behind it into soft blobs (a lens), so the "glass" comes from the lit edges. */
+  background-color: color-mix(in srgb, var(--color-brand-500) 7%, rgba(255, 255, 255, 0.02));
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: none;
+}
+/* primary (Add rewards): a smooth brand pill, brand into accent2, soft glow */
+html[data-classic-luxe="1"] .classic-panel .classic-btn--primary {
+  border-color: transparent;
+  background-color: transparent;
+  background-image: linear-gradient(
+    135deg,
+    var(--color-brand-500),
+    color-mix(in srgb, var(--color-brand-500) 55%, var(--color-accent2-500))
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 8px 22px -10px color-mix(in srgb, var(--color-brand-500) 75%, transparent);
+  transition:
+    filter 0.2s ease,
+    box-shadow 0.2s ease;
+}
+html[data-classic-luxe="1"] .classic-panel .classic-btn--primary:hover {
+  filter: brightness(1.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 10px 26px -10px color-mix(in srgb, var(--color-brand-500) 90%, transparent);
+}
+/* outline (Edit total, the grid's buttons): tinted glass with a brand rim */
+html[data-classic-luxe="1"] .classic-panel .classic-btn--outline,
+html[data-classic-luxe="1"] .classic-panel .classic-btn--secondary {
+  color: #f4f4f5;
+  border-color: color-mix(in srgb, var(--color-brand-300) 30%, transparent);
+  background-color: color-mix(in srgb, var(--color-brand-500) 10%, rgba(255, 255, 255, 0.03));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+html[data-classic-luxe="1"] .classic-panel .classic-btn--outline:hover:not(:disabled),
+html[data-classic-luxe="1"] .classic-panel .classic-btn--secondary:hover:not(:disabled) {
+  color: #fff;
+  border-color: color-mix(in srgb, var(--color-brand-300) 55%, transparent);
+  background-color: color-mix(in srgb, var(--color-brand-500) 20%, transparent);
+}
+/* ghost (Back): quiet until hovered, then the same tint */
+html[data-classic-luxe="1"] .classic-panel .classic-btn--ghost {
+  color: #e4e4e7;
+}
+html[data-classic-luxe="1"] .classic-panel .classic-btn--ghost:hover:not(:disabled) {
+  color: #fff;
+  background-color: color-mix(in srgb, var(--color-brand-500) 16%, transparent);
+}
+
+/* the "released" / images·videos chips in that box: no grey fill, just a thin
+   brand rim */
+html[data-classic-luxe="1"] .classic-panel .classic-info {
+  background-color: transparent;
+  color: #e4e4e7;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-brand-300) 28%, transparent);
+}

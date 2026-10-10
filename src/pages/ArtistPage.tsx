@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ChevronLeft, Plus, PanelRight, BadgeCheck, ClipboardList, Trash2, Coffee, CopyCheck, RefreshCw, Star, Heart, Images, Calendar, CalendarOff, Check, FolderPlus, Hash, HardDrive, DatabaseBackup, BellOff } from "lucide-react";
 import { SakuraBlossomIcon } from "@/lib/classIcons";
-import { Layout } from "@/components/Layout";
+import { Layout, scrollPageToTop } from "@/components/Layout";
 import { MonthCard } from "@/components/MonthCard";
 import { RewardGrid } from "@/components/RewardGrid";
 import { CardShapeButton } from "@/components/CardShapeButton";
@@ -848,7 +848,14 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
           {platform && (
             <>
               <span className={irid ? "text-zinc-300" : "text-zinc-600"}>/</span>
-              <span className="truncate font-medium text-zinc-100">{platform.name}</span>
+              {/* click: back to the top of this platform */}
+              <button
+                onClick={scrollPageToTop}
+                title={t("Back to the top")}
+                className="truncate font-medium text-zinc-100 transition-colors hover:text-brand-300"
+              >
+                {platform.name}
+              </button>
             </>
           )}
         </span>
@@ -900,7 +907,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                 onContextMenu={classMenu}
                 className={cn(
                   "ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full border",
-                  irid ? "border-white/25 bg-white/10" : "border-zinc-700 bg-zinc-900",
+                  irid ? "border-white/25 bg-white/10" : "classic-chip border-zinc-700 bg-zinc-900",
                 )}
                 title={tf("Class: {label} — {desc} · right-click to remove", {
                   label: t(cl.label),
@@ -919,7 +926,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
               onContextMenu={(e) => kindMenu(e, ct.key)}
               className={cn(
                 "ml-2 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs text-zinc-300",
-                irid ? "border-white/25 bg-white/10" : "border-zinc-700 bg-zinc-900",
+                irid ? "border-white/25 bg-white/10" : "classic-chip border-zinc-700 bg-zinc-900",
               )}
               title={tf("Creator type: {label} · right-click to remove", { label: t(ct.label) })}
             >
@@ -954,7 +961,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                   {rest.length > 0 && (
                     <span className="group relative inline-flex">
                       <span
-                        className="cursor-default rounded-full border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300"
+                        className="classic-chip cursor-default rounded-full border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300"
                         // the list below is the hint, no title on top of it
                         aria-label={tp("{n} more", rest.length)}
                       >
@@ -1044,14 +1051,14 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                   active
                     ? irid
                       ? "pick-on text-white"
-                      : "border-brand-500/50 bg-brand-500/15 text-brand-200"
+                      : "classic-chip-on border-brand-500/50 bg-brand-500/15 text-brand-200"
                     : irid
                       ? "border-white/20 bg-white/10 text-zinc-200 hover:bg-white/20"
                       : // The unpicked sakura tab: frosted rose glass with a lit top
                         // edge, instead of the grey zinc chip every other accent uses.
                         sakura
                         ? "sak-chip"
-                        : "border-zinc-800 bg-zinc-900 text-zinc-300 micoll-hover",
+                        : "classic-chip border-zinc-800 bg-zinc-900 text-zinc-300 micoll-hover",
                 )}
               >
                 {p.name}
@@ -1064,6 +1071,8 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                     irid && "!bg-white/15 !ring-white/30",
                     // no zinc chip on a rose tab
                     sakura && !active && "!bg-[#f9a8d4]/20 !ring-[#f9a8d4]/35",
+                    // classic premium look: a brand count instead of the zinc one (index.css)
+                    !active && "classic-chip-count",
                   )}
                 >
                   {s.tracked ? `${s.ownedRewards}/${s.totalRewards}` : s.ownedRewards}

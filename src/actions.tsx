@@ -20,6 +20,7 @@ import { ProgressModal } from "@/components/ProgressModal";
 import { DeleteDialog } from "@/components/DeleteDialog";
 import { MoveNoticeDialog } from "@/components/MoveNoticeDialog";
 import { ImportReviewTree } from "@/components/ImportReviewTree";
+import type { ImportStep } from "@/components/ImportProgress";
 import { ConflictDialog } from "@/components/ConflictDialog";
 import { Toaster, type ToastData } from "@/components/Toast";
 import { fmtBytes } from "@/components/RewardDetails";
@@ -153,6 +154,8 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [del, setDel] = useState<DeleteRequest | null>(null);
   const [busy, setBusy] = useState(false);
+  // the running import's step, for the loading bar under the review
+  const [importProgress, setImportProgress] = useState<{ steps: ImportStep[]; step: ImportStep } | null>(null);
   const [toasts, setToasts] = useState<ToastData[]>([]);
   const toastSeq = useRef(0);
 
@@ -863,6 +866,19 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
     opts: { styles: api.StyleChoice[]; keepArchive?: boolean },
   ) => {
     setBusy(true);
+    // the steps for the loading bar under the review (encrypting only when it's on)
+    const encrypting = await api
+      .encryptionState()
+      .then((s) => s.enabled)
+      .catch(() => false);
+    const steps: ImportStep[] = [
+      "commit",
+      ...(importManaged ? (["organize"] as const) : []),
+      ...(encrypting ? (["encrypt"] as const) : []),
+      "refresh",
+    ];
+    const at = (step: ImportStep) => setImportProgress({ steps, step });
+    at("commit");
     // the dropped archive goes to the Recycle Bin only when every file landed: any
     // organize problem keeps it (its files might still be in the temp unpack folder)
     let archiveSafe = !opts.keepArchive;
@@ -870,6 +886,7 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       await api.commitImport(rewards, importSource, opts.styles);
       if (importManaged) {
         // managed mode: move the new content into the collection and remove the old folder
+        at("organize");
         const org = await api.organizeCollection();
         await api.clearRoots();
         // show organize problems (e.g. leftover duplicates) instead of ignoring them
@@ -899,13 +916,20 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       // remove the temp staging copy (backend refuses if it's a real folder)
       await api.discardStaging(importSource).catch(() => {});
       // encrypt the new files if encryption is on
-      try {
-        if ((await api.encryptionState()).enabled) await api.encryptCollection();
-      } catch {
-        /* if encrypting fails keep the files unencrypted, don't fail the import */
+      if (encrypting) {
+        at("encrypt");
+        try {
+          await api.encryptCollection();
+        } catch {
+          /* if encrypting fails keep the files unencrypted, don't fail the import */
+        }
       }
-      setImportPlan(null);
+      // the review stays open (with the bar) until the library shows the new rewards
+      at("refresh");
       await refresh();
+      at("done");
+      await new Promise((r) => window.setTimeout(r, 350));
+      setImportPlan(null);
       // the creator overview scrolls to the creators that got rewards and lights them up
       window.dispatchEvent(
         new CustomEvent<string[]>(IMPORTED_ARTISTS_EVENT, {
@@ -922,6 +946,7 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
     } finally {
       looseDropped.current = [];
       setBusy(false);
+      setImportProgress(null);
     }
   };
 
@@ -1059,6 +1084,7 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
           defaultMonth={defMonth}
           defaultNumber={defNumber}
           onConfirm={(rewards, opts) => void doImport(rewards, opts)}
+          progress={importProgress}
           onCancel={() => {
             // nothing was imported, remove the staged copy
             void api.discardStaging(importSource).catch(() => {});

@@ -45,7 +45,7 @@ export function MonthDetailPage({ onLock }: { onLock: () => void }) {
           "rounded-none border border-[#fcee0a]/45 bg-zinc-950/75 ring-1 ring-inset ring-[#00e5ff]/10 shadow-[0_0_24px_rgba(252,238,10,0.10)] [clip-path:polygon(0_0,100%_0,100%_calc(100%-16px),calc(100%-16px)_100%,0_100%)]"
         : accent === "sakura"
           ? "sak-card rounded-2xl"
-          : "rounded-2xl border border-zinc-800 bg-zinc-900/60";
+          : "classic-panel rounded-2xl border border-zinc-800 bg-zinc-900/60";
 
   // iridescent "Add rewards": same iri-lead rim as Create Card (index.css)
   const iriLeadBtn = irid ? "iri-lead rounded-lg" : undefined;
@@ -69,7 +69,8 @@ export function MonthDetailPage({ onLock }: { onLock: () => void }) {
         ? "bg-[#1b1016]/70 text-zinc-100 ring-1 ring-inset ring-[#f9a8d4]/30"
         : accent === "cyberpunk"
           ? "rounded-none bg-zinc-950/70 text-[#00e5ff] ring-1 ring-inset ring-[#00e5ff]/40"
-          : undefined;
+          : // hook for the classic "Premium look" (index.css), inert without it
+            "classic-info";
 
   const artist = findArtist(artistId);
   const located = useMemo(() => {

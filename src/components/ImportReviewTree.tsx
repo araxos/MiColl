@@ -31,6 +31,7 @@ import { usePlatformOptions, addPlatform as registerPlatform } from "@/lib/platf
 import { useData } from "@/store";
 import { useActions } from "@/actions";
 import { useAccent } from "@/lib/theme";
+import { ImportProgress, type ImportStep } from "@/components/ImportProgress";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { useStripCreator, stripHandles } from "@/lib/stripCreator";
 import { cn } from "@/lib/utils";
@@ -213,9 +214,12 @@ export function ImportReviewTree({
   defaultNumber,
   onConfirm,
   onCancel,
+  progress,
 }: {
   plan: ImportPlan;
   busy: boolean;
+  /** While the import runs: its steps and the current one (loading bar under the panel). */
+  progress?: { steps: ImportStep[]; step: ImportStep } | null;
   /** If set, everything goes to this artist and the name can't be changed. */
   lockedArtist?: string;
   /** The dropped/picked folder. Enables "one reward" + Quick import. */
@@ -1019,7 +1023,7 @@ export function ImportReviewTree({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/60 p-4 backdrop-blur-sm">
         {/* drag strip, the overlay covers the header */}
         <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-14" />
         <motion.div
@@ -1027,7 +1031,9 @@ export function ImportReviewTree({
           initial={{ opacity: 0, y: 12, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           className={cn(
-            "import-review flex max-h-[90vh] w-[46rem] max-w-full flex-col overflow-hidden shadow-2xl",
+            "import-review flex w-[46rem] max-w-full flex-col overflow-hidden shadow-2xl",
+            // room for the loading bar below while importing
+            progress ? "max-h-[calc(90vh-5rem)]" : "max-h-[90vh]",
             panelClass,
           )}
         >
@@ -1610,6 +1616,7 @@ export function ImportReviewTree({
             </Button>
           </div>
         </motion.div>
+        {progress && <ImportProgress steps={progress.steps} step={progress.step} />}
       </div>
 
       {/* quick-import warning (can be hidden forever) */}

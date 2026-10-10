@@ -66,7 +66,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         className={cn(
           "inline-flex items-center justify-center rounded-lg font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:opacity-50 disabled:pointer-events-none",
-          themed ?? variants[variant],
+          // standard accents: a hook per variant for the classic "Premium look" (only
+          // styled inside a .classic-panel, see index.css)
+          themed ?? cn(variants[variant], `classic-btn classic-btn--${variant}`),
           sizes[size],
           className,
         )}

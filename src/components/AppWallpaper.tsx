@@ -17,6 +17,7 @@ import { SakuraStill } from "@/components/SakuraStill";
 import { CyberpunkFx } from "@/components/CyberpunkFx";
 import { CyberpunkStill } from "@/components/CyberpunkStill";
 import { IridescentFx } from "@/components/IridescentFx";
+import { ClassicGlintsFx } from "@/components/ClassicGlintsFx";
 
 /**
  * The app background, mounted ONCE in App (not per page), so the WebGL effects
@@ -92,7 +93,8 @@ export function AppWallpaper() {
       {luxe && !custom && (
         <>
           <div className="classic-luxe-bg absolute inset-0" />
-          <div className="classic-luxe-glints absolute inset-0" />
+          {/* animated background on: the glints rise and fade instead of standing still */}
+          {animated ? <ClassicGlintsFx /> : <div className="classic-luxe-glints absolute inset-0" />}
         </>
       )}
       {/* static iridescent wallpaper when animation is off */}
