@@ -38,6 +38,8 @@ image = { version = "0.25", default-features = false, features = [
     "gif",
     "bmp",
 ] }
+# JPEGs straight at 1/2, 1/4 or 1/8 size for thumbnails and previews (thumbs.rs)
+jpeg-decoder = { version = "0.3", default-features = false }
 sha2 = "0.10"
 zip = { version = "2", default-features = false, features = ["deflate", "bzip2", "deflate64", "lzma"] }
 unrar = "0.5"

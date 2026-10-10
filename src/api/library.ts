@@ -1193,6 +1193,8 @@ export interface HistoryItem {
   was?: string;
   from?: string;
   to?: string;
+  /** The reward / image / creator id (renames, moves, imports). */
+  id?: number;
 }
 
 /** One row of the activity history (history.rs Row). */
@@ -1200,7 +1202,7 @@ export interface HistoryRow {
   id: number;
   /** UTC "YYYY-MM-DD HH:MM:SS" */
   at: string;
-  action: "delete" | "move" | "rename" | "merge" | "trash";
+  action: "delete" | "move" | "rename" | "merge" | "trash" | "import";
   kind: string;
   artist: string | null;
   place: string | null;
@@ -1230,6 +1232,15 @@ export interface UndoDone {
  */
 export async function undoHistory(id?: number): Promise<UndoDone> {
   return invoke<UndoDone>("undo_history", { id: id ?? null });
+}
+
+/** Where a reward lives now (for the history's links), null if it's gone or the id now
+ *  belongs to a reward with another name (ids get reused). */
+export async function locateReward(
+  id: number,
+  name?: string,
+): Promise<{ artistId: number; periodId: number } | null> {
+  return invoke<{ artistId: number; periodId: number } | null>("locate_reward", { id, name: name ?? null });
 }
 
 /** The activity history, newest first. before = the last id of the previous page. */

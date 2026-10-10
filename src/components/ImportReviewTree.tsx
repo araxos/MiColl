@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   X,
   FolderInput,
@@ -1023,7 +1023,7 @@ export function ImportReviewTree({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/60 p-4 backdrop-blur-sm">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
         {/* drag strip, the overlay covers the header */}
         <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-14" />
         <motion.div
@@ -1031,9 +1031,7 @@ export function ImportReviewTree({
           initial={{ opacity: 0, y: 12, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           className={cn(
-            "import-review flex w-[46rem] max-w-full flex-col overflow-hidden shadow-2xl",
-            // room for the loading bar below while importing
-            progress ? "max-h-[calc(90vh-5rem)]" : "max-h-[90vh]",
+            "import-review flex max-h-[90vh] w-[46rem] max-w-full flex-col overflow-hidden shadow-2xl",
             panelClass,
           )}
         >
@@ -1615,8 +1613,11 @@ export function ImportReviewTree({
               {busy ? t("Importing…") : tf("Import {n}", { n: outCount })}
             </Button>
           </div>
+          {/* while importing the panel grows a loading bar at the bottom */}
+          <AnimatePresence initial={false}>
+            {progress && <ImportProgress steps={progress.steps} step={progress.step} />}
+          </AnimatePresence>
         </motion.div>
-        {progress && <ImportProgress steps={progress.steps} step={progress.step} />}
       </div>
 
       {/* quick-import warning (can be hidden forever) */}

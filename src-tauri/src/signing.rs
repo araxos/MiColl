@@ -14,7 +14,7 @@
 //! deliberate trade-off (no DRM, no server, no phoning home).
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -132,10 +132,6 @@ impl SignedEnvelope {
         })?;
         String::from_utf8(payload)
             .map_err(|_| "This signed template file is broken (payload isn't UTF-8).".into())
-    }
-
-    pub fn verify(&self) -> Result<String, String> {
-        self.verify_with(OFFICIAL_KEYS)
     }
 }
 

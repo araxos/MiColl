@@ -809,7 +809,9 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
             ? tf("Renamed back: {names}", { names })
             : done.action === "delete"
               ? tf("Restored: {names}", { names })
-              : tf("Moved back: {names}", { names }),
+              : done.action === "import"
+                ? tf("Import undone: {names}", { names })
+                : tf("Moved back: {names}", { names }),
       });
       return true;
     } catch (e) {

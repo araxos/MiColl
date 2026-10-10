@@ -1604,13 +1604,6 @@ pub fn relink_prefix(conn: &Connection, old_prefix: &str, new_prefix: &str) -> r
     Ok(images as u32)
 }
 
-/// All images (id, file_path), for the health scan / prune.
-pub fn all_image_id_paths(conn: &Connection) -> rusqlite::Result<Vec<(i64, String)>> {
-    let mut stmt = conn.prepare("SELECT id, file_path FROM images")?;
-    let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
-    rows.collect()
-}
-
 /// All media files of one creator's OWN rewards (no borrowed collabs, their files
 /// belong to the owner, otherwise the size would count twice).
 pub fn artist_own_image_paths(conn: &Connection, artist_id: i64) -> rusqlite::Result<Vec<String>> {

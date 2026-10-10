@@ -20,7 +20,8 @@ const WEIGHT: Record<Exclude<ImportStep, "done">, number> = {
  * Loading bar under the import review while an import runs. The backend doesn't report
  * per file, so it shows the real steps: each one owns a stretch of the bar, the fill
  * creeps through that stretch (slowing down, never past it) and jumps on when the step
- * is done. Styled per theme in index.css (.imp-*).
+ * is done. A strip at the bottom of the review panel (it grows open), styled per theme
+ * in index.css (.imp-*).
  */
 export function ImportProgress({ steps, step }: { steps: ImportStep[]; step: ImportStep }) {
   const t = useT();
@@ -72,21 +73,25 @@ export function ImportProgress({ steps, step }: { steps: ImportStep[]; step: Imp
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: -6 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={cn("imp-card w-[46rem] max-w-full px-4 py-3", dlg.panel)}
+      initial={{ height: 0, opacity: 0 }}
+      animate={{ height: "auto", opacity: 1 }}
+      exit={{ height: 0, opacity: 0 }}
+      transition={{ duration: 0.22, ease: "easeOut" }}
+      className={cn("imp-card shrink-0 overflow-hidden border-t", dlg.divider)}
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(pct)}
       aria-label={label}
     >
+      <div className="px-5 pb-4 pt-3">
       <div className="mb-2 flex items-center justify-between gap-3 text-xs">
         <span className={cn("imp-label font-medium", dlg.accentText)}>{label}</span>
         <span className="tabular-nums text-zinc-400">{Math.round(pct)}%</span>
       </div>
       <div className={cn("imp-track h-2 overflow-hidden", accent === "cyberpunk" ? "rounded-none" : "rounded-full")}>
         <div className="imp-fill h-full" style={{ width: `${pct}%` }} />
+      </div>
       </div>
     </motion.div>
   );

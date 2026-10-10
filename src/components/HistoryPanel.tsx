@@ -11,6 +11,7 @@ import {
   Combine,
   MoveRight,
   Undo2,
+  FolderInput,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -20,11 +21,11 @@ import { cn } from "@/lib/utils";
 import { resolveLanguage, useLanguage, useT, useTf, useTp } from "@/lib/i18n";
 import * as api from "@/api/library";
 import { HISTORY_CHANGED_EVENT, useActions } from "@/actions";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 const PAGE = 100;
 
-type Filter = "all" | "delete" | "move" | "rename" | "trash";
+type Filter = "all" | "import" | "delete" | "move" | "rename" | "trash";
 
 /** UTC "YYYY-MM-DD HH:MM:SS" from SQLite -> Date. */
 const parseAt = (at: string) => new Date(at.replace(" ", "T") + "Z");
@@ -69,6 +70,7 @@ export function HistoryPanel({ backed }: { backed: boolean }) {
   const [askClear, setAskClear] = useState(false);
   const { undoHistory } = useActions();
   const [undoing, setUndoing] = useState<number | null>(null);
+  const openReward = useOpenReward();
 
   const load = useCallback(
     async (before?: number) => {
@@ -173,6 +175,7 @@ export function HistoryPanel({ backed }: { backed: boolean }) {
         <>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             {chip("all", t("All"))}
+            {chip("import", t("Imported"))}
             {chip("delete", t("Deleted"))}
             {chip("move", t("Moved"))}
             {chip("rename", t("Renamed"))}
@@ -268,7 +271,13 @@ export function HistoryPanel({ backed }: { backed: boolean }) {
                           {isOpen && (
                             <ul className="space-y-1 border-t border-white/5 px-3 py-2">
                               {r.items.map((it, i) => (
-                                <HistoryItem key={i} item={it} reveal={r.files !== "trash" && r.action !== "trash"} />
+                                <HistoryItem
+                                  key={i}
+                                  item={it}
+                                  // an import's "from" is where it came from, not where it is now
+                                  reveal={r.files !== "trash" && r.action !== "trash" && r.action !== "import"}
+                                  onOpen={rewardLink(r) && it.id != null ? () => openReward(it.id!, it.name) : undefined}
+                                />
                               ))}
                               {r.count > r.items.length && (
                                 <li className="text-xs text-zinc-500">
@@ -330,7 +339,9 @@ export function useHistoryText() {
   const verb = (r: api.HistoryRow) =>
     r.action === "delete"
       ? t("Deleted")
-      : r.action === "move"
+      : r.action === "import"
+        ? t("Imported")
+        : r.action === "move"
         ? t("Moved")
         : r.action === "rename"
           ? t("Renamed")
@@ -338,7 +349,9 @@ export function useHistoryText() {
             ? t("Merged")
             : t("To the Recycle Bin");
   const Icon = (r: api.HistoryRow) =>
-    r.action === "delete" || r.action === "trash"
+    r.action === "import"
+      ? FolderInput
+      : r.action === "delete" || r.action === "trash"
       ? Trash2
       : r.action === "rename"
         ? PenLine
@@ -401,8 +414,42 @@ export function useHistoryText() {
   return { verb, Icon, what, where, filesNote, childLabel };
 }
 
+/** Entries whose items are rewards that still exist, so their names can link to them. */
+export function rewardLink(r: api.HistoryRow): boolean {
+  if (r.kind !== "reward") return false;
+  if (r.action === "import") return !r.undone;
+  return r.action === "rename" || r.action === "move";
+}
+
+/** Opens a reward's page (its creator's period) from the history. */
+export function useOpenReward() {
+  const navigate = useNavigate();
+  const t = useT();
+  const { showToast } = useActions();
+  return useCallback(
+    async (id: number, name?: string) => {
+      const at = await api.locateReward(id, name).catch(() => null);
+      if (!at) {
+        showToast({ tone: "warn", title: t("This reward isn’t in your library anymore.") });
+        return;
+      }
+      navigate(`/artist/${at.artistId}/month/${at.periodId}`);
+    },
+    [navigate, showToast, t],
+  );
+}
+
 /** One file/folder of an entry: its name, the old name, old → new path. */
-function HistoryItem({ item, reveal }: { item: api.HistoryItem; reveal: boolean }) {
+function HistoryItem({
+  item,
+  reveal,
+  onOpen,
+}: {
+  item: api.HistoryItem;
+  reveal: boolean;
+  /** a reward that still exists: the name opens its page */
+  onOpen?: () => void;
+}) {
   const t = useT();
   const tf = useTf();
   // the place it is now: the new path, or (files kept) where it always was
@@ -411,7 +458,17 @@ function HistoryItem({ item, reveal }: { item: api.HistoryItem; reveal: boolean 
     <li className="text-xs">
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 break-words font-medium text-zinc-200">
-          {item.name}
+          {onOpen ? (
+            <button
+              onClick={onOpen}
+              title={t("Open reward")}
+              className="text-left underline decoration-white/25 underline-offset-2 transition-colors hover:text-brand-300 hover:decoration-current"
+            >
+              {item.name}
+            </button>
+          ) : (
+            item.name
+          )}
           {item.was && item.was !== item.name && (
             <span className="ml-1.5 font-normal text-zinc-500">{tf("(was “{name}”)", { name: item.was })}</span>
           )}

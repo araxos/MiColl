@@ -4377,6 +4377,12 @@ fn commit_import(
     open_as_cards: Option<bool>,
 ) -> Result<ScanSummary, String> {
     let conn = db.lock().map_err(map_err)?;
+    // creators this import makes new (undoing it removes them again when left empty)
+    let new_artists: std::collections::HashSet<String> = rewards
+        .iter()
+        .filter(|r| db::artist_id_by_name(&conn, &r.artist).ok().flatten().is_none())
+        .map(|r| r.artist.clone())
+        .collect();
     let summary = indexer::commit(&conn, &rewards, open_as_cards).map_err(map_err)?;
     // an import is on purpose, so everything gets the "new" badge (also known folders)
     let folders: Vec<String> = rewards.iter().map(|r| r.folder.clone()).collect();
@@ -4411,6 +4417,44 @@ fn commit_import(
     // would show as missing in health). Asset access is granted either way.
     if staging_dir_of(&source).is_none() {
         let _ = db::add_root(&conn, &source, None, None);
+    }
+    // the history: what came in, with the ids for undo and for jumping to a reward
+    {
+        use rusqlite::OptionalExtension;
+        let mut items = Vec::new();
+        for r in &rewards {
+            let id: Option<i64> = conn
+                .query_row("SELECT id FROM rewards WHERE folder_path = ?1", rusqlite::params![r.folder], |x| x.get(0))
+                .optional()
+                .ok()
+                .flatten();
+            let Some(id) = id else { continue };
+            let made = if new_artists.contains(&r.artist) {
+                db::artist_id_by_name(&conn, &r.artist).ok().flatten()
+            } else {
+                None
+            };
+            items.push(history::Item {
+                name: r.title.clone(),
+                from: Some(r.folder.clone()),
+                id: Some(id),
+                into: made,
+                ..Default::default()
+            });
+        }
+        let first = rewards.first().map(|r| r.artist.clone());
+        let one_artist = first.filter(|a| rewards.iter().all(|r| &r.artist == a));
+        history::log(
+            &conn,
+            history::Entry {
+                action: "import",
+                kind: "reward",
+                artist: one_artist,
+                place: None,
+                files: history::Files::None,
+                items,
+            },
+        );
     }
     // committed: this folder is library content now
     forget_staged(std::path::Path::new(&source));
@@ -4909,7 +4953,6 @@ async fn delete_rewards(
 /// Delete an artist, optionally trashing its folders. Also for empty artists.
 #[tauri::command]
 async fn delete_artist(
-    app: AppHandle,
     db: State<'_, Db>,
     artist_id: i64,
     also_files: bool,
@@ -5394,7 +5437,13 @@ fn same_path(a: &str, b: &str) -> bool {
 /// touched. Errors are codes the UI words: undo:nothing, undo:already,
 /// undo:not-yet:<action>, undo:changed:<name>, undo:taken:<path>.
 #[tauri::command]
-fn undo_history(app: AppHandle, db: State<Db>, id: Option<i64>) -> Result<UndoDone, String> {
+fn undo_history(
+    app: AppHandle,
+    db: State<Db>,
+    dek: State<DekState>,
+    id: Option<i64>,
+) -> Result<UndoDone, String> {
+    let key = session_key(&dek);
     let conn = db.lock().map_err(map_err)?;
     let row = match id {
         Some(id) => history::get(&conn, id),
@@ -5545,11 +5594,187 @@ fn undo_history(app: AppHandle, db: State<Db>, id: Option<i64>) -> Result<UndoDo
         ("delete", _) => {
             undo_delete(&app, &conn, &row)?;
         }
+        ("import", "reward") => {
+            undo_import(&app, &conn, &row, key)?;
+        }
         _ => return Err(format!("undo:not-yet:{}", row.action)),
     }
     history::mark_undone(&conn, row.id);
     db::checkpoint(&conn);
     Ok(UndoDone { action: row.action, kind: row.kind, names })
+}
+
+/// What undoing an import does with one reward's files.
+enum ImportBack {
+    /// Already where they came from (no managed collection) or gone: only MiColl forgets it.
+    Stay,
+    /// Back to the folder it was imported from.
+    Move(std::path::PathBuf),
+    /// That folder is gone (an unpacked archive, a staging copy): to the Recycle Bin.
+    Trash,
+}
+
+/// Undo an import: the rewards leave MiColl, their files go back to where they were
+/// imported from (decrypted if encryption is on), or to the Recycle Bin when that place
+/// is gone. Creators the import made are removed again if nothing is left in them.
+/// Everything is checked first; a reward with another reward inside its folder, or
+/// something new at the old place, stops it before anything moves.
+fn undo_import(
+    app: &AppHandle,
+    conn: &rusqlite::Connection,
+    row: &history::Row,
+    key: Option<[u8; 32]>,
+) -> Result<(), String> {
+    use std::path::{Path, PathBuf};
+    let changed = |n: &str| format!("undo:changed:{n}");
+    let taken = |p: &str| format!("undo:taken:{p}");
+    let ids: Vec<i64> = row.items.iter().filter_map(|i| i.id).collect();
+    let mut plans: Vec<(i64, PathBuf, ImportBack)> = Vec::new();
+    for it in &row.items {
+        let id = it.id.unwrap_or_default();
+        let (_, folder, _) = db::reward_scope(conn, id).map_err(map_err)?.ok_or_else(|| changed(&it.name))?;
+        let from = it.from.clone().unwrap_or_default();
+        let now = PathBuf::from(&folder);
+        // another reward (not from this import) in or under this folder would come along
+        let prefix = format!("{}{}", folder.trim_end_matches(['\\', '/']), std::path::MAIN_SEPARATOR);
+        let others: i64 = conn
+            .query_row(
+                &format!(
+                    "SELECT COUNT(*) FROM rewards WHERE id NOT IN ({}) AND (folder_path = ?1 OR substr(folder_path, 1, length(?2)) = ?2)",
+                    ids_sql(&ids)
+                ),
+                rusqlite::params![folder, prefix],
+                |r| r.get(0),
+            )
+            .map_err(map_err)?;
+        if others > 0 {
+            return Err(changed(&it.name));
+        }
+        let back = if same_path(&folder, &from) || !now.exists() {
+            ImportBack::Stay
+        } else if Path::new(&from).exists() {
+            return Err(taken(&from));
+        } else if Path::new(&from).parent().is_some_and(|p| p.is_dir()) {
+            ImportBack::Move(PathBuf::from(&from))
+        } else {
+            ImportBack::Trash
+        };
+        plans.push((id, now, back));
+    }
+    // a folder inside one that moves comes along with it
+    let moving: Vec<PathBuf> = plans
+        .iter()
+        .filter(|(_, _, b)| !matches!(b, ImportBack::Stay))
+        .map(|(_, p, _)| p.clone())
+        .collect();
+    for (id, now, back) in &plans {
+        let inside = moving.iter().any(|m| m != now && now.starts_with(m));
+        if !inside {
+            match back {
+                ImportBack::Stay => {}
+                ImportBack::Move(dest) => {
+                    move_back_out(now, dest, key)?;
+                    if let Some(parent) = dest.parent() {
+                        allow_asset_dir(app, &parent.to_string_lossy());
+                    }
+                }
+                ImportBack::Trash => {
+                    recycle(now).map_err(|e| format!("undo:restore:{e}"))?;
+                }
+            }
+        }
+        // each reward leaves MiColl right after its files, so a failure halfway
+        // never leaves a row pointing at a folder that's gone
+        db::delete_rewards(conn, &[*id]).map_err(map_err)?;
+    }
+    let made: std::collections::HashSet<i64> = row.items.iter().filter_map(|i| i.into).collect();
+    for artist_id in made {
+        let left: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM rewards r JOIN periods p ON r.period_id = p.id WHERE p.artist_id = ?1",
+                rusqlite::params![artist_id],
+                |r| r.get(0),
+            )
+            .map_err(map_err)?;
+        if left == 0 {
+            db::delete_artist(conn, artist_id).map_err(map_err)?;
+        }
+    }
+    Ok(())
+}
+
+/// Move a reward folder out of the collection (import undo). Plain files: the checked
+/// move_tree. Encrypted ones are written back decrypted, every file checked, and the
+/// collection copy only goes when all of them arrived.
+fn move_back_out(src: &std::path::Path, dest: &std::path::Path, key: Option<[u8; 32]>) -> Result<(), String> {
+    let files: Vec<std::path::PathBuf> = walkdir::WalkDir::new(src)
+        .follow_links(false)
+        .into_iter()
+        .flatten()
+        .filter(|e| e.file_type().is_file())
+        .map(|e| e.path().to_path_buf())
+        .collect();
+    let encrypted = files.iter().any(|f| crypto::file_is_encrypted(f));
+    if !encrypted {
+        return move_tree(src, dest).map_err(map_err);
+    }
+    let mut written: Vec<std::path::PathBuf> = Vec::new();
+    for f in &files {
+        let rel = f.strip_prefix(src).map_err(map_err)?;
+        let out = dest.join(rel);
+        let res = (|| -> Result<(), String> {
+            if out.exists() {
+                return Err(format!("undo:taken:{}", out.display()));
+            }
+            if let Some(p) = out.parent() {
+                std::fs::create_dir_all(p).map_err(map_err)?;
+            }
+            let data = read_decrypted(f, key)?;
+            std::fs::write(&out, &data).map_err(map_err)?;
+            let ok = std::fs::metadata(&out).map(|m| m.len() == data.len() as u64).unwrap_or(false);
+            if !ok {
+                return Err(format!("undo:restore:short copy of {}", out.display()));
+            }
+            Ok(())
+        })();
+        if let Err(e) = res {
+            // take back what was written, the collection copy stays untouched
+            for w in &written {
+                let _ = std::fs::remove_file(w);
+            }
+            return Err(e);
+        }
+        written.push(out);
+    }
+    std::fs::remove_dir_all(src).map_err(map_err)
+}
+
+/// Where a reward lives now (creator + period), for the history's links. None if it's
+/// gone, or if `name` is given and the reward with that id has another title (ids of
+/// deleted rewards get reused, the link must not open a different reward).
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RewardPlace {
+    artist_id: i64,
+    period_id: i64,
+}
+
+#[tauri::command]
+fn locate_reward(db: State<Db>, id: i64, name: Option<String>) -> Result<Option<RewardPlace>, String> {
+    use rusqlite::OptionalExtension;
+    let conn = db.lock().map_err(map_err)?;
+    let found: Option<(String, RewardPlace)> = conn
+        .query_row(
+            "SELECT r.title, p.artist_id, r.period_id FROM rewards r JOIN periods p ON r.period_id = p.id WHERE r.id = ?1",
+            rusqlite::params![id],
+            |r| Ok((r.get(0)?, RewardPlace { artist_id: r.get(1)?, period_id: r.get(2)? })),
+        )
+        .optional()
+        .map_err(map_err)?;
+    Ok(found.and_then(|(title, place)| match &name {
+        Some(n) if *n != title => None,
+        _ => Some(place),
+    }))
 }
 
 /// The activity history, newest first (`before` = an id for the next page).
@@ -9957,6 +10182,7 @@ pub fn run() {
             list_history,
             clear_history,
             undo_history,
+            locate_reward,
             set_close_to_tray,
             take_launch_action,
             is_portable,

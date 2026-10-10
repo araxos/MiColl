@@ -153,6 +153,93 @@ pub fn worth_a_preview(w: u32, h: u32) -> bool {
     w.max(h) > 3000 && u64::from(w) * u64::from(h) > 6_000_000
 }
 
+/// The viewer's preview size (previewUrl in tauri.ts asks for this edge).
+const PREVIEW_EDGE: u32 = 2560;
+
+/// The viewer's cached preview of `src`, if there is one. Thumbnails live in
+/// <cache>/thumbs and previews in <cache>/previews, same file names.
+fn cached_preview(cache_dir: &Path, src: &str, mtime: u64, key: Option<[u8; 32]>) -> Option<Vec<u8>> {
+    if cache_dir.file_name()? != "thumbs" {
+        return None;
+    }
+    let file = cache_dir.parent()?.join("previews").join(cache_key(src, mtime, PREVIEW_EDGE));
+    let bytes = std::fs::read(file).ok()?;
+    if crypto::is_encrypted(&bytes) {
+        crypto::Dek::from_bytes(key?).decrypt_bytes(&bytes).ok()
+    } else {
+        Some(bytes)
+    }
+}
+
+/// A JPEG decoded straight at the smallest of 1/1, 1/2, 1/4, 1/8 whose long side is still
+/// at least `size` (the decoder skips the detail that would be averaged away anyway):
+/// a 128 px thumbnail of a 6000×9000 picture only computes 1/64 of the pixels. None for
+/// anything else (not a JPEG, CMYK, 16 bit), the normal decoder takes those.
+fn decode_jpeg_at_least(bytes: &[u8], size: u32) -> Option<image::DynamicImage> {
+    if !bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return None;
+    }
+    let mut dec = jpeg_decoder::Decoder::new(std::io::Cursor::new(bytes));
+    dec.read_info().ok()?;
+    let want = size.clamp(1, u32::from(u16::MAX)) as u16;
+    dec.scale(want, want).ok()?;
+    let pixels = dec.decode().ok()?;
+    let info = dec.info()?;
+    let (w, h) = (u32::from(info.width), u32::from(info.height));
+    match info.pixel_format {
+        jpeg_decoder::PixelFormat::RGB24 => {
+            image::RgbImage::from_raw(w, h, pixels).map(image::DynamicImage::ImageRgb8)
+        }
+        jpeg_decoder::PixelFormat::L8 => {
+            image::GrayImage::from_raw(w, h, pixels).map(image::DynamicImage::ImageLuma8)
+        }
+        _ => None,
+    }
+}
+
+/// Shrink to fit size × size (keeps the ratio). Big ones are first averaged down by a
+/// whole factor (k × k pixels into one), then `thumbnail` does the rest: about 2× faster
+/// for a 2560 preview of a 6000×9000 picture and 5× for a small thumbnail.
+fn shrink_rgb(img: image::DynamicImage, size: u32) -> image::RgbImage {
+    let rgb = img.into_rgb8();
+    let k = rgb.width().max(rgb.height()) / size.max(1);
+    let pre = if k >= 2 { box_down(&rgb, k) } else { rgb };
+    image::DynamicImage::ImageRgb8(pre).thumbnail(size, size).into_rgb8()
+}
+
+/// Average every k × k block into one pixel (the edge rest that doesn't fill a block is
+/// dropped, at most k-1 px of a picture thousands of px wide).
+fn box_down(src: &image::RgbImage, k: u32) -> image::RgbImage {
+    let (w, h) = ((src.width() / k).max(1), (src.height() / k).max(1));
+    let k = k as usize;
+    let sw = src.width() as usize;
+    let raw = src.as_raw();
+    let mut out = vec![0u8; w as usize * h as usize * 3];
+    let mut acc = vec![0u32; w as usize * 3];
+    let div = (k * k) as u32;
+    for y in 0..h as usize {
+        acc.iter_mut().for_each(|a| *a = 0);
+        for dy in 0..k {
+            let row = &raw[(y * k + dy) * sw * 3..];
+            for x in 0..w as usize {
+                let base = x * k * 3;
+                let a = &mut acc[x * 3..x * 3 + 3];
+                for dx in 0..k {
+                    let p = base + dx * 3;
+                    a[0] += u32::from(row[p]);
+                    a[1] += u32::from(row[p + 1]);
+                    a[2] += u32::from(row[p + 2]);
+                }
+            }
+        }
+        let o = &mut out[y * w as usize * 3..(y + 1) * w as usize * 3];
+        for (o, a) in o.iter_mut().zip(&acc) {
+            *o = (a / div) as u8;
+        }
+    }
+    image::RgbImage::from_raw(w, h, out).expect("box_down buffer size")
+}
+
 /// Make (or reuse) a thumbnail, returns the JPEG bytes.
 /// The disk cache is encrypted when encryption is on.
 pub fn thumb_jpeg(cache_dir: &Path, src: &str, size: u32, key: Option<[u8; 32]>) -> Result<Vec<u8>, String> {
@@ -207,10 +294,20 @@ fn make_jpeg(cache_dir: &Path, src: &str, size: u32, key: Option<[u8; 32]>, prio
         return Ok(cached);
     }
 
-    let src_bytes = read_source(src, key)?;
-    let img = image::load_from_memory(&src_bytes).map_err(|e| format!("decode {src}: {e}"))?;
-    // thumbnail keeps the ratio, JPEG has no alpha
-    let thumb = img.thumbnail(size, size).to_rgb8();
+    // a small thumbnail of a big picture the viewer already made a preview of: shrink
+    // the preview (about 2560 px) instead of decoding the whole original again
+    let preview = if size <= PREVIEW_EDGE / 2 { cached_preview(cache_dir, src, mtime, key) } else { None };
+    let src_bytes = match preview {
+        Some(b) => b,
+        None => read_source(src, key)?,
+    };
+    // JPEGs come out of the decoder already at 1/2, 1/4 or 1/8 size when that's enough
+    let img = match decode_jpeg_at_least(&src_bytes, size) {
+        Some(img) => img,
+        None => image::load_from_memory(&src_bytes).map_err(|e| format!("decode {src}: {e}"))?,
+    };
+    // keeps the ratio, JPEG has no alpha
+    let thumb = shrink_rgb(img, size);
     let mut jpeg = Vec::new();
     image::DynamicImage::ImageRgb8(thumb)
         .write_to(&mut Cursor::new(&mut jpeg), image::ImageFormat::Jpeg)
@@ -626,6 +723,45 @@ mod gate_tests {
         assert_eq!(*order.lock().unwrap(), vec![3, 2, 1, 0]);
     }
 
+    /// shrinking keeps the ratio and the colour of flat areas
+    #[test]
+    fn shrink_keeps_ratio_and_colour() {
+        use super::shrink_rgb;
+        let img = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(3000, 4500, image::Rgb([200, 40, 90])));
+        let out = shrink_rgb(img, 128);
+        assert_eq!((out.width(), out.height()), (85, 128));
+        assert_eq!(out.get_pixel(40, 60).0, [200, 40, 90]);
+        let img = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(6000, 9000, image::Rgb([10, 20, 30])));
+        let out = shrink_rgb(img, 2560);
+        assert_eq!(out.height(), 2560);
+        assert_eq!(out.get_pixel(5, 5).0, [10, 20, 30]);
+    }
+
+    /// big JPEGs decode at a fraction, never under the asked size, same picture
+    #[test]
+    fn jpeg_scaled_decode() {
+        use super::{decode_jpeg_at_least, shrink_rgb};
+        let src = image::RgbImage::from_fn(1600, 2400, |x, y| image::Rgb([(x / 7) as u8, (y / 10) as u8, 120]));
+        let mut jpg = Vec::new();
+        image::DynamicImage::ImageRgb8(src)
+            .write_to(&mut std::io::Cursor::new(&mut jpg), image::ImageFormat::Jpeg)
+            .unwrap();
+        // 128 px: 1/8 is still 200×300
+        let small = decode_jpeg_at_least(&jpg, 128).unwrap();
+        assert_eq!((small.width(), small.height()), (200, 300));
+        // 1000 px: 1/2 (800×1200), 1/4 would be too small
+        let mid = decode_jpeg_at_least(&jpg, 1000).unwrap();
+        assert_eq!((mid.width(), mid.height()), (800, 1200));
+        // the shrunk result matches the full decode closely
+        let full = shrink_rgb(image::load_from_memory(&jpg).unwrap(), 128);
+        let fast = shrink_rgb(small, 128);
+        assert_eq!(full.dimensions(), fast.dimensions());
+        let diff: u64 = full.as_raw().iter().zip(fast.as_raw()).map(|(a, b)| u64::from(a.abs_diff(*b))).sum();
+        assert!(diff / (full.as_raw().len() as u64) < 4, "too different: {}", diff / (full.as_raw().len() as u64));
+        // not a JPEG: left to the normal decoder
+        assert!(decode_jpeg_at_least(&[0x89, b'P', b'N', b'G', 0, 0, 0, 0], 128).is_none());
+    }
+
     /// which images get the viewer's reduced preview
     #[test]
     fn preview_rule() {
@@ -705,4 +841,6 @@ mod gate_tests {
         assert_eq!(*peak.lock().unwrap(), 2);
     }
 }
+
+
 

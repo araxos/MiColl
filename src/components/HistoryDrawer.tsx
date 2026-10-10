@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
-import { History, Settings, Undo2, X } from "lucide-react";
+import { ArrowUpRight, History, Settings, Undo2, X } from "lucide-react";
 import { useAccent } from "@/lib/theme";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { cn } from "@/lib/utils";
 import { resolveLanguage, useLanguage, useT } from "@/lib/i18n";
 import * as api from "@/api/library";
 import { HISTORY_CHANGED_EVENT, useActions } from "@/actions";
-import { useHistoryText } from "@/components/HistoryPanel";
+import { rewardLink, useHistoryText, useOpenReward } from "@/components/HistoryPanel";
 
 /** How many entries the drawer shows, the rest is in Settings → History. */
 const LAST = 15;
@@ -36,6 +36,7 @@ export function HistoryDrawer({
   const { undoHistory } = useActions();
   const [rows, setRows] = useState<api.HistoryRow[] | null>(null);
   const [undoing, setUndoing] = useState<number | null>(null);
+  const openReward = useOpenReward();
 
   const load = useCallback(async () => {
     try {
@@ -155,6 +156,19 @@ export function HistoryDrawer({
                     <span className="block text-[11px] tabular-nums text-zinc-500">{when(r.at)}</span>
                   </span>
                 </button>
+                {/* one reward that still exists: straight to its page */}
+                {rewardLink(r) && r.items.length === 1 && r.items[0].id != null && (
+                  <button
+                    onClick={() => {
+                      onClose();
+                      void openReward(r.items[0].id!, r.items[0].name);
+                    }}
+                    title={t("Open reward")}
+                    className={cn("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center", dlg.control)}
+                  >
+                    <ArrowUpRight className="h-3.5 w-3.5" />
+                  </button>
+                )}
                 {r.undoable && (
                   <button
                     onClick={async () => {

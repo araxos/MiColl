@@ -36,7 +36,8 @@ pub struct Item {
     /// old reward).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub back: Option<i64>,
-    /// For undo: where it went (an image move: the new reward).
+    /// For undo: where it went (an image move: the new reward; an import: the creator
+    /// the import made new, so undoing it can remove that creator again).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub into: Option<i64>,
 }
@@ -65,7 +66,7 @@ pub enum Files {
 
 /// A new history row.
 pub struct Entry {
-    /// "delete" | "move" | "rename" | "merge" | "trash"
+    /// "delete" | "move" | "rename" | "merge" | "trash" | "import"
     pub action: &'static str,
     /// "reward" | "image" | "artist" | "period" | "platform" | "version" | "collection" |
     /// "library" | "source"
@@ -214,6 +215,7 @@ pub fn undoable(r: &Row) -> bool {
         ("rename", "reward" | "image" | "artist" | "collection") => all(&|i| i.id.is_some() && i.was.is_some()),
         ("move", "reward") => all(&|i| i.id.is_some() && i.back.is_some() && i.from.is_some() && i.to.is_some()),
         ("move", "image") => all(&|i| i.back.is_some() && i.into.is_some() && i.from.is_some() && i.to.is_some()),
+        ("import", "reward") => all(&|i| i.id.is_some() && i.from.is_some()),
         _ => false,
     }
 }
