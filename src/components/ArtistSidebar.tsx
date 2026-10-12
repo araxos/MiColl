@@ -8,7 +8,7 @@ import { useData } from "@/store";
 import { useActions } from "@/actions";
 import { useAccent, toggleOnClass } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-import { useT } from "@/lib/i18n";
+import { useT, useTp } from "@/lib/i18n";
 import * as api from "@/api/library";
 import type { Artist, ArtistLink } from "@/types";
 
@@ -24,6 +24,7 @@ export function ArtistSidebar({
   focusName?: boolean;
 }) {
   const t = useT();
+  const tp = useTp();
   const { backed, refresh } = useData();
   const { showToast } = useActions();
   const [name, setName] = useState(artist.name);
@@ -382,7 +383,7 @@ export function ArtistSidebar({
             />
             {/* lighter text on iridescent */}
             <div className={cn("mt-0.5 px-1 text-xs", irid ? "text-white/80" : "text-zinc-500")}>
-              {artist.platforms.length} platform(s)
+              {tp("{n} platforms", artist.platforms.length)}
             </div>
             <button
               onClick={() => {
@@ -679,7 +680,7 @@ export function ArtistSidebar({
               )}
             >
               <Plus className="h-3.5 w-3.5" />
-              Add
+              {t("Add")}
             </button>
           </div>
 

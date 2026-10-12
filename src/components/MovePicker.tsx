@@ -8,7 +8,7 @@ import { useDialogTheme } from "@/lib/dialogTheme";
 import { useAccent } from "@/lib/theme";
 import { addPlatform, usePlatformOptions } from "@/lib/platformRegistry";
 import { cn } from "@/lib/utils";
-import { useT, useTf } from "@/lib/i18n";
+import { useT, useTf, useTp } from "@/lib/i18n";
 import { ownRewards } from "@/types";
 
 const MONTH_NAMES = [
@@ -148,6 +148,7 @@ export function MovePicker({
 }) {
   const t = useT();
   const tf = useTf();
+  const tp = useTp();
   const { artists } = useData();
   // styled per theme
   const dlg = useDialogTheme();
@@ -257,12 +258,14 @@ export function MovePicker({
         <div className={cn("flex items-center justify-between border-b px-5 py-4", dlg.divider)}>
           <div>
             <h2 className="text-base font-semibold text-zinc-100">
-              Move {count} {mode === "images" ? (count === 1 ? "file" : "files") : count === 1 ? "reward" : "rewards"}
+              {tf("Move {what}", {
+                what: mode === "images" ? tp("{n} files", count) : tp("{n} rewards", count),
+              })}
             </h2>
             <p className="text-xs text-zinc-400">
               {mode === "images"
-                ? "Choose a destination reward inside MiColl."
-                : "Choose a destination month — or a reward to merge into."}
+                ? t("Choose a destination reward inside MiColl.")
+                : t("Choose a destination month — or a reward to merge into.")}
             </p>
           </div>
           <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
@@ -445,7 +448,7 @@ export function MovePicker({
                                 platform: newPlat,
                                 period: destLabel(newYearNum, newMonthNum),
                               })
-                            : `Creates “${destLabel(newYearNum, newMonthNum)}”`
+                            : tf("Creates “{period}”", { period: destLabel(newYearNum, newMonthNum) })
                           : newError}
                       </p>
                       <div className="flex justify-end gap-1.5">
@@ -499,7 +502,7 @@ export function MovePicker({
             </Button>
             <Button variant="primary" disabled={!canMove} onClick={confirm}>
               <FolderInput className="h-4 w-4" />
-              {mode === "rewards" && rId ? "Merge here" : "Move here"}
+              {mode === "rewards" && rId ? t("Merge here") : t("Move here")}
             </Button>
           </div>
         </div>

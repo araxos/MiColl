@@ -1136,7 +1136,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
         <div className="min-w-0 flex-1 space-y-6">
         {searching && shown.length === 0 && (
           <div className={cn(glass, "text-center text-sm text-zinc-400")}>
-            No settings match “{query.trim()}”.
+            {tf("No settings match “{query}”.", { query: query.trim() })}
           </div>
         )}
         {/* appearance */}
@@ -1426,10 +1426,9 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
             <div className="min-w-0">
               <h2 className="text-sm font-semibold text-zinc-100">{t("Class icons")}</h2>
               <p className="settings-desc mt-0.5 text-sm text-zinc-400">
-                How strongly the class icon (♥, star, …) shows in the corner of a creator card.
-                Lower values let it sit quietly over a busy cover; 0% hides it completely. The
-                class itself is unaffected — sorting, filtering and the right-click menu keep
-                working.
+                {t(
+                  "How strongly the class icon (♥, star, …) shows in the corner of a creator card. Lower values let it sit quietly over a busy cover; 0% hides it completely. The class itself is unaffected — sorting, filtering and the right-click menu keep working.",
+                )}
               </p>
             </div>
             <span
@@ -1440,7 +1439,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                   : "bg-zinc-800 text-zinc-200",
               )}
             >
-              {classIcons === 0 ? "Hidden" : `${classIcons}%`}
+              {classIcons === 0 ? t("Hidden") : `${classIcons}%`}
             </span>
           </div>
           <input
@@ -1468,11 +1467,9 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-zinc-100">{t("App icon")}</h2>
             <p className="settings-desc mt-0.5 text-sm text-zinc-400">
-              The icon on MiColl’s taskbar button and title bar. Left on “Match theme” it
-              follows the accent, so the taskbar changes colour with the app; pick one to pin
-              it instead. The three premium artworks belong to the premium themes and unlock
-              with them. The pinned shortcut and the installed program keep the icon they were
-              built with — that one isn’t MiColl’s to change while it’s running.
+              {t(
+                "The icon on MiColl’s taskbar button and title bar. Left on “Match theme” it follows the accent, so the taskbar changes colour with the app; pick one to pin it instead. The three premium artworks belong to the premium themes and unlock with them. The pinned shortcut and the installed program keep the icon they were built with — that one isn’t MiColl’s to change while it’s running.",
+              )}
             </p>
           </div>
           {/* one row that scrolls sideways, negative margin so the selected glow isn't
@@ -1860,11 +1857,9 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                 <div className="min-w-0">
                   <h2 className="text-sm font-semibold text-zinc-100">{t("Frosted buttons")}</h2>
                   <p className="settings-desc mt-0.5 text-sm text-zinc-400">
-                    Blurs the wallpaper behind the small pills (Import folder, + Platform,
-                    Break…). Off by default: the bars they sit in are already frosted, and
-                    blurring on top of that can draw a thin dark line down a button&apos;s
-                    edge — which one, and whether at all, shifts with the window size. Turn
-                    it on if you prefer the look and don&apos;t see the line.
+                    {t(
+                      "Blurs the wallpaper behind the small pills (Import folder, + Platform, Break…). Off by default: the bars they sit in are already frosted, and blurring on top of that can draw a thin dark line down a button’s edge — which one, and whether at all, shifts with the window size. Turn it on if you prefer the look and don’t see the line.",
+                    )}
                   </p>
                 </div>
                 <Toggle checked={glassButtons} onChange={toggleGlassButtons} />
@@ -2280,8 +2275,9 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
               <code className={cn(codeChip, "px-1 py-0.5")}>
                 {collectionRoot}\MiColl
               </code>
-              , arranged as Artist / Platform / Year / Month / Reward. Originals are relocated (not
-              copied), so this isn’t auto-undoable.
+              {t(
+                ", arranged as Artist / Platform / Year / Month / Reward. Originals are relocated (not copied), so this isn’t auto-undoable.",
+              )}
             </>
           }
           onConfirm={doOrganize}
@@ -2293,20 +2289,19 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
         <ConfirmDialog
           title={t("Move your collection here?")}
           confirmLabel={t("Move it here")}
-          extraLabel="Just switch (don't move)"
+          extraLabel={t("Just switch (don’t move)")}
           onExtra={() => void doSwitchCollectionOnly()}
           busy={busy}
           body={
             <>
-              Relocate your existing collection from{" "}
+              {t("Relocate your existing collection from")}{" "}
               <code className={cn(codeChip, "px-1 py-0.5")}>{collectionRoot}\MiColl</code>{" "}
-              to{" "}
+              {t("to")}{" "}
               <code className={cn(codeChip, "px-1 py-0.5")}>{pendingRoot}\MiColl</code>?
               {t("The whole folder is")} <b>{t("moved")}</b>{" "}
               {t("(not copied) and every file is re-linked. Choose")}{" "}
               <b>{t("Just switch")}</b>{" "}
-              {t("to only point new content at the new folder and leave existing files")}
-              where they are.
+              {t("to only point new content at the new folder and leave existing files where they are.")}
             </>
           }
           onConfirm={() => void doMoveCollection()}
@@ -2334,10 +2329,9 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
           busy={busy}
           body={
             <>
-              Removes all indexed artists, periods, rewards and library folders from MiColl’s
+              {t("Removes all indexed artists, periods, rewards and library folders from MiColl’s")}{" "}
               {t("database.")} <b>{t("Your files on disk are not touched")}</b>{" "}
-              {t("— you can re-add folders")}
-              afterwards. Useful for clearing out test data.
+              {t("— you can re-add folders afterwards. Useful for clearing out test data.")}
             </>
           }
           onConfirm={doClear}

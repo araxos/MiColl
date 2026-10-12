@@ -133,10 +133,48 @@ fn prune_empty_up(start: &Path, stop: &Path) {
     }
 }
 
+/// Where a reward belongs in the collection:
+/// <collectionRoot>/MiColl/Artist/Platform/[Year/MM/ | Misc/ | #NN/][Category/]Reward
+/// style "none" = no period folder, numbered = "#51" folder (rewards without a number go
+/// directly under the platform)
+fn target_dir(row: &Row, managed_root: &Path) -> PathBuf {
+    let platform = row.platform.as_deref().unwrap_or("Unsorted");
+    // graveyard creators stay in the graveyard
+    let shelf = if row.graveyard {
+        managed_root.join(indexer::GRAVEYARD_DIR)
+    } else {
+        managed_root.to_path_buf()
+    };
+    let mut period_dir = shelf.join(sanitize(&row.artist)).join(sanitize(platform));
+    if let Some(n) = row.number {
+        period_dir = period_dir.join(indexer::fmt_number_label(n));
+    } else if row.style == "monthly" {
+        period_dir = match row.year {
+            Some(y) => period_dir.join(y.to_string()),
+            None => period_dir.join("Misc"),
+        };
+        if let Some(m) = row.month {
+            period_dir = period_dir.join(format!("{:02}", m));
+        }
+    }
+    // a root reward has no subfolder, its files are in the month folder
+    let mut reward_dir = period_dir;
+    if !row.is_root {
+        if let Some(cat) = &row.category {
+            reward_dir = reward_dir.join(sanitize(cat));
+        }
+        reward_dir = reward_dir.join(sanitize(&row.title));
+    }
+    reward_dir
+}
+
 /// Move every reward (with files on disk) into the managed collection and update the DB.
+/// Reports (done, total, reward title) while it moves; total counts only the rewards
+/// that really move, the ones already in place don't.
 pub fn organize_collection(
     conn: &Connection,
     collection_root: &str,
+    progress: impl Fn(u32, u32, &str),
 ) -> Result<OrganizeSummary, String> {
     let root = Path::new(collection_root);
     std::fs::create_dir_all(root).map_err(|e| format!("create collection root: {e}"))?;
@@ -193,55 +231,32 @@ pub fn organize_collection(
 
     let managed_root = root.join("MiColl");
 
+    // already in the right place (case-insensitive), or the target is inside the current
+    // folder (would copy forever) -> nothing to move
+    let stays = |old: &Path, dest: &Path| ci_key(old) == ci_key(dest) || is_same_or_under(dest, old);
+    let todo = rows
+        .iter()
+        .filter(|r| {
+            let old = Path::new(&r.folder);
+            old.is_dir() && !stays(old, &target_dir(r, &managed_root))
+        })
+        .count() as u32;
+    let mut done = 0u32;
+    progress(0, todo, "");
+
     for row in rows {
         let old = PathBuf::from(&row.folder);
         if !old.is_dir() {
             sum.skipped += 1;
             continue;
         }
-
-        // <collectionRoot>/MiColl/Artist/Platform/[Year/MM/ | Misc/ |
-        // #NN/][Category/]Reward
-        // style "none" = no period folder, numbered = "#51" folder (rewards without
-        // a number go directly under the platform)
-        let platform = row.platform.as_deref().unwrap_or("Unsorted");
-        // graveyard creators stay in the graveyard
-        let shelf = if row.graveyard {
-            managed_root.join(indexer::GRAVEYARD_DIR)
-        } else {
-            managed_root.clone()
-        };
-        let mut period_dir = shelf.join(sanitize(&row.artist)).join(sanitize(platform));
-        if let Some(n) = row.number {
-            period_dir = period_dir.join(indexer::fmt_number_label(n));
-        } else if row.style == "monthly" {
-            period_dir = match row.year {
-                Some(y) => period_dir.join(y.to_string()),
-                None => period_dir.join("Misc"),
-            };
-            if let Some(m) = row.month {
-                period_dir = period_dir.join(format!("{:02}", m));
-            }
-        }
-        // a root reward has no subfolder, its files are in the month folder
-        let mut reward_dir = period_dir.clone();
-        if !row.is_root {
-            if let Some(cat) = &row.category {
-                reward_dir = reward_dir.join(sanitize(cat));
-            }
-            reward_dir = reward_dir.join(sanitize(&row.title));
-        }
-
-        // already in the right place -> skip (case-insensitive)
-        if ci_key(&old) == ci_key(&reward_dir) {
+        let reward_dir = target_dir(&row, &managed_root);
+        if stays(&old, &reward_dir) {
             sum.skipped += 1;
             continue;
         }
-        // target is inside the current folder -> skip (would copy forever)
-        if is_same_or_under(&reward_dir, &old) {
-            sum.skipped += 1;
-            continue;
-        }
+        progress(done.min(todo), todo, &row.title);
+        done += 1;
         // another reward already has that folder (same name in the same month).
         // moving would merge the files and then fail the UNIQUE index, so skip it
         let taken: Option<i64> = conn
@@ -338,6 +353,7 @@ pub fn organize_collection(
 
         sum.moved += 1;
     }
+    progress(todo, todo, "");
 
     Ok(sum)
 }
@@ -395,8 +411,16 @@ mod tests {
         };
         indexer::scan_root(&conn, &root).unwrap();
 
-        let summary = organize_collection(&conn, &coll.to_string_lossy()).unwrap();
+        // the progress counts the two rewards that move: 0/2, 1/2 and 2/2
+        let seen = std::cell::RefCell::new(Vec::new());
+        let summary = organize_collection(&conn, &coll.to_string_lossy(), |d, t, _| {
+            seen.borrow_mut().push((d, t))
+        })
+        .unwrap();
         assert_eq!(summary.moved, 2, "errors: {:?}", summary.errors);
+        assert_eq!(seen.borrow().first(), Some(&(0, 2)));
+        assert_eq!(seen.borrow().last(), Some(&(2, 2)));
+        assert_eq!(seen.borrow().len(), 4);
 
         // files are now under MiColl/Artist/Platform/Year/MM/[Category]/Reward ...
         assert!(coll
@@ -503,7 +527,7 @@ mod tests {
             default_platform: Some("Patreon".into()),
         };
         indexer::scan_root(&conn, &root).unwrap();
-        organize_collection(&conn, &coll.to_string_lossy()).unwrap();
+        organize_collection(&conn, &coll.to_string_lossy(), |_, _, _| {}).unwrap();
         let settled = coll.join("MiColl/ArtistX/Patreon/2026/03/Wallpaper");
         assert!(settled.join("01.jpg").exists());
 
@@ -520,7 +544,7 @@ mod tests {
         )
         .unwrap();
 
-        let s = organize_collection(&conn, &coll.to_string_lossy()).unwrap();
+        let s = organize_collection(&conn, &coll.to_string_lossy(), |_, _, _| {}).unwrap();
         // the run finished, the clash was skipped
         assert_eq!(s.failed, 0, "errors: {:?}", s.errors);
         assert!(
@@ -555,14 +579,14 @@ mod tests {
         indexer::scan_root(&conn, &root).unwrap();
         db::set_artist_no_dates(&conn, "Nora", true).unwrap();
 
-        let s = organize_collection(&conn, &coll.to_string_lossy()).unwrap();
+        let s = organize_collection(&conn, &coll.to_string_lossy(), |_, _, _| {}).unwrap();
         assert_eq!(s.moved, 1, "errors: {:?}", s.errors);
         // directly under the platform, no "Misc"
         assert!(coll.join("MiColl/Nora/Patreon/HD Pack 12/01.jpg").exists());
         assert!(!coll.join("MiColl/Nora/Patreon/Misc").exists());
 
         // organizing again does nothing
-        let s2 = organize_collection(&conn, &coll.to_string_lossy()).unwrap();
+        let s2 = organize_collection(&conn, &coll.to_string_lossy(), |_, _, _| {}).unwrap();
         assert_eq!(s2.moved, 0);
         assert_eq!(s2.skipped, 1);
 
@@ -608,14 +632,14 @@ mod tests {
         assert!(before.iter().any(|(l, n, _)| l == "#87" && *n == Some(87)));
 
         // organize writes the "#NN" folders
-        let s = organize_collection(&conn, &coll.to_string_lossy()).unwrap();
+        let s = organize_collection(&conn, &coll.to_string_lossy(), |_, _, _| {}).unwrap();
         assert_eq!(s.moved, 2, "errors: {:?}", s.errors);
         assert!(coll.join("MiColl/Nora/Patreon/#86/HD Pack/01.jpg").exists());
         assert!(coll.join("MiColl/Nora/Patreon/#87/01.jpg").exists());
         assert!(!coll.join("MiColl/Nora/Patreon/Misc").exists());
 
         // organizing again does nothing
-        let s2 = organize_collection(&conn, &coll.to_string_lossy()).unwrap();
+        let s2 = organize_collection(&conn, &coll.to_string_lossy(), |_, _, _| {}).unwrap();
         assert_eq!(s2.moved, 0);
 
         // rescanning the managed tree (F5) must give the exact same periods, no duplicates

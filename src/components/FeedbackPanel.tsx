@@ -206,12 +206,9 @@ export function FeedbackPanel() {
           {err && <p className="mt-3 text-sm text-rose-300">{err}</p>}
 
           <p className="settings-desc mt-3 text-xs text-zinc-500">
-            Sent with your message: which of the three buttons you picked, and the MiColl version —
-            so a bug report says which build it came from. Nothing else. Not your name, not your
-            library, not a single creator or file name. MiColl has no account system and no
-            analytics, and this is the only thing in the app that ever leaves your machine. It’s
-            delivered by a form service that turns the message into an email — so it travels through
-            them, carrying only what’s listed above.
+            {t(
+              "Sent with your message: which of the three buttons you picked, and the MiColl version — so a bug report says which build it came from. Nothing else. Not your name, not your library, not a single creator or file name. MiColl has no account system and no analytics, and this is the only thing in the app that ever leaves your machine. It’s delivered by a form service that turns the message into an email — so it travels through them, carrying only what’s listed above.",
+            )}
           </p>
         </>
       )}

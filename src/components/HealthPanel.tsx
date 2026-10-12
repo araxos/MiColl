@@ -400,7 +400,7 @@ export function HealthPanel({ onClose }: { onClose: () => void }) {
                             cyber ? "rounded-none" : "rounded",
                           )}
                         >
-                          {a.missing} missing
+                          {tf("{n} missing", { n: a.missing })}
                         </span>
                       </div>
                     ))}

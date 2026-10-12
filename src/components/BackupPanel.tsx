@@ -238,9 +238,10 @@ export function BackupPanel({ backed, onLock }: { backed: boolean; onLock?: () =
             <>
               {t("This")} <b>{t("replaces your current library database")}</b>{" "}
               {t("with the snapshot from")}{" "}
-              <b>{restoreSnap.day}</b> — anything you curated since then is gone. Your media files on
-              disk aren’t touched. MiColl will lock afterwards so you can sign in against the
-              restored library.
+              <b>{restoreSnap.day}</b>{" "}
+              {t(
+                "— anything you curated since then is gone. Your media files on disk aren’t touched. MiColl will lock afterwards so you can sign in against the restored library.",
+              )}
             </>
           }
           onConfirm={() => void doRestoreSnap(restoreSnap)}
@@ -257,9 +258,8 @@ export function BackupPanel({ backed, onLock }: { backed: boolean; onLock?: () =
             <>
               {t("This")} <b>{t("replaces your current library database")}</b>{" "}
               {t(
-                "with the chosen backup — all creators, tags, notes, templates and settings revert to that snapshot. Your media files on disk aren’t touched. MiColl will lock afterwards so you can sign in against the",
+                "with the chosen backup — all creators, tags, notes, templates and settings revert to that snapshot. Your media files on disk aren’t touched. MiColl will lock afterwards so you can sign in against the restored library.",
               )}
-              restored library.
             </>
           }
           onConfirm={doRestore}

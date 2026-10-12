@@ -874,9 +874,14 @@ fn clear_roots(db: State<Db>) -> Result<(), String> {
     db::clear_roots(&conn).map_err(map_err)
 }
 
-/// Emits scan-progress for the rescan overlay. Max one event per 60 ms
-/// (first and last always go through).
+/// Emits scan-progress for the rescan overlay.
 fn scan_progress(app: &AppHandle) -> impl Fn(u32, u32, &str) + '_ {
+    progress_events(app, "scan-progress")
+}
+
+/// A progress reporter that emits { done, total, item } as `event`. Max one event per
+/// 60 ms (first and last always go through).
+fn progress_events<'a>(app: &'a AppHandle, event: &'static str) -> impl Fn(u32, u32, &str) + 'a {
     let last = std::cell::Cell::new(None::<std::time::Instant>);
     move |done, total, item| {
         let now = std::time::Instant::now();
@@ -889,10 +894,7 @@ fn scan_progress(app: &AppHandle) -> impl Fn(u32, u32, &str) + '_ {
             }
         }
         last.set(Some(now));
-        let _ = app.emit(
-            "scan-progress",
-            serde_json::json!({ "done": done, "total": total, "item": item }),
-        );
+        let _ = app.emit(event, serde_json::json!({ "done": done, "total": total, "item": item }));
     }
 }
 
@@ -4464,8 +4466,10 @@ fn commit_import(
     Ok(summary)
 }
 
+/// async so it runs on a worker thread: the import's loading bar follows its
+/// "organize-progress" events, a sync command would hold them until the end
 #[tauri::command]
-fn organize_collection(app: AppHandle, db: State<Db>) -> Result<OrganizeSummary, String> {
+async fn organize_collection(app: AppHandle, db: State<'_, Db>) -> Result<OrganizeSummary, String> {
     let conn = db.lock().map_err(map_err)?;
     let enabled = db::get_setting(&conn, "managed_enabled")
         .map_err(map_err)?
@@ -4478,7 +4482,8 @@ fn organize_collection(app: AppHandle, db: State<Db>) -> Result<OrganizeSummary,
         .map_err(map_err)?
         .filter(|s| !s.trim().is_empty())
         .ok_or("No collection folder is set.")?;
-    let summary = organize::organize_collection(&conn, &root)?;
+    let summary =
+        organize::organize_collection(&conn, &root, progress_events(&app, "organize-progress"))?;
     // organize changes a lot, flush it
     db::checkpoint(&conn);
     allow_asset_dir(&app, &root);

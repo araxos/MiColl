@@ -59,7 +59,7 @@ export function MoveNoticeDialog({
               {collectionRoot ? (
                 <>
                   {" "}
-                  at{" "}
+                  {t("at")}{" "}
                   <code
                     className={cn(
                       "border px-1 py-0.5 text-zinc-200",

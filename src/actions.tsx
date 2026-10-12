@@ -20,7 +20,7 @@ import { ProgressModal } from "@/components/ProgressModal";
 import { DeleteDialog } from "@/components/DeleteDialog";
 import { MoveNoticeDialog } from "@/components/MoveNoticeDialog";
 import { ImportReviewTree } from "@/components/ImportReviewTree";
-import type { ImportStep } from "@/components/ImportProgress";
+import type { ImportStep, ImportSub } from "@/components/ImportProgress";
 import { ConflictDialog } from "@/components/ConflictDialog";
 import { Toaster, type ToastData } from "@/components/Toast";
 import { fmtBytes } from "@/components/RewardDetails";
@@ -155,7 +155,11 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
   const [del, setDel] = useState<DeleteRequest | null>(null);
   const [busy, setBusy] = useState(false);
   // the running import's step, for the loading bar under the review
-  const [importProgress, setImportProgress] = useState<{ steps: ImportStep[]; step: ImportStep } | null>(null);
+  const [importProgress, setImportProgress] = useState<{
+    steps: ImportStep[];
+    step: ImportStep;
+    sub?: ImportSub;
+  } | null>(null);
   const [toasts, setToasts] = useState<ToastData[]>([]);
   const toastSeq = useRef(0);
 
@@ -880,6 +884,15 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       "refresh",
     ];
     const at = (step: ImportStep) => setImportProgress({ steps, step });
+    // moving into the collection reports per reward, encrypting per file: the bar fills by that
+    const report = (step: ImportStep) => (e: { payload: ImportSub }) =>
+      setImportProgress((cur) =>
+        cur?.step === step ? { ...cur, sub: { done: e.payload.done, total: e.payload.total } } : cur,
+      );
+    const unlisten = await Promise.all([
+      listen<ImportSub>("organize-progress", report("organize")),
+      listen<ImportSub>("encrypt-progress", report("encrypt")),
+    ]).catch(() => []);
     at("commit");
     // the dropped archive goes to the Recycle Bin only when every file landed: any
     // organize problem keeps it (its files might still be in the temp unpack folder)
@@ -947,6 +960,7 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       console.error("import failed", e);
     } finally {
       looseDropped.current = [];
+      unlisten.forEach((off) => off());
       setBusy(false);
       setImportProgress(null);
     }
@@ -1006,9 +1020,9 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
           title={t("Rescan the whole library?")}
           body={
             <>
-              This walks every folder in your library and re-indexes it. Depending on how
-              many files you have, it can take a while — MiColl stays blocked until it
-              finishes.
+              {t(
+                "This walks every folder in your library and re-indexes it. Depending on how many files you have, it can take a while — MiColl stays blocked until it finishes.",
+              )}
               <br />
               <br />
               {t("To refresh just one creator, open them and press F5 there.")}

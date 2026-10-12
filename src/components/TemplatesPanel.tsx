@@ -356,7 +356,7 @@ export function TemplatesPanel({
           <Globe className="h-4 w-4" />
           {t("Browse community templates")}
           <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
-            soon
+            {t("soon")}
           </span>
         </span>
       </div>
@@ -768,8 +768,11 @@ function ApplyDialog({
         )}
         {createFolders && managed && (
           <p className="settings-desc mt-2 text-xs text-zinc-500">
-            Managed mode is on — folders are created inside your collection
-            {collectionRoot ? "" : " (set a collection folder in Library first)"}.
+            {collectionRoot
+              ? t("Managed mode is on — folders are created inside your collection.")
+              : t(
+                  "Managed mode is on — folders are created inside your collection (set a collection folder in Library first).",
+                )}
           </p>
         )}
 

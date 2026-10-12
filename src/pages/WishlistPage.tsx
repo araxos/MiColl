@@ -258,9 +258,9 @@ export function WishlistPage({ onLock }: { onLock?: () => void }) {
           title={t("Remove this wish?")}
           body={
             <>
-              <span className="font-medium text-zinc-100">{removing.title}</span> comes off the
-              wishlist. Nothing on disk is touched — a wish has no files.
-              {!removing.ours && " A template lists this reward, so its placeholder card stays on the creator."}
+              <span className="font-medium text-zinc-100">{removing.title}</span>{" "}
+              {t("comes off the wishlist. Nothing on disk is touched — a wish has no files.")}
+              {!removing.ours && ` ${t("A template lists this reward, so its placeholder card stays on the creator.")}`}
             </>
           }
           confirmLabel={t("Remove")}

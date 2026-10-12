@@ -31,7 +31,7 @@ import { usePlatformOptions, addPlatform as registerPlatform } from "@/lib/platf
 import { useData } from "@/store";
 import { useActions } from "@/actions";
 import { useAccent } from "@/lib/theme";
-import { ImportProgress, type ImportStep } from "@/components/ImportProgress";
+import { ImportProgress, type ImportStep, type ImportSub } from "@/components/ImportProgress";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { useStripCreator, stripHandles } from "@/lib/stripCreator";
 import { cn } from "@/lib/utils";
@@ -219,7 +219,7 @@ export function ImportReviewTree({
   plan: ImportPlan;
   busy: boolean;
   /** While the import runs: its steps and the current one (loading bar under the panel). */
-  progress?: { steps: ImportStep[]; step: ImportStep } | null;
+  progress?: { steps: ImportStep[]; step: ImportStep; sub?: ImportSub } | null;
   /** If set, everything goes to this artist and the name can't be changed. */
   lockedArtist?: string;
   /** The dropped/picked folder. Enables "one reward" + Quick import. */
@@ -1068,7 +1068,7 @@ export function ImportReviewTree({
                       className="mt-0.5 h-4 w-4 accent-brand-500"
                     />
                     <span>
-                      Treat “{rootName}” as ONE reward
+                      {tf("Treat “{name}” as ONE reward", { name: rootName })}
                       <span className="mt-0.5 block text-xs text-zinc-500">
                         {t("Its subfolders become images inside a single reward instead of separate rewards.")}
                       </span>
@@ -1219,7 +1219,7 @@ export function ImportReviewTree({
                             onClick={() => addCustomPlatform(node.creator)}
                             className="rounded-lg border border-brand-500/40 bg-brand-500/15 px-2.5 py-1 text-xs font-medium text-brand-100 hover:bg-brand-500/25"
                           >
-                            Add
+                            {t("Add")}
                           </button>
                           <button
                             onClick={() => setNewPlatform(null)}
@@ -1354,7 +1354,7 @@ export function ImportReviewTree({
                                     </span>
                                   )}
                                   <span className="text-zinc-600">
-                                    {period.rows.length} reward{period.rows.length === 1 ? "" : "s"}
+                                    {tp("{n} rewards", period.rows.length)}
                                   </span>
                                   {canBundle && (
                                     <button
@@ -1392,7 +1392,7 @@ export function ImportReviewTree({
                                           softClass,
                                         )}
                                       >
-                                        <span className="shrink-0">→ files directly in this period</span>
+                                        <span className="shrink-0">{t("→ files directly in this period")}</span>
                                         <span className="truncate text-zinc-600">{baseName(r.folder)}</span>
                                       </button>
                                     ) : (
@@ -1552,11 +1552,14 @@ export function ImportReviewTree({
                                             "flex items-center gap-2 rounded-lg border border-dashed px-2.5 py-1 text-xs text-zinc-500",
                                             softClass,
                                           )}
-                                          title={`“${c.title}” stays inside “${r.title}” — its images appear as a group in the viewer`}
+                                          title={tf("“{child}” stays inside “{parent}” — its images appear as a group in the viewer", {
+                                            child: c.title,
+                                            parent: r.title,
+                                          })}
                                         >
                                           <CornerDownRight className="h-3 w-3 shrink-0 text-zinc-700" />
                                           <span className="truncate">{c.title}</span>
-                                          <span className="text-zinc-600">· inside “{r.title || baseName(r.folder)}”</span>
+                                          <span className="text-zinc-600">· {tf("inside “{name}”", { name: r.title || baseName(r.folder) })}</span>
                                           <span className="ml-auto inline-flex items-center gap-1 text-zinc-600">
                                             <Images className="h-3 w-3" />
                                             {c.imageCount}
@@ -1615,7 +1618,7 @@ export function ImportReviewTree({
           </div>
           {/* while importing the panel grows a loading bar at the bottom */}
           <AnimatePresence initial={false}>
-            {progress && <ImportProgress steps={progress.steps} step={progress.step} />}
+            {progress && <ImportProgress steps={progress.steps} step={progress.step} sub={progress.sub} />}
           </AnimatePresence>
         </motion.div>
       </div>

@@ -8,7 +8,7 @@ import { type DuplicateScope } from "@/lib/duplicates";
 import { useAccent } from "@/lib/theme";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { cn } from "@/lib/utils";
-import { useT } from "@/lib/i18n";
+import { useT, useTf, useTp } from "@/lib/i18n";
 
 function fmtBytes(n: number): string {
   if (n <= 0) return "0 B";
@@ -61,6 +61,8 @@ export function DuplicatesPanel({
   onClose: () => void;
 }) {
   const t = useT();
+  const tf = useTf();
+  const tp = useTp();
   const { refresh } = useData();
   // uses the dialog theme. sharp = cyberpunk square corners for the few own-colored
   // controls
@@ -131,17 +133,21 @@ export function DuplicatesPanel({
         <div className={cn("flex items-center justify-between border-b px-5 py-4", dlg.divider)}>
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-zinc-100">
-              Duplicate finder
+              {t("Duplicate finder")}
               {scope?.label && <span className="text-zinc-400"> · {scope.label}</span>}
             </h2>
             <p className="text-xs text-zinc-500">
               {loading
-                ? "Scanning…"
+                ? t("Scanning…")
                 : groups.length === 0
                   ? similar
-                    ? "Nothing here looks alike."
-                    : "No exact duplicates here."
-                  : `${groups.length} group(s) · ${dupCount} images · ${selected.size} marked to delete`}
+                    ? t("Nothing here looks alike.")
+                    : t("No exact duplicates here.")
+                  : tf("{groups} group(s) · {images} · {marked} marked to delete", {
+                      groups: groups.length,
+                      images: tp("{n} images", dupCount),
+                      marked: selected.size,
+                    })}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -182,7 +188,7 @@ export function DuplicatesPanel({
             <div className="grid place-items-center py-20 text-zinc-400">
               <Loader2 className={cn("h-8 w-8 animate-spin", dlg.accentText)} />
               <p className="mt-3 text-sm">
-                {similar ? "Comparing pictures…" : "Comparing files…"}
+                {similar ? t("Comparing pictures…") : t("Comparing files…")}
               </p>
               {similar && (
                 <p className="mt-1 text-xs text-zinc-500">
@@ -195,7 +201,7 @@ export function DuplicatesPanel({
               {/* "nothing found" uses the accent color, not green */}
               <Check className={cn("h-8 w-8", dlg.accentText)} />
               <p className="text-sm text-zinc-300">
-                {similar ? "No look-alike images found." : "No identical images found."}
+                {similar ? t("No look-alike images found.") : t("No identical images found.")}
               </p>
             </div>
           ) : (
@@ -203,16 +209,19 @@ export function DuplicatesPanel({
               {similar && (
                 // the warning text stays amber
                 <p className={cn("px-3 py-2 text-xs text-amber-200", dlg.box)}>
-                  These are grouped by how they look, not by their contents — two
-                  different pictures can land together. The biggest version of each
-                  group is the one kept; check a group with Compare before deleting.
+                  {t(
+                    "These are grouped by how they look, not by their contents — two different pictures can land together. The biggest version of each group is the one kept; check a group with Compare before deleting.",
+                  )}
                 </p>
               )}
               {groups.map((g, gi) => (
                 <div key={gi} className={cn("p-3", dlg.box)}>
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                      Group {gi + 1} · {g.length} {similar ? "similar" : "identical"} copies
+                      {tf(similar ? "Group {i} · {n} similar copies" : "Group {i} · {n} identical copies", {
+                        i: gi + 1,
+                        n: g.length,
+                      })}
                     </span>
                     <button
                       onClick={() => setCompare(g)}
@@ -251,7 +260,7 @@ export function DuplicatesPanel({
                             )}
                           >
                             {del ? <Trash2 className="h-3 w-3" /> : <Check className="h-3 w-3" />}
-                            {del ? "Delete" : "Keep"}
+                            {del ? t("Delete") : t("Keep")}
                           </span>
                           <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent p-1.5 pt-6">
                             <div className="truncate text-[11px] font-medium text-white" title={im.name}>
@@ -296,7 +305,7 @@ export function DuplicatesPanel({
               )}
             >
               <Trash2 className={`h-4 w-4 ${busy ? "animate-pulse" : ""}`} />
-              Delete {selected.size} selected
+              {tf("Delete {n} selected", { n: selected.size })}
             </button>
           </div>
         </div>

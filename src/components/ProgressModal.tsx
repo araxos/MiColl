@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
 
 /**
  * Blocking progress overlay for long file operations. Nothing behind it can be
@@ -34,6 +35,7 @@ export function ProgressModal({
   /** Shown after clicking: it stops after the current item. */
   cancelPendingLabel?: string;
 }) {
+  const t = useT();
   // block keyboard shortcuts while it's open
   useEffect(() => {
     const stop = (e: KeyboardEvent) => {
@@ -82,7 +84,7 @@ export function ProgressModal({
         </div>
 
         <p className="mt-2 truncate text-xs text-zinc-400" title={detail}>
-          {detail || "Preparing…"}
+          {detail || t("Preparing…")}
         </p>
         {note && <p className="mt-3 text-xs text-zinc-500">{note}</p>}
 

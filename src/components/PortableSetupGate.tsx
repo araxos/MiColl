@@ -51,9 +51,9 @@ export function PortableSetupGate({ offer, onDone }: { offer: PortableOffer; onD
               {t("Welcome back")}
             </h1>
             <p className="mx-auto mt-2 max-w-[27rem] text-[15px] leading-relaxed text-zinc-300">
-              This copy runs portable — it keeps its own library next to the executable.
-              There is already one on this computer. Should this copy carry on with it, or
-              start its own?
+              {t(
+                "This copy runs portable — it keeps its own library next to the executable. There is already one on this computer. Should this copy carry on with it, or start its own?",
+              )}
             </p>
           </div>
 

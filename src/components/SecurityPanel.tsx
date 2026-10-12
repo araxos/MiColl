@@ -386,11 +386,11 @@ export function SecurityPanel({ backed }: { backed: boolean }) {
               <h2 className="text-base font-semibold text-zinc-100">{t("Encrypt files")}</h2>
               {encEnabled ? (
                 <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-300">
-                  <Check className="h-3 w-3" /> On
+                  <Check className="h-3 w-3" /> {t("On")}
                 </span>
               ) : (
                 <span className="ml-auto rounded-full border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-xs text-zinc-400">
-                  Off
+                  {t("Off")}
                 </span>
               )}
             </div>

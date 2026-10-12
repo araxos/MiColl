@@ -339,7 +339,7 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
           {/* creator types (saved as "kind") */}
           <div className="mt-5">
             <div className="text-xs font-medium text-zinc-400">
-              Type <span className="text-zinc-600">— pick any that fit (optional)</span>
+              {t("Type")} <span className="text-zinc-600">{t("— pick any that fit (optional)")}</span>
             </div>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {CREATOR_TYPES.map((t) => {
@@ -408,7 +408,7 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
                         : "rounded-md border border-brand-500/40 bg-brand-500/15 text-brand-100 hover:bg-brand-500/25",
                     )}
                   >
-                    Add
+                    {t("Add")}
                   </button>
                 </span>
               )}
@@ -471,8 +471,8 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
                 }`}
               >
                 {managed
-                  ? scaffoldTarget ?? "Set a collection folder in Settings first"
-                  : scaffoldTarget ?? "No folders will be created — pick a base to scaffold"}
+                  ? scaffoldTarget ?? t("Set a collection folder in Settings first")
+                  : scaffoldTarget ?? t("No folders will be created — pick a base to scaffold")}
               </span>
               {managed ? (
                 <span className="shrink-0 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-[10px] uppercase tracking-wide text-zinc-500">
@@ -480,7 +480,7 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
                 </span>
               ) : (
                 <Button variant="outline" size="sm" onClick={pickBaseFolder} disabled={busy}>
-                  {baseDir ? "Change…" : "Base…"}
+                  {baseDir ? t("Change…") : t("Base…")}
                 </Button>
               )}
             </div>
@@ -498,7 +498,7 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
           </Button>
           <Button variant="primary" disabled={!canCreate} onClick={create}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-            {busy ? "Creating…" : "Create card"}
+            {busy ? t("Creating…") : t("Create card")}
           </Button>
         </div>
       </motion.div>

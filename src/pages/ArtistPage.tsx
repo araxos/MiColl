@@ -1416,6 +1416,8 @@ function NumberedSection({
   glass?: string;
 }) {
   const t = useT();
+  const tf = useTf();
+  const tp = useTp();
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const gutter = cardGutter(useAccent());
   const drops = months.filter((m) => m.number != null);
@@ -1450,7 +1452,7 @@ function NumberedSection({
               <div className="mb-3 flex items-center gap-3">
                 <h2 className="text-lg font-semibold text-zinc-100">{t("Unsorted")}</h2>
                 <span className="text-xs text-zinc-500">
-                  {unsorted.length} reward{unsorted.length === 1 ? "" : "s"} without a drop number
+                  {tf("{rewards} without a drop number", { rewards: tp("{n} rewards", unsorted.length) })}
                 </span>
                 <div className="h-px flex-1 bg-zinc-800" />
                 <div ref={setHost} className="flex shrink-0 items-center gap-2" />

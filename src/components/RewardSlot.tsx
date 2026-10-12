@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { Ban, PlayCircle, FolderPlus, FileArchive, Users, Unlink } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useT } from "@/lib/i18n";
+import { useT, useTf, useTp } from "@/lib/i18n";
 import { useAccent } from "@/lib/theme";
 import { Cover } from "@/components/Cover";
 import { SdBadge, rewardSdState, rewardSdTitle } from "@/components/SdBadge";
@@ -57,6 +57,8 @@ export function RewardSlot({
 
   // premium themes: darker frosted background + lighter text for missing slots
   const t = useT();
+  const tf = useTf();
+  const tp = useTp();
   const accent = useAccent();
   const premium = accent === "iridescent" || accent === "sakura" || accent === "cyberpunk";
   const missingBorder = premium
@@ -127,7 +129,7 @@ export function RewardSlot({
                 title={t("New — you haven’t opened this one yet")}
                 className="new-badge pointer-events-none absolute left-2 top-2 px-1.5 py-0.5 text-[10px] font-bold uppercase"
               >
-                New
+                {t("New")}
               </span>
             )}
             <span className="pointer-events-none absolute right-2 top-2 flex items-center gap-1">
@@ -149,7 +151,7 @@ export function RewardSlot({
                   <span className="truncate">
                     {reward.collabWith.length === 1
                       ? reward.collabWith[0].artistName
-                      : `${reward.collabWith.length} collabs`}
+                      : tp("{n} collabs", reward.collabWith.length)}
                   </span>
                 </span>
               )}
@@ -181,11 +183,11 @@ export function RewardSlot({
                   </span>
                 ) : (
                   <span
-                    title={`Collab — this reward lives in ${reward.collabFrom!.artistName}’s folder`}
+                    title={tf("Collab — this reward lives in {name}’s folder", { name: reward.collabFrom!.artistName })}
                     className="collab-chip mb-1 flex max-w-full items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold"
                   >
                     <Users className="h-3 w-3 shrink-0" />
-                    <span className="truncate">from {reward.collabFrom!.artistName}</span>
+                    <span className="truncate">{tf("from {name}", { name: reward.collabFrom!.artistName })}</span>
                   </span>
                 ))}
               <span className="line-clamp-2 text-[11px] font-medium leading-tight text-white">
@@ -223,7 +225,7 @@ export function RewardSlot({
                     : "text-amber-500",
               )}
             >
-              {skipped ? "skipped" : "missing"}
+              {skipped ? t("skipped") : t("missing")}
             </span>
             {cat && (
               <span

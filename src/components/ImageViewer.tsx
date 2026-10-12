@@ -1720,14 +1720,14 @@ export function ImageViewer({
         <div data-tauri-drag-region className="min-w-0">
           <div className="truncate text-sm font-medium text-zinc-100">{current.title}</div>
           <div className="text-xs text-zinc-500">
-            {gridOn ? tp("{n} files", items.length) : `${index + 1} of ${items.length}`}
+            {gridOn ? tp("{n} files", items.length) : tf("{i} of {n}", { i: index + 1, n: items.length })}
             {!comfy && shownDims ? ` · ${shownDims.w} × ${shownDims.h} px` : ""}
             {!comfy && resized && (
               <span
                 title={t("Shown at reduced size for smooth scrolling — the original file is unchanged")}
                 className="ml-1.5 inline-flex items-center rounded-full bg-white/10 px-1.5 py-px text-[10px] font-medium text-zinc-300 ring-1 ring-inset ring-white/15"
               >
-                optimized
+                {t("optimized")}
               </span>
             )}
             {!comfy && fileBytes != null ? ` · ${fmtSize(fileBytes)}` : ""}
@@ -1885,7 +1885,7 @@ export function ImageViewer({
             chromeFade,
           )}
         >
-          <span className="px-1 text-xs text-zinc-400">{selected.size} selected</span>
+          <span className="px-1 text-xs text-zinc-400">{tf("{n} selected", { n: selected.size })}</span>
           {isTauri() && (
             <ViewerBtn onClick={shareSelected} title={t("Share selected photos")}>
               <Share2 className="h-5 w-5" />
@@ -2141,8 +2141,8 @@ export function ImageViewer({
                     }
                     title={
                       isRealArchive(current)
-                        ? "Reveal this archive in Explorer to extract it"
-                        : "Open this file with the app Windows uses for its type"
+                        ? t("Reveal this archive in Explorer to extract it")
+                        : t("Open this file with the app Windows uses for its type")
                     }
                     className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-800/70 px-3 py-2 text-sm text-zinc-100 backdrop-blur transition-colors micoll-hover"
                   >
@@ -2182,7 +2182,9 @@ export function ImageViewer({
                   transition: dragging ? "none" : "transform 180ms ease-out",
                 }}
                 onContextMenu={mediaMenu}
-                className="max-h-full max-w-full select-none rounded-lg object-contain shadow-2xl"
+                // a scrolled-past frame whose download was cancelled has no src: hide it,
+                // or it flashes the broken-image icon with its name while sliding out
+                className="max-h-full max-w-full select-none rounded-lg object-contain shadow-2xl [&:not([src])]:invisible"
               />
             ) : (
               <div
@@ -2386,7 +2388,7 @@ export function ImageViewer({
               <Shuffle className="h-4 w-4 text-zinc-400" />
               <span className="flex-1">{t("Shuffle")}</span>
               <span className={cn("font-medium", shuffle ? "text-brand-300" : "text-zinc-500")}>
-                {shuffle ? "On" : "Off"}
+                {shuffle ? t("On") : t("Off")}
               </span>
             </button>
           </div>
@@ -2683,7 +2685,7 @@ function DetailsPanel({
               )}
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-              Save
+              {t("Save")}
             </button>
           </div>
 
@@ -2821,11 +2823,12 @@ function DetailsPanel({
                       )}
                     >
                       {fpSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                      Save properties
+                      {t("Save properties")}
                     </button>
                     <p className="text-[11px] leading-relaxed text-zinc-500">
-                      Saved into the file itself — these also appear in Windows Explorer → Properties →
-                      Details. Some file types only support a subset.
+                      {t(
+                        "Saved into the file itself — these also appear in Windows Explorer → Properties → Details. Some file types only support a subset.",
+                      )}
                     </p>
                   </div>
                 ) : null}
@@ -2937,6 +2940,8 @@ function ClearMetaDialog({
   onClose: () => void;
 }) {
   const t = useT();
+  const tf = useTf();
+  const tp = useTp();
   const [f, setF] = useState<PropFields>(emptyFields);
   const [summary, setSummary] = useState<MetaSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2993,9 +2998,11 @@ function ClearMetaDialog({
         <div className="flex-1 overflow-y-auto px-5 py-4">
           <div className="mb-3 flex items-center justify-between gap-2">
             <p className="text-xs text-zinc-400">
-              {srcs.length} file{srcs.length === 1 ? "" : "s"} selected
-              {summary && summary.encrypted > 0 ? ` · ${summary.encrypted} encrypted (skipped)` : ""}
-              . Tick which fields to clear from each file.
+              {tf("{n} selected", { n: tp("{n} files", srcs.length) })}
+              {summary && summary.encrypted > 0
+                ? ` · ${tf("{n} encrypted (skipped)", { n: summary.encrypted })}`
+                : ""}
+              {`. ${t("Tick which fields to clear from each file.")}`}
             </p>
             {presentRows.length > 0 && (
               <button
