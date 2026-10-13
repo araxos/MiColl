@@ -1793,4 +1793,6 @@ export const dict: Dict = {
   "Collab with {names} — also shown in their card": "与 {names} 联动 — 也会显示在对方的卡片中",
   "On the MiSD disk “{volume}” — connect it to open": "在 MiSD 磁盘“{volume}”上 — 连接后即可打开",
   "Backed up on “{volume}”": "已备份到“{volume}”",
+  "Body details": "身体细节",
+  "Body details — for a person reaching to the edge (a hand, a knee): the picture stays exactly as it is, and the edge is drawn again in high detail so it carries on cleanly. Takes a few times longer": "身体细节 — 当人物延伸到边缘（手、膝盖）时：图片保持原样不变，边缘会以高清晰度重新绘制，使其自然延续。耗时会多几倍",
 };

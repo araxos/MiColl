@@ -31,6 +31,7 @@ import {
   RefreshCw,
   Minus,
   SplitSquareHorizontal,
+  PersonStanding,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { cn } from "@/lib/utils";
@@ -336,6 +337,13 @@ export function ImageEditor({
   const setExMode = (m: "ai" | "hq" | "blur") => {
     setExModeState(m);
     localStorage.setItem("micoll.expandMode", m);
+    queuePrefsSync();
+  };
+  // HQ's body details mode (off = the HQ fill as it always was)
+  const [exPeople, setExPeopleState] = useState(() => localStorage.getItem("micoll.expandPeople") === "1");
+  const setExPeople = (on: boolean) => {
+    setExPeopleState(on);
+    localStorage.setItem("micoll.expandPeople", on ? "1" : "0");
     queuePrefsSync();
   };
   // displayed image size (fits the stage)
@@ -965,6 +973,7 @@ export function ImageEditor({
     y: number;
     mode: "ai" | "hq";
     fit: { w: number; h: number } | null;
+    people: boolean;
   } | null>(null);
   const exLast = exLastRef.current;
   // AI fill is the same every time, only HQ draws something new
@@ -975,6 +984,7 @@ export function ImageEditor({
     const last = exLastRef.current;
     if (again ? !last : !exPlan) return;
     const mode = again && last ? last.mode : exMode;
+    const people = mode === "hq" && (again && last ? last.people : exPeople);
     setBusyMsg(mode === "blur" ? t("Expanding…") : t("Expanding (AI)…"));
     setBusy(true);
     // AI fill grows in strips, a big picture takes a while: show "3 / 8". HQ then adds the
@@ -1012,8 +1022,8 @@ export function ImageEditor({
               fit: exPic && dims && (exPic.w !== dims.w || exPic.h !== dims.h) ? exPic : null,
             };
       if (mode !== "blur") await warmModel("lama", t("Expanding (AI)…"));
-      const result = await editExpand(job.src, job.W, job.H, job.x, job.y, mode, seed, job.fit);
-      exLastRef.current = mode === "blur" ? null : { ...job, result, mode };
+      const result = await editExpand(job.src, job.W, job.H, job.x, job.y, mode, seed, job.fit, people);
+      exLastRef.current = mode === "blur" ? null : { ...job, result, mode, people };
       pushWorking(result);
     } catch (err) {
       console.error("expand failed", err);
@@ -1721,6 +1731,21 @@ export function ImageEditor({
                   {t("Blur fill")}
                 </ToolBtn>
               </div>
+              {exMode === "hq" && (
+                // an extra for HQ, off = HQ as it always was
+                <div className="flex h-9 items-center rounded-xl border border-zinc-800 bg-zinc-900/70 p-1">
+                  <ToolBtn
+                    active={exPeople}
+                    onClick={() => setExPeople(!exPeople)}
+                    title={t(
+                      "Body details — for a person reaching to the edge (a hand, a knee): the picture stays exactly as it is, and the edge is drawn again in high detail so it carries on cleanly. Takes a few times longer",
+                    )}
+                  >
+                    <PersonStanding className="h-4 w-4" />
+                    {t("Body details")}
+                  </ToolBtn>
+                </div>
+              )}
               {exMode !== "blur" && ready.lama === false ? (
                 <DownloadModelBtn model="lama" label={t("Get AI model (~200 MB)")} />
               ) : exMode === "hq" && ready.sd15 === false ? (

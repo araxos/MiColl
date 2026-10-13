@@ -1813,4 +1813,6 @@ export const dict: Dict = {
   "Collab with {names} — also shown in their card": "Collab mit {names} — wird auch auf deren Karte gezeigt",
   "On the MiSD disk “{volume}” — connect it to open": "Auf der MiSD-Platte „{volume}“ — zum Öffnen anstecken",
   "Backed up on “{volume}”": "Gesichert auf „{volume}“",
+  "Body details": "Körperdetails",
+  "Body details — for a person reaching to the edge (a hand, a knee): the picture stays exactly as it is, and the edge is drawn again in high detail so it carries on cleanly. Takes a few times longer": "Körperdetails — wenn eine Person bis an den Rand reicht (eine Hand, ein Knie): Das Bild bleibt genau so, wie es ist, und der Rand wird in hoher Auflösung neu gezeichnet, damit es sauber weitergeht. Dauert ein paarmal länger",
 };

@@ -71,6 +71,7 @@ const SYNCED = [
   "micoll.loop",
   "micoll.removeMode",
   "micoll.expandMode",
+  "micoll.expandPeople",
   "micoll.expandSize",
   "micoll.brushSize",
   "micoll.classFilter",

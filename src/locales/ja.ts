@@ -1793,4 +1793,6 @@ export const dict: Dict = {
   "Collab with {names} — also shown in their card": "{names} とのコラボ — 相手のカードにも表示されます",
   "On the MiSD disk “{volume}” — connect it to open": "MiSD ディスク「{volume}」にあります — 開くには接続してください",
   "Backed up on “{volume}”": "「{volume}」にバックアップ済み",
+  "Body details": "体のディテール",
+  "Body details — for a person reaching to the edge (a hand, a knee): the picture stays exactly as it is, and the edge is drawn again in high detail so it carries on cleanly. Takes a few times longer": "体のディテール — 人物が端まで届いている場合（手やひざなど）：元の画像はそのまま保ち、端を高解像度で描き直してきれいにつなげます。数倍の時間がかかります",
 };

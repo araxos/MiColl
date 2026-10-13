@@ -994,6 +994,8 @@ export async function editExpand(
   seed: number,
   /** Shrink the picture to this size first (the output size), null = as it is. */
   fit: { w: number; h: number } | null,
+  /** HQ only: someone reaches to the edge (body details mode, the picture stays untouched). */
+  people = false,
 ): Promise<string> {
   return invoke<string>("edit_expand", {
     imageB64,
@@ -1005,6 +1007,7 @@ export async function editExpand(
     seed,
     fitW: fit?.w ?? null,
     fitH: fit?.h ?? null,
+    people,
   });
 }
 

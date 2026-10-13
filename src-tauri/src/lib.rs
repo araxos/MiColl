@@ -5983,7 +5983,8 @@ async fn edit_inpaint_ai(
 /// Expand tool: put the image on a width x height canvas at (x, y) and fill the new
 /// border, mode "ai" (LaMa, grows in strips), "hq" (LaMa + Stable Diffusion, drawn with
 /// seed) or "blur" (blurred copy behind it). fit_w x fit_h: shrink the picture to that
-/// first (the editor's output size).
+/// first (the editor's output size). people (HQ only): someone reaches to the edge, see
+/// diffusion::refine_people (the picture stays untouched, the edge is drawn in detail).
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 async fn edit_expand(
@@ -5997,6 +5998,7 @@ async fn edit_expand(
     seed: Option<u64>,
     fit_w: Option<u32>,
     fit_h: Option<u32>,
+    people: Option<bool>,
 ) -> Result<String, String> {
     if width == 0 || height == 0 || width > 16_000 || height > 16_000 {
         return Err("That size is out of range.".into());
@@ -6034,9 +6036,23 @@ async fn edit_expand(
                         serde_json::json!({ "phase": phase, "done": done, "total": total }),
                     );
                 };
-                let laid = ai::outpaint_lama(&data, &img, width, height, x, y, &|d, t| report("layout", d, t))?;
+                let mut laid = ai::outpaint_lama(&data, &img, width, height, x, y, &|d, t| report("layout", d, t))?;
                 // Stable Diffusion loads its files for every run, that takes a few seconds
                 report("loading", 0, 0);
+                if people == Some(true) {
+                    // LaMa's layout blends into the picture's edge: put the picture back
+                    // as it was, people mode never touches it
+                    image::imageops::replace(&mut laid, &img, x as i64, y as i64);
+                    let band = ((width.min(height) as f32 * 0.02).round() as u32).clamp(8, 48);
+                    return edit::encode_png_data_url(&diffusion::refine_people(
+                        &ai::model_path(&data, ai::Model::Sd15),
+                        &laid,
+                        (x, y, img.width(), img.height()),
+                        band,
+                        seed.unwrap_or(7),
+                        &|d, t| report("detail", d, t),
+                    )?);
+                }
                 // SD may blend a bit further into the picture than LaMa (it's drawn at a
                 // lower resolution, a wider fade hides that)
                 let band = ((width.min(height) as f32 * 0.02).round() as u32).clamp(8, 48);
