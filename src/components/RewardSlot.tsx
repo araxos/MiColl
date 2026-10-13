@@ -132,7 +132,13 @@ export function RewardSlot({
                 {t("New")}
               </span>
             )}
-            <span className="pointer-events-none absolute right-2 top-2 flex items-center gap-1">
+            <span
+              className={cn(
+                "pointer-events-none absolute right-2 top-2 flex flex-wrap items-center justify-end gap-1",
+                // many chips wrap to a second row instead of running over NEW on the left
+                showNew && !borrowed ? "max-w-[calc(100%-4rem)]" : "max-w-[calc(100%-1rem)]",
+              )}
+            >
               {isExtra && (
                 // in the badge row with the collab and MiSD chips
                 <span
@@ -142,9 +148,20 @@ export function RewardSlot({
                   {t("Extra")}
                 </span>
               )}
+              {owned && reward.isPartial && (
+                // the user's mark: only part of the release is in the folder
+                <span
+                  className="reward-partial-chip inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide backdrop-blur"
+                  title={t("Partial — only part of this release is in the folder")}
+                >
+                  {t("Partial")}
+                </span>
+              )}
               {!borrowed && !!reward.collabWith?.length && (
                 <span
-                  title={`Collab with ${reward.collabWith.map((c) => c.artistName).join(", ")} — also shown in their card`}
+                  title={tf("Collab with {names} — also shown in their card", {
+                    names: reward.collabWith.map((c) => c.artistName).join(", "),
+                  })}
                   className="collab-chip inline-flex max-w-[8rem] items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold backdrop-blur"
                 >
                   <Users className="h-3 w-3 shrink-0" />

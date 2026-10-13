@@ -39,6 +39,7 @@ interface BReward {
   status: string;
   isRoot: boolean;
   isExtra: boolean;
+  isPartial: boolean;
   imageCount: number;
   sdMarked: boolean;
   sdVolume: string | null;
@@ -235,6 +236,7 @@ function mapReward(r: BReward): Reward {
     status: (r.status as Reward["status"]) ?? "owned",
     isRoot: !!r.isRoot,
     isExtra: !!r.isExtra,
+    isPartial: !!r.isPartial,
     sdMarked: !!r.sdMarked,
     sdVolume: r.sdVolume ?? null,
     sdBackupMarked: !!r.sdBackupMarked,
@@ -1415,6 +1417,11 @@ export async function addWish(
  */
 export async function setRewardsExtra(rewardIds: string[], extra: boolean): Promise<number> {
   return invoke<number>("set_rewards_extra", { rewardIds: rewardIds.map(Number), extra });
+}
+
+/** Mark rewards as partial (only part of the release is there) or complete. */
+export async function setRewardsPartial(rewardIds: string[], partial: boolean): Promise<number> {
+  return invoke<number>("set_rewards_partial", { rewardIds: rewardIds.map(Number), partial });
 }
 
 export async function setWished(rewardId: string, wished: 0 | 1 | 2): Promise<void> {

@@ -17,7 +17,7 @@ import { SdNoticeDialog } from "@/components/SdNoticeDialog";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useData } from "@/store";
 import { useActions } from "@/actions";
-import { setRewardCover, exportFiles, createReward, createMissingReward, ensurePeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, type SdMode } from "@/api/library";
+import { setRewardCover, exportFiles, createReward, createMissingReward, ensurePeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, type SdMode } from "@/api/library";
 import { isTauri } from "@/lib/tauri";
 import { useCardSize } from "@/lib/useCardSize";
 import { useTileShapeFor, type TileScope } from "@/lib/tileShape";
@@ -586,6 +586,20 @@ export function RewardGrid({
     }
   };
 
+  /** Mark rewards as partial (only part of the release is there) or complete, and reload. */
+  const markPartial = async (ids: string[], partial: boolean) => {
+    try {
+      const n = await setRewardsPartial(ids, partial);
+      await refresh();
+      showToast({
+        tone: "success",
+        title: partial ? tf("{n} marked as partial", { n }) : tf("{n} marked as complete", { n }),
+      });
+    } catch (e) {
+      showToast({ tone: "error", title: t("Couldn\u2019t change that"), detail: `${e}` });
+    }
+  };
+
   /** "Patreon · 05.25" for the Details panel (looked up in the store). */
   const whereOf = (monthId: string): string | undefined => {
     for (const a of artists) {
@@ -1105,6 +1119,15 @@ export function RewardGrid({
                     const next = !details.isExtra;
                     void markExtra([details.id], next);
                     setDetails({ ...details, isExtra: next });
+                  }
+                : undefined
+            }
+            onTogglePartial={
+              details.status !== "missing" && !details.collabFrom
+                ? () => {
+                    const next = !details.isPartial;
+                    void markPartial([details.id], next);
+                    setDetails({ ...details, isPartial: next });
                   }
                 : undefined
             }

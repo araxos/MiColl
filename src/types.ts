@@ -84,6 +84,8 @@ export interface Reward {
    * Stays in the month but isn't used for the card mosaic.
    */
   isExtra?: boolean;
+  /** Only part of the release is in the folder (the user's mark, a badge on the tile). */
+  isPartial?: boolean;
   /** Added but never opened -> shows the "new" badge. Cleared when the viewer opens it. */
   fresh?: boolean;
   /** The user put this on the wishlist (template "missing" rewards don't count). */

@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
-import { FolderOpen, Info, Loader2, Sparkles, Users, X } from "lucide-react";
+import { FolderOpen, Info, Loader2, Puzzle, Sparkles, Users, X } from "lucide-react";
 import { mediaStats } from "@/api/library";
 import { isTauri } from "@/lib/tauri";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { cn } from "@/lib/utils";
-import { useT, useTf } from "@/lib/i18n";
+import { useT, useTf, useTp } from "@/lib/i18n";
 import type { Reward } from "@/types";
 
 export function fmtBytes(n: number): string {
@@ -24,7 +24,7 @@ const STATUS: Record<Reward["status"], string> = {
 
 /**
  * Details for one reward folder (like the viewer's per-image Details). Rename/move/MiSD
- * have their own menu entries; the rarer marks live here instead (extra, collab), so the
+ * have their own menu entries; the rarer marks live here instead (extra, partial, collab), so the
  * right-click menu stays short. Size and "last changed" load after opening.
  * Portaled to <body>: inside the page the creator toolbar (platform tabs, Break, Details)
  * covered its top.
@@ -34,6 +34,7 @@ export function RewardDetails({
   where,
   onReveal,
   onToggleExtra,
+  onTogglePartial,
   onCollab,
   onClose,
 }: {
@@ -43,12 +44,15 @@ export function RewardDetails({
   onReveal: () => void;
   /** Mark as extra / not an extra (owned rewards in their own folder). */
   onToggleExtra?: () => void;
+  /** Mark as partial / complete (only part of the release is in the folder). */
+  onTogglePartial?: () => void;
   /** Credit it to other creators too (opens the collab picker). */
   onCollab?: () => void;
   onClose: () => void;
 }) {
   const t = useT();
   const tf = useTf();
+  const tp = useTp();
   const dlg = useDialogTheme();
   const [size, setSize] = useState<number | null>(null);
   const [modified, setModified] = useState<number | null>(null);
@@ -94,14 +98,25 @@ export function RewardDetails({
   }, {});
   const files = reward.images.length
     ? Object.entries(kinds)
-        .map(([k, n]) => `${n} ${k}${n === 1 ? "" : "s"}`)
+        .map(([k, n]) =>
+          k === "image" ? tp("{n} images", n) : k === "video" ? tp("{n} videos", n) : tp("{n} files", n),
+        )
         .join(" · ")
-    : `${reward.imageCount} file${reward.imageCount === 1 ? "" : "s"}`;
+    : tp("{n} files", reward.imageCount);
+
+  // a picked cover: which file it is (and its place, when the files are loaded)
+  const coverName = reward.cover.split(/[\\/]/).pop() || reward.cover;
+  const coverAt = reward.images.findIndex((im) => im.path === reward.cover);
+  const cover = !reward.coverCustom
+    ? t("First file (automatic)")
+    : coverAt >= 0
+      ? `${coverName} (${tf("{i} of {n}", { i: coverAt + 1, n: reward.images.length })})`
+      : coverName;
 
   const sd = reward.sdVolume
-    ? `On the MiSD disk “${reward.sdVolume}” — connect it to open`
+    ? tf("On the MiSD disk “{volume}” — connect it to open", { volume: reward.sdVolume })
     : reward.sdBackup
-      ? `Backed up on “${reward.sdBackup}”${reward.sdBackupAt ? ` · ${reward.sdBackupAt}` : ""}`
+      ? `${tf("Backed up on “{volume}”", { volume: reward.sdBackup })}${reward.sdBackupAt ? ` · ${reward.sdBackupAt}` : ""}`
       : reward.sdMarked
         ? t("Queued for the next MiSD move")
         : reward.sdBackupMarked
@@ -114,9 +129,12 @@ export function RewardDetails({
     [t("Size"), busy && size == null ? "…" : size == null ? "—" : fmtBytes(size)],
     [t("Last changed"), modified ? new Date(modified).toLocaleString() : "—"],
     ...(where ? ([[t("Where"), where]] as [string, string][]) : []),
-    [t("Cover"), reward.coverCustom ? t("Picked by you") : t("First file (automatic)")],
+    [t("Cover"), cover],
     ...(reward.isExtra
       ? ([[t("Extra"), t("Yes — it doesn’t stand in for its month")]] as [string, string][])
+      : []),
+    ...(reward.isPartial
+      ? ([[t("Partial"), t("Yes — only part of the release is here")]] as [string, string][])
       : []),
     ...(reward.collabFrom
       ? ([[t("Collab"), tf("Lives in {name}’s folder", { name: reward.collabFrom.artistName })]] as [
@@ -181,7 +199,7 @@ export function RewardDetails({
                 )}
               >
                 <span className="shrink-0 text-xs uppercase tracking-wide text-zinc-500">{k}</span>
-                <span className="text-right text-sm text-zinc-200">{v}</span>
+                <span className="min-w-0 text-right text-sm text-zinc-200 [overflow-wrap:anywhere]">{v}</span>
               </div>
             ))}
           </div>
@@ -222,7 +240,7 @@ export function RewardDetails({
             </p>
           )}
 
-          {(onToggleExtra || onCollab) && (
+          {(onToggleExtra || onTogglePartial || onCollab) && (
             <div className="mt-4 flex flex-wrap gap-2">
               {onToggleExtra && (
                 <button
@@ -236,6 +254,20 @@ export function RewardDetails({
                 >
                   <Sparkles className={cn("h-4 w-4", reward.isExtra && dlg.accentText)} />
                   {reward.isExtra ? t("Not an extra") : t("Mark as extra")}
+                </button>
+              )}
+              {onTogglePartial && (
+                <button
+                  onClick={onTogglePartial}
+                  title={t("Only part of this release is in the folder — the tile gets a badge")}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-3 py-2 text-sm text-zinc-200 transition-colors",
+                    dlg.field,
+                    dlg.menuRow,
+                  )}
+                >
+                  <Puzzle className={cn("h-4 w-4", reward.isPartial && dlg.accentText)} />
+                  {reward.isPartial ? t("Mark as complete") : t("Mark as partial")}
                 </button>
               )}
               {onCollab && (

@@ -2510,6 +2510,14 @@ pub(crate) mod tests {
         scan_root(&conn, &root).unwrap();
         assert_eq!(extra_of("Sketches"), 0, "a rescan does not re-decide it");
 
+        // "partial" is only ever the user's mark: the library shows it, a rescan keeps it
+        assert_eq!(db::set_rewards_partial(&conn, &[id], true).unwrap(), 1);
+        scan_root(&conn, &root).unwrap();
+        let lib = db::get_library(&conn).unwrap();
+        let rewards: Vec<_> = lib.iter().flat_map(|a| &a.periods).flat_map(|p| &p.rewards).collect();
+        assert!(rewards.iter().find(|r| r.id == id).unwrap().is_partial);
+        assert!(rewards.iter().filter(|r| r.id != id).all(|r| !r.is_partial));
+
         let _ = std::fs::remove_dir_all(&base);
     }
 

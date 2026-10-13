@@ -73,6 +73,8 @@ pub struct Reward {
     /// An extra (sketches, PSDs, wallpapers) next to the real rewards.
     /// Still in the month, but not used for the card mosaic.
     pub is_extra: bool,
+    /// Only part of the release is in the folder (marked by the user, a badge on the tile).
+    pub is_partial: bool,
     /// Number of media files (from a column, so the dashboard doesn't need image rows).
     pub image_count: i64,
     /// MiSD: queued for the next move.
@@ -342,7 +344,8 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             status      TEXT NOT NULL DEFAULT 'owned',
             image_count INTEGER NOT NULL DEFAULT 0,
             is_root     INTEGER NOT NULL DEFAULT 0,
-            is_extra    INTEGER NOT NULL DEFAULT 0
+            is_extra    INTEGER NOT NULL DEFAULT 0,
+            is_partial  INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS images (
@@ -504,6 +507,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let _ = conn.execute("ALTER TABLE images ADD COLUMN phash INTEGER", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN is_root INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN is_extra INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE rewards ADD COLUMN is_partial INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute(
         "ALTER TABLE artists ADD COLUMN wallpaper_fav INTEGER NOT NULL DEFAULT 0",
         [],
@@ -1373,6 +1377,19 @@ pub fn mark_rewards_extra(conn: &Connection, folder_paths: &[String]) -> rusqlit
     Ok(n)
 }
 
+/// Mark rewards as partial (only part of the release is there) or complete again.
+/// Returns how many changed. A rescan keeps it, like is_extra.
+pub fn set_rewards_partial(conn: &Connection, ids: &[i64], partial: bool) -> rusqlite::Result<u32> {
+    let mut n = 0u32;
+    for id in ids {
+        n += conn.execute(
+            "UPDATE rewards SET is_partial = ?2 WHERE id = ?1",
+            params![id, partial as i64],
+        )? as u32;
+    }
+    Ok(n)
+}
+
 /// Remove the "new" badge (when the viewer opens it).
 pub fn mark_reward_seen(conn: &Connection, reward_id: i64) -> rusqlite::Result<()> {
     conn.execute("UPDATE rewards SET fresh = 0 WHERE id = ?1", params![reward_id])?;
@@ -2141,7 +2158,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                     r.is_root, r.image_count, r.sd_marked, r.sd_volume,
                     p.id, p.platform, p.year, p.month, p.number, p.span, p.label, p.folder_path,
                     oa.id, oa.name, r.cover_custom, r.sd_backup, r.sd_backup_at, r.fresh, r.wished,
-                    r.is_extra
+                    r.is_extra, r.is_partial
              FROM reward_collabs c
              JOIN rewards r  ON r.id = c.reward_id
              JOIN periods p  ON p.id = r.period_id
@@ -2167,6 +2184,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                         status: r.get(6)?,
                         is_root: r.get::<_, i64>(7)? != 0,
                         is_extra: r.get::<_, i64>(26)? != 0,
+                        is_partial: r.get::<_, i64>(27)? != 0,
                         image_count: r.get(8)?,
                         sd_marked: r.get::<_, i64>(9)? == 1,
                         sd_volume: r.get(10)?,
@@ -2314,7 +2332,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                 let mut stmt = conn.prepare(
                     "SELECT id, title, category, folder_path, cover_image, status, is_root, image_count,
                             sd_marked, sd_volume, cover_custom, sd_backup, sd_backup_at, fresh, wished,
-                            is_extra
+                            is_extra, is_partial
                      FROM rewards WHERE period_id = ?1
                      ORDER BY category IS NULL DESC, title COLLATE NOCASE",
                 )?;
@@ -2329,6 +2347,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                         status: r.get(5)?,
                         is_root: r.get::<_, i64>(6)? != 0,
                         is_extra: r.get::<_, i64>(15)? != 0,
+                        is_partial: r.get::<_, i64>(16)? != 0,
                         image_count: r.get(7)?,
                         sd_marked: r.get::<_, i64>(8)? == 1,
                         sd_volume: r.get(9)?,

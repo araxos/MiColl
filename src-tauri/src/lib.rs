@@ -9268,6 +9268,15 @@ fn set_rewards_extra(db: State<Db>, reward_ids: Vec<i64>, extra: bool) -> Result
     Ok(n)
 }
 
+/// Mark rewards as partial (only part of the release is in the folder) or complete.
+#[tauri::command]
+fn set_rewards_partial(db: State<Db>, reward_ids: Vec<i64>, partial: bool) -> Result<u32, String> {
+    let conn = db.lock().map_err(map_err)?;
+    let n = db::set_rewards_partial(&conn, &reward_ids, partial).map_err(map_err)?;
+    db::checkpoint(&conn);
+    Ok(n)
+}
+
 /// Stop the running MiSD job (the current reward finishes, the rest stays queued).
 /// No State<Db> on purpose: the job holds the lock, so we couldn't get it until it's done.
 #[tauri::command]
@@ -10126,6 +10135,7 @@ pub fn run() {
             sd_cancel,
             prepare_for_update,
             set_rewards_extra,
+            set_rewards_partial,
             migrate_cover_crops,
             discard_staging,
             open_with_default,
