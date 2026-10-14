@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { documentDir, join } from "@tauri-apps/api/path";
+import { documentDir } from "@tauri-apps/api/path";
+import { collectionDir, rootFromPicked } from "@/lib/collection";
 import {
   AlertTriangle,
   ArrowRight,
@@ -45,7 +46,7 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
   const [chosen, setChosen] = useState<string[]>([]);
   const [custom, setCustom] = useState("");
 
-  // step 2 - managed collection. Off, but Documents\MiColl is already filled in
+  // step 2 - managed collection. Off, but Documents (-> Documents\MiColl) is already filled in
   const [root, setRoot] = useState<string | null>(null);
   const [managedWanted, setManagedWanted] = useState(false);
   const [managedOn, setManagedOn] = useState(false);
@@ -67,7 +68,8 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
   useEffect(() => {
     void (async () => {
       try {
-        const p = await join(await documentDir(), "MiColl");
+        // the root: the files go to <root>\MiColl
+        const p = await documentDir();
         setRoot((r) => r ?? p);
       } catch {
         /* no path API, the user picks one */
@@ -101,7 +103,7 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
       multiple: false,
       title: t("Choose where the MiColl collection should live"),
     });
-    if (typeof picked === "string") setRoot(picked);
+    if (typeof picked === "string") setRoot(rootFromPicked(picked));
   };
 
   /** Turn on the managed collection only if the box is checked. */
@@ -443,7 +445,7 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
                         {t("Collection folder")}
                       </div>
                       <p className="mt-1.5 break-all font-mono text-xs text-zinc-400">
-                        {root ?? t("Choose one below")}
+                        {root ? collectionDir(root) : t("Choose one below")}
                       </p>
                       <button
                         onClick={() => void pickFolder()}

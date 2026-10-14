@@ -34,10 +34,15 @@ export function mediaUrl(absPath: string | null | undefined): string {
   }
 }
 
+// formats the backend can't decode but the webview can: these get the original file
+// as their thumbnail (rare, so the full-size decode doesn't matter)
+const WEBVIEW_ONLY_RE = /\.avif$/i;
+
 /** Thumbnail URL (?thumb=<size>). The backend makes it once and caches it. */
 export function thumbUrl(absPath: string | null | undefined, size = 512): string {
   const base = mediaUrl(absPath);
-  return base ? `${base}?thumb=${size}` : "";
+  if (!base) return "";
+  return WEBVIEW_ONLY_RE.test(absPath ?? "") ? base : `${base}?thumb=${size}`;
 }
 
 /**

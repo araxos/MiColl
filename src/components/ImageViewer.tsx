@@ -25,6 +25,7 @@ import {
   HelpCircle,
   ArrowLeftRight,
   Share2,
+  Copy,
   Info,
   Check,
   Loader2,
@@ -87,6 +88,8 @@ import {
   type PropFields,
   type MetaSummary,
   claimAudioName,
+  copyImageToClipboard,
+  dragOut,
 } from "@/api/library";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { SharePhoneModal } from "@/components/SharePhoneModal";
@@ -244,6 +247,25 @@ const NEXT_ANIM: Record<Anim, Anim> = { cut: "fade", fade: "slide", slide: "cut"
  */
 /** Filmstrip thumbnails loading at the same time (in strip order). */
 const STRIP_PARALLEL = 4;
+
+/** Decode an image in the webview and return it as PNG (null if it can't). */
+function webviewPng(url: string): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const ctx = c.getContext("2d");
+      if (!ctx || !c.width) return resolve(null);
+      ctx.drawImage(img, 0, 0);
+      c.toBlob((b) => resolve(b), "image/png");
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
 
 export function ImageViewer({
   items: rawItems,
@@ -1310,7 +1332,60 @@ export function ImageViewer({
     el?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
   }, [index]);
 
+  /** Copy a picture to the clipboard. AVIF (the backend can't read it) goes via the webview. */
+  const copyPicture = async (p: string) => {
+    try {
+      try {
+        await copyImageToClipboard(p);
+      } catch (err) {
+        const blob = await webviewPng(mediaUrl(p));
+        if (!blob) throw err;
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      }
+      showToast({
+        tone: "success",
+        title: t("Picture copied"),
+        detail: t("Paste it straight into a chat or a document."),
+      });
+    } catch (err) {
+      showToast({ tone: "error", title: t("Couldn’t copy the picture"), problem: String(err) });
+    }
+  };
+
+  // not zoomed in: holding the left button and moving drags the file out (desktop,
+  // Explorer, a chat) as a copy
+  const dragOutRef = useRef<{ x: number; y: number; path: string } | null>(null);
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      const d = dragOutRef.current;
+      if (!d) return;
+      if (!(e.buttons & 1)) {
+        dragOutRef.current = null;
+        return;
+      }
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 8) return;
+      dragOutRef.current = null;
+      dragOut(d.path).catch((err) =>
+        showToast({ tone: "error", title: t("Couldn’t drag the file out"), problem: String(err) }),
+      );
+    };
+    const up = () => {
+      dragOutRef.current = null;
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    return () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const startPan = (e: React.MouseEvent) => {
+    if (e.button === 0 && view.scale <= 1 && isTauri() && curDisplayPath) {
+      dragOutRef.current = { x: e.clientX, y: e.clientY, path: curDisplayPath };
+      return;
+    }
     if (e.button !== 0 || view.scale <= 1) return;
     e.preventDefault();
     panRef.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty };
@@ -1622,6 +1697,17 @@ export function ImageViewer({
             image: !bulkShare && tStill ? target.path : null,
             bulk: bulkShare,
           }),
+      });
+    }
+    if (tStill && target.path && isTauri()) {
+      // the picture as you see it (its active version)
+      const shown = target.id === current.id ? curDisplayPath : tilePath(target);
+      menu.push({
+        label: t("Copy to clipboard"),
+        icon: <Copy className="h-4 w-4" />,
+        onClick: () => {
+          if (shown) void copyPicture(shown);
+        },
       });
     }
     // right-click on a selected item deletes the whole selection, else just this one

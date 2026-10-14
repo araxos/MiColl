@@ -59,6 +59,7 @@ import { ACCENTS, applyAccent, getAccent, useAccent, useLicensee, useTrialUntil,
 import { SALES_OPEN } from "@/lib/sales";
 import { cn } from "@/lib/utils";
 import { isTauri } from "@/lib/tauri";
+import { collectionDir, rootFromPicked } from "@/lib/collection";
 import { version as PKG_VERSION } from "../../package.json";
 import { useT, useTf, useTp } from "@/lib/i18n";
 import { getCardFx, setCardFx } from "@/lib/fx";
@@ -243,7 +244,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
   const upNavigate = useUpNavigate();
   const location = useLocation();
   const { backed, refresh, artists } = useData();
-  const { openMenu } = useActions();
+  const { openMenu, showToast } = useActions();
   const [roots, setRoots] = useState<api.RootDto[]>([]);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -646,12 +647,22 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
       title: t("Choose where the MiColl collection should live"),
     });
     if (typeof picked !== "string") return;
+    const root = rootFromPicked(picked);
     // first choice (or same folder) -> just save. Changing it asks to move the folder too.
-    if (collectionRoot && collectionRoot !== picked) {
-      setPendingRoot(picked);
+    if (collectionRoot && collectionRoot !== root) {
+      setPendingRoot(root);
     } else {
-      setCollectionRoot(picked);
-      await api.setSetting("collection_root", picked);
+      setCollectionRoot(root);
+      await api.setSetting("collection_root", root);
+    }
+  };
+
+  const copyCollectionPath = async () => {
+    try {
+      await navigator.clipboard.writeText(collectionDir(collectionRoot));
+      showToast({ tone: "success", title: t("Copied to clipboard"), detail: collectionDir(collectionRoot) });
+    } catch {
+      /* clipboard refused, nothing to say */
     }
   };
 
@@ -667,10 +678,10 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
       setStatus(
         r.moved
           ? tf("Moved your collection to {path} ({files} re-linked).", {
-              path: `${r.newRoot}\\MiColl`,
+              path: collectionDir(r.newRoot),
               files: tp("{n} files", r.images),
             })
-          : tf("Collection folder set to {path}.", { path: r.newRoot }),
+          : tf("Collection folder set to {path}.", { path: collectionDir(r.newRoot) }),
       );
     } catch (e) {
       setStatus(tf("Error: {error}", { error: String(e) }));
@@ -687,7 +698,9 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     if (!picked) return;
     setCollectionRoot(picked);
     await api.setSetting("collection_root", picked);
-    setStatus(tf("Collection folder set to {path}. Existing files were left in place.", { path: picked }));
+    setStatus(
+      tf("Collection folder set to {path}. Existing files were left in place.", { path: collectionDir(picked) }),
+    );
   };
 
   const doOrganize = async () => {
@@ -2171,13 +2184,21 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                     <div className="mt-4 space-y-3">
                       <div className={cn("glass-box flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950 p-2.5", irid && iriInner)}>
                         <FolderInput className="h-4 w-4 shrink-0 text-zinc-500" />
-                        <span
-                          className={`min-w-0 flex-1 truncate text-sm ${
-                            collectionRoot ? "text-zinc-200" : "text-zinc-500"
-                          }`}
-                        >
-                          {collectionRoot || t("No collection folder chosen yet")}
-                        </span>
+                        {collectionRoot ? (
+                          // the real folder (root\MiColl), a click copies it
+                          <button
+                            type="button"
+                            onClick={() => void copyCollectionPath()}
+                            title={t("Click to copy")}
+                            className="min-w-0 flex-1 truncate text-left text-sm text-zinc-200 hover:text-zinc-50"
+                          >
+                            {collectionDir(collectionRoot)}
+                          </button>
+                        ) : (
+                          <span className="min-w-0 flex-1 truncate text-sm text-zinc-500">
+                            {t("No collection folder chosen yet")}
+                          </span>
+                        )}
                         <Button
                           variant="outline"
                           size="sm"
@@ -2295,7 +2316,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
               {t("This will")} <b>{t("move")}</b>{" "}
               {t("all indexed reward folders into")}{" "}
               <code className={cn(codeChip, "px-1 py-0.5")}>
-                {collectionRoot}\MiColl
+                {collectionDir(collectionRoot)}
               </code>
               {t(
                 ", arranged as Artist / Platform / Year / Month / Reward. Originals are relocated (not copied), so this isn’t auto-undoable.",
@@ -2317,9 +2338,9 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
           body={
             <>
               {t("Relocate your existing collection from")}{" "}
-              <code className={cn(codeChip, "px-1 py-0.5")}>{collectionRoot}\MiColl</code>{" "}
+              <code className={cn(codeChip, "px-1 py-0.5")}>{collectionDir(collectionRoot)}</code>{" "}
               {t("to")}{" "}
-              <code className={cn(codeChip, "px-1 py-0.5")}>{pendingRoot}\MiColl</code>?
+              <code className={cn(codeChip, "px-1 py-0.5")}>{collectionDir(pendingRoot)}</code>?
               {t("The whole folder is")} <b>{t("moved")}</b>{" "}
               {t("(not copied) and every file is re-linked. Choose")}{" "}
               <b>{t("Just switch")}</b>{" "}

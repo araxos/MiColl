@@ -2539,6 +2539,7 @@ dependencies = [
  "walkdir",
  "windows 0.61.3",
  "windows-collections",
+ "windows-core 0.61.2",
  "zeroize",
  "zip 2.4.2",
 ]

@@ -358,7 +358,71 @@ pub fn show_share_sheet(hwnd: isize, paths: Vec<String>, title: String) -> Resul
         .map_err(|e| format!("Couldn’t open the Windows share sheet ({e})."))
 }
 
+/* ---- drag out ------------------------------------------------------- */
+
+#[cfg(windows)]
+mod drag {
+    use windows::core::{implement, Result as WinResult, BOOL, HRESULT, PCWSTR};
+    use windows::Win32::Foundation::{DRAGDROP_S_CANCEL, DRAGDROP_S_DROP, DRAGDROP_S_USEDEFAULTCURSORS, S_OK};
+    use windows::Win32::System::Com::IDataObject;
+    use windows::Win32::System::Ole::{DoDragDrop, IDropSource, IDropSource_Impl, DROPEFFECT, DROPEFFECT_COPY};
+    use windows::Win32::System::SystemServices::{MK_LBUTTON, MODIFIERKEYS_FLAGS};
+    use windows::Win32::UI::Shell::{BHID_DataObject, IShellItem, SHCreateItemFromParsingName};
+
+    /// Ends the drag when the left button is let go, cancels on Escape.
+    #[implement(IDropSource)]
+    struct Source;
+
+    impl IDropSource_Impl for Source_Impl {
+        fn QueryContinueDrag(&self, escape: BOOL, keys: MODIFIERKEYS_FLAGS) -> HRESULT {
+            if escape.as_bool() {
+                DRAGDROP_S_CANCEL
+            } else if (keys & MK_LBUTTON).0 == 0 {
+                DRAGDROP_S_DROP
+            } else {
+                S_OK
+            }
+        }
+
+        fn GiveFeedback(&self, _effect: DROPEFFECT) -> HRESULT {
+            DRAGDROP_S_USEDEFAULTCURSORS
+        }
+    }
+
+    /// Drag one file like Explorer does, but only offer COPY: wherever it lands
+    /// (desktop, a folder, a chat) gets a copy, the original never moves.
+    /// Must run on the window's thread while the left button is held; returns when
+    /// the file is dropped or the drag is cancelled.
+    pub fn drag_file(path: &std::path::Path) -> Result<(), String> {
+        use std::os::windows::ffi::OsStrExt;
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let data = (|| -> WinResult<IDataObject> {
+            unsafe {
+                let item: IShellItem = SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()), None)?;
+                item.BindToHandler(None, &BHID_DataObject)
+            }
+        })();
+        let data = data.map_err(|e| format!("Windows couldn’t pick up the file ({e})."))?;
+        let source: IDropSource = Source.into();
+        let mut effect = DROPEFFECT(0);
+        // DRAGDROP_S_DROP / _CANCEL are both fine, only real errors count
+        let hr = unsafe { DoDragDrop(&data, &source, DROPEFFECT_COPY, &mut effect) };
+        if hr.is_err() {
+            return Err(format!("The drag didn’t start ({hr:?})."));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+pub use drag::drag_file;
+
 /* ---- non-Windows stubs ----------------------------------------------- */
+
+#[cfg(not(windows))]
+pub fn drag_file(_path: &std::path::Path) -> Result<(), String> {
+    Err("Dragging files out is only implemented on Windows.".into())
+}
 
 #[cfg(not(windows))]
 pub fn copy_files(_paths: &[PathBuf]) -> Result<(), String> {

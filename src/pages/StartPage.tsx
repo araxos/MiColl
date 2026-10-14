@@ -1003,19 +1003,22 @@ export function StartPage({ onLock }: { onLock: () => void }) {
             <div>
               <p className="font-medium text-zinc-200">{t("No content yet")}</p>
               <p className="mt-1 text-sm text-zinc-500">
-                {t("Create a creator, or use “Import folder” above to bulk-import one.")}
+                {t("Create a creator, or import a folder to bulk-import one.")}
               </p>
             </div>
-            {/* same button as in the corner */}
-            <Button
-              variant={sakura ? "outline" : "primary"}
-              onClick={() => setAddOpen(true)}
-              disabled={!backed}
-              className={cn(iriLead, sakura && sakChipLead)}
-            >
-              <UserPlus className="h-4 w-4" />
-              {t("Create Card")}
-            </Button>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {/* same button as in the corner */}
+              <Button
+                variant={sakura ? "outline" : "primary"}
+                onClick={() => setAddOpen(true)}
+                disabled={!backed}
+                className={cn(iriLead, sakura && sakChipLead)}
+              >
+                <UserPlus className="h-4 w-4" />
+                {t("Create Card")}
+              </Button>
+              <ImportFolderButton labeled className={cn(iriOutline, sakura && "sak-chip sak-petal-cut")} />
+            </div>
           </div>
         ) : filtered.length === 0 ? (
           <div className="grid place-items-center rounded-2xl border border-dashed border-zinc-800 py-24 text-center">

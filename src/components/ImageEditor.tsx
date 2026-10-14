@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { useT, useTf } from "@/lib/i18n";
 import { isTauri } from "@/lib/tauri";
 import { queuePrefsSync } from "@/lib/prefs";
+import { useActions } from "@/actions";
 import {
   readImage,
   editInpaint,
@@ -216,6 +217,28 @@ interface Rect {
  * crop, resize, cutout, transform and adjust. The working image is a PNG data URL,
  * every edit goes on the undo stack. Save as a copy or as a version.
  */
+// formats the backend decodes itself; anything else (AVIF) is turned into a PNG by the
+// webview first, so every tool works on it. Saving makes a PNG version, the original
+// file stays as it is.
+const EDITABLE_RE = /\.(jpe?g|jfif|png|webp|gif|bmp)$/i;
+
+function viaWebview(dataUrl: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const ctx = c.getContext("2d");
+      if (!ctx || !c.width || !c.height) return reject(new Error("can't decode the image"));
+      ctx.drawImage(img, 0, 0);
+      resolve(c.toDataURL("image/png"));
+    };
+    img.onerror = () => reject(new Error("can't decode the image"));
+    img.src = dataUrl;
+  });
+}
+
 export function ImageEditor({
   path,
   origPath,
@@ -237,6 +260,12 @@ export function ImageEditor({
 }) {
   const t = useT();
   const tf = useTf();
+  const { showToast } = useActions();
+  // a failed step says so instead of just stopping
+  const failed = (title: string, err: unknown) => {
+    console.error(title, err);
+    showToast({ tone: "error", title, problem: String(err) });
+  };
   const versionKey = origPath ?? path;
   const [working, setWorking] = useState<string>("");
   const [original, setOriginal] = useState<string>("");
@@ -407,7 +436,7 @@ export function ImageEditor({
       await aiModelDownload(model);
       setReady((r) => ({ ...r, [model]: true }));
     } catch (err) {
-      console.error("AI model download failed", err);
+      failed(t("Model download failed"), err);
     } finally {
       setDl((d) => ({ ...d, [model]: undefined }));
     }
@@ -467,13 +496,23 @@ export function ImageEditor({
     loadedRef.current = false;
     if (path && isTauri()) {
       readImage(path)
+        .then((d) => (EDITABLE_RE.test(path) ? d : viaWebview(d)))
         .then((d) => {
           if (!alive || loadedRef.current) return;
           loadedRef.current = true;
           setWorking(d);
           setOriginal(d);
         })
-        .catch(() => alive && onCloseRef.current());
+        .catch((err) => {
+          if (!alive) return;
+          showToast({
+            tone: "error",
+            title: t("Couldn’t open this image in the editor"),
+            detail: t("MiColl can’t read this file format."),
+            problem: String(err),
+          });
+          onCloseRef.current();
+        });
     }
     return () => {
       alive = false;
@@ -879,7 +918,7 @@ export function ImageEditor({
       commit(before);
       recomputeHasMask();
     } catch (err) {
-      console.error("detect failed", err);
+      failed(t("Detection failed"), err);
     } finally {
       setBusy(false);
     }
@@ -898,7 +937,7 @@ export function ImageEditor({
       pushWorking(res);
       clearMask();
     } catch (err) {
-      console.error("inpaint failed", err);
+      failed(t("Removing failed"), err);
     } finally {
       setBusy(false);
       setBusyMsg(t("Working…"));
@@ -934,7 +973,7 @@ export function ImageEditor({
         : await editResize(working, targetW, targetH);
       pushWorking(res);
     } catch (err) {
-      console.error("resize failed", err);
+      failed(t("Resizing failed"), err);
     } finally {
       setBusy(false);
       setBusyMsg(t("Working…"));
@@ -1026,7 +1065,7 @@ export function ImageEditor({
       exLastRef.current = mode === "blur" ? null : { ...job, result, mode, people };
       pushWorking(result);
     } catch (err) {
-      console.error("expand failed", err);
+      failed(t("Expanding failed"), err);
     } finally {
       off();
       setBusy(false);
@@ -1065,7 +1104,7 @@ export function ImageEditor({
       await warmModel("isnet", t("Removing background…"));
       pushWorking(await editCutout(working, feather));
     } catch (err) {
-      console.error("cutout failed", err);
+      failed(t("Removing the background failed"), err);
     } finally {
       setBusy(false);
       setBusyMsg(t("Working…"));
@@ -1197,7 +1236,7 @@ export function ImageEditor({
       onSavedVersion?.();
       requestClose();
     } catch (err) {
-      console.error("save version failed", err);
+      failed(t("Couldn’t save the version"), err);
       setBusy(false);
     }
   };
@@ -1216,7 +1255,7 @@ export function ImageEditor({
       onSavedCopy?.(saved);
       requestClose();
     } catch (err) {
-      console.error("save copy failed", err);
+      failed(t("Couldn’t save the copy"), err);
       setBusy(false);
     }
   };

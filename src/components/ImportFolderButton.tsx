@@ -9,7 +9,14 @@ import { useT } from "@/lib/i18n";
  * Runs the same import as dropping a folder onto the window (actions.addRewards): move
  * notice in managed mode, review, organize, encrypt. Needs the desktop app.
  */
-export function ImportFolderButton({ className }: { className?: string }) {
+export function ImportFolderButton({
+  className,
+  labeled = false,
+}: {
+  className?: string;
+  /** text button (empty dashboard) instead of the icon */
+  labeled?: boolean;
+}) {
   const { backed } = useData();
   const { addRewards } = useActions();
   const t = useT();
@@ -19,12 +26,13 @@ export function ImportFolderButton({ className }: { className?: string }) {
   return (
     <Button
       variant="outline"
-      size="icon"
+      size={labeled ? undefined : "icon"}
       onClick={() => void addRewards()}
       className={className}
       title={t("Import folder")}
     >
       <FolderInput className="h-4 w-4" />
+      {labeled && t("Import folder")}
     </Button>
   );
 }

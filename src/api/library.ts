@@ -1293,6 +1293,14 @@ export async function stopSharing(): Promise<void> {
 export async function copyFilesToClipboard(srcs: string[]): Promise<number> {
   return invoke<number>("copy_files_to_clipboard", { srcs });
 }
+/**
+ * Drag a file out of MiColl (Explorer, the desktop, a chat): a native Windows drag that
+ * only offers COPY, so the original never moves. Call while the mouse button is held.
+ */
+export async function dragOut(src: string): Promise<void> {
+  await invoke("drag_out", { src });
+}
+
 /** Put a single still on the clipboard as a picture (for pasting into a chat/editor). */
 export async function copyImageToClipboard(src: string): Promise<void> {
   await invoke("copy_image_to_clipboard", { src });

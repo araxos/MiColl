@@ -8055,6 +8055,36 @@ async fn windows_share(_srcs: Vec<String>, _name: String) -> Result<(), String> 
     Err("The system share sheet is only available on Windows.".into())
 }
 
+/// Drag a file out of the viewer (desktop, Explorer, a chat) as a COPY. The frontend
+/// calls this while the left button is still held. Encrypted files go out as a
+/// decrypted copy from the share stage, like Share does.
+#[tauri::command]
+async fn drag_out(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    dek: State<'_, DekState>,
+    src: String,
+) -> Result<(), String> {
+    let key = session_key(&dek);
+    let dir = share_stage_dir(&app)?;
+    let path = tauri::async_runtime::spawn_blocking(move || wshare::stage(&dir, &[src], key))
+        .await
+        .map_err(|e| e.to_string())??
+        .remove(0);
+    // OLE drag must run on the window's thread, it returns once the file is dropped
+    let (tx, rx) = std::sync::mpsc::channel();
+    window
+        .run_on_main_thread(move || {
+            let _ = tx.send(wshare::drag_file(&path));
+        })
+        .map_err(map_err)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        rx.recv().unwrap_or_else(|_| Err("The drag was interrupted.".into()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /* ---- Volume mixer name ---------------------------------------------- */
 
 /// Rename our audio sessions to "MiColl" in the volume mixer (see audio.rs).
@@ -10194,6 +10224,7 @@ pub fn run() {
             copy_files_to_clipboard,
             copy_image_to_clipboard,
             windows_share,
+            drag_out,
             claim_audio_name,
             export_file,
             export_files,
