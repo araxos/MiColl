@@ -1072,7 +1072,7 @@ function ArtistCardBase({
       <span
         role="button"
         tabIndex={0}
-        title={`Add a folder to ${artist.name} (drag a .zip/.rar/.7z onto the card for archives)`}
+        title={tf("Add a folder to {name} (drag a .zip/.rar/.7z onto the card for archives)", { name: artist.name })}
         onClick={(e) => {
           e.stopPropagation();
           void addRewards({ artist: artist.name, noDates: artist.noDates });
@@ -1178,8 +1178,8 @@ function ArtistCardBase({
                 alt={b.label}
                 title={
                   verifiedPlatforms.has(b.key)
-                    ? `Verified ${b.label} rewards`
-                    : `Contains ${b.label} rewards`
+                    ? tf("Verified {platform} rewards", { platform: b.label })
+                    : tf("Contains {platform} rewards", { platform: b.label })
                 }
                 className={`${b.size} object-contain drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]`}
               />

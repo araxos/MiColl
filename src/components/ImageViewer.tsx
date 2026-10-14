@@ -536,7 +536,7 @@ export function ImageViewer({
       await refresh();
       showToast({
         tone: "success",
-        title: next ? `Added to “${name}”` : `Removed from “${name}”`,
+        title: next ? tf("Added to “{name}”", { name }) : tf("Removed from “{name}”", { name }),
       });
     } catch (e) {
       showToast({ tone: "error", title: t("Couldn’t update collection"), detail: `${e}` });
@@ -593,7 +593,7 @@ export function ImageViewer({
     try {
       const n = await moveImages(ids, rewardId);
       await refresh();
-      showToast({ tone: "success", title: `Moved ${n} file${n === 1 ? "" : "s"}` });
+      showToast({ tone: "success", title: tf("Moved {what}", { what: tp("{n} files", n) }) });
       onClose();
     } catch (e) {
       showToast({ tone: "error", title: t("Couldn’t move"), detail: `${e}` });
@@ -645,7 +645,7 @@ export function ImageViewer({
   const bundleName = (count: number) => {
     const { creator, reward } = rewardInfo();
     const stem = [creator, reward].filter(Boolean).join(" - ");
-    return stem ? `${stem} (${count})` : `${count} photo${count === 1 ? "" : "s"}`;
+    return stem ? `${stem} (${count})` : tp("{n} photos", count);
   };
   /** MEGA rename base: creator_reward if known. */
   const renameBase = () => {
@@ -669,7 +669,7 @@ export function ImageViewer({
     if (typeof dir !== "string") return;
     try {
       const n = await exportFiles(srcs, dir, name);
-      showToast({ tone: "success", title: `Saved ${n} file${n === 1 ? "" : "s"}`, detail: `${dir}\\${name}` });
+      showToast({ tone: "success", title: tf("Saved {what}", { what: tp("{n} files", n) }), detail: `${dir}\\${name}` });
     } catch (e) {
       showToast({ tone: "error", title: t("Couldn’t save a copy"), detail: `${e}` });
     }
@@ -692,7 +692,7 @@ export function ImageViewer({
       const n = await clearFileProps(srcs, fields);
       showToast({
         tone: "success",
-        title: `Cleared metadata from ${n} file${n === 1 ? "" : "s"}`,
+        title: tf("Cleared metadata from {what}", { what: tp("{n} files", n) }),
       });
       setSelected(new Set());
       setSelectMode(false);
@@ -1384,7 +1384,7 @@ export function ImageViewer({
         coverRow(
           t("Creator cover"),
           creatorCoverAspect,
-          `${creatorShape.label} ${creatorShape.ratio}`,
+          `${t(creatorShape.label)} ${creatorShape.ratio}`,
           (p) => setArtistPreview(coverTargets.artistId!, p),
         ),
       );
@@ -1798,7 +1798,7 @@ export function ImageViewer({
                       <VersionRow
                         key={v.id}
                         active={curVer?.activeId === v.id}
-                        label={v.label || `Edit ${i + 1}`}
+                        label={v.label || tf("Edit {n}", { n: i + 1 })}
                         sub={v.createdAt ?? undefined}
                         onClick={() => void switchVersion(v.id)}
                         onDelete={() => void removeVersion(v.id)}

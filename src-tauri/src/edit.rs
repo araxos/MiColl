@@ -941,6 +941,7 @@ fn color_dist2(a: [f32; 3], b: [f32; 3]) -> f32 {
 /// Two checks inside the brush:
 ///   1. color outlier - far from every background color (solid objects)
 ///   2. local contrast - stands out from its blurred surroundings (thin text)
+///
 /// Either one counts. A small close connects strokes. If the result is unclear
 /// (almost nothing / almost everything) the brush is kept.
 /// strength (0..1, ~0.5) = more sensitive when higher.
@@ -1078,7 +1079,7 @@ pub fn detect_object(img: &RgbaImage, rough: &GrayImage, strength: f32) -> GrayI
 
     // unclear -> keep the user's brush
     let frac = obj_count as f64 / rough_count as f64;
-    if frac < 0.008 || frac > 0.985 {
+    if !(0.008..=0.985).contains(&frac) {
         return rough.clone();
     }
 

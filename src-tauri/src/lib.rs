@@ -703,6 +703,7 @@ fn sweep_import_staging(conn: &rusqlite::Connection) {
 ///   max_age (an unpack could be running);
 /// - it only ever calls remove_dir, which refuses a folder that isn't empty, so no file
 ///   can be deleted here even by mistake.
+///
 /// Returns how many runs were removed.
 fn sweep_empty_unpacked(
     conn: &rusqlite::Connection,
@@ -742,7 +743,7 @@ fn sweep_empty_unpacked(
         if !only_dirs || db::any_reward_under(conn, &run.to_string_lossy()).unwrap_or(true) {
             continue;
         }
-        dirs.sort_by(|a, b| b.0.cmp(&a.0));
+        dirs.sort_by_key(|d| std::cmp::Reverse(d.0));
         for (_, d) in &dirs {
             let _ = std::fs::remove_dir(d);
         }
@@ -1735,13 +1736,10 @@ async fn library_sizes(db: State<'_, Db>) -> Result<Vec<ArtistBytes>, String> {
                 bytes: 0,
                 files: 0,
             });
-            match std::fs::metadata(&p) {
-                // unreadable files count as 0 (the creator stays in the sort)
-                Ok(md) => {
-                    e.bytes += md.len();
-                    e.files += 1;
-                }
-                Err(_) => {}
+            // unreadable files count as 0 (the creator stays in the sort)
+            if let Ok(md) = std::fs::metadata(&p) {
+                e.bytes += md.len();
+                e.files += 1;
             }
         }
         by_artist.into_values().collect()
@@ -3069,7 +3067,7 @@ async fn library_size(db: State<'_, Db>) -> Result<u64, String> {
         let conn = db.lock().map_err(map_err)?;
         db::all_image_paths(&conn).map_err(map_err)?
     };
-    Ok(tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || {
         paths
             .iter()
             .filter_map(|p| std::fs::metadata(p).ok())
@@ -3077,7 +3075,7 @@ async fn library_size(db: State<'_, Db>) -> Result<u64, String> {
             .sum::<u64>()
     })
     .await
-    .map_err(|e| e.to_string())?)
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -3875,7 +3873,7 @@ fn rename_rewards_in(conn: &rusqlite::Connection, items: &[RenameItem], log: boo
     }
     let mut jobs: Vec<Job> = Vec::new();
     for it in items {
-        let (cur_title, folder) = db::reward_title_folder(&conn, it.id)
+        let (cur_title, folder) = db::reward_title_folder(conn, it.id)
             .map_err(map_err)?
             .ok_or("Reward not found.")?;
         let title = it.name.trim().to_string();
@@ -3896,7 +3894,7 @@ fn rename_rewards_in(conn: &rusqlite::Connection, items: &[RenameItem], log: boo
         if std::path::Path::new(&j.old_folder).exists() {
             std::fs::rename(&j.old_folder, &temp).map_err(map_err)?;
         }
-        db::apply_reward_rename(&conn, j.id, &j.cur_title, &j.old_folder, &temp.to_string_lossy())
+        db::apply_reward_rename(conn, j.id, &j.cur_title, &j.old_folder, &temp.to_string_lossy())
             .map_err(map_err)?;
         temps.push((i, temp.to_string_lossy().to_string()));
     }
@@ -3909,7 +3907,7 @@ fn rename_rewards_in(conn: &rusqlite::Connection, items: &[RenameItem], log: boo
             std::fs::rename(&temp, &target).map_err(map_err)?;
         }
         let target_s = target.to_string_lossy().to_string();
-        db::apply_reward_rename(&conn, j.id, &j.final_title, &temp, &target_s)
+        db::apply_reward_rename(conn, j.id, &j.final_title, &temp, &target_s)
             .map_err(map_err)?;
         finals.push((i, target_s));
     }
@@ -3931,14 +3929,14 @@ fn rename_rewards_in(conn: &rusqlite::Connection, items: &[RenameItem], log: boo
         if stale {
             let (_imgs, derived) = indexer::collect_reward_images(std::path::Path::new(target));
             if let Some(c) = derived {
-                db::set_reward_cover(&conn, id, &c).map_err(map_err)?;
+                db::set_reward_cover(conn, id, &c).map_err(map_err)?;
             }
         }
     }
     let (artist, place) = jobs
         .first()
-        .and_then(|j| db::reward_scope(&conn, j.id).ok().flatten())
-        .map(|(_, _, pid)| period_place(&conn, pid))
+        .and_then(|j| db::reward_scope(conn, j.id).ok().flatten())
+        .map(|(_, _, pid)| period_place(conn, pid))
         .unwrap_or((None, None));
     let items = finals
         .iter()
@@ -3957,7 +3955,7 @@ fn rename_rewards_in(conn: &rusqlite::Connection, items: &[RenameItem], log: boo
         .collect();
     if log {
         history::log(
-            &conn,
+            conn,
             history::Entry { action: "rename", kind: "reward", artist, place, files: history::Files::None, items },
         );
     }
@@ -3984,7 +3982,7 @@ fn rename_images_in(conn: &rusqlite::Connection, items: &[RenameItem], log: bool
     }
     let mut jobs: Vec<Job> = Vec::new();
     for it in items {
-        let (path, rel, _rid) = db::image_row(&conn, it.id).map_err(map_err)?.ok_or("Image not found.")?;
+        let (path, rel, _rid) = db::image_row(conn, it.id).map_err(map_err)?.ok_or("Image not found.")?;
         let stem = sanitize_name(it.name.trim());
         if stem.is_empty() {
             return Err("Name can’t be empty.".into());
@@ -4010,7 +4008,7 @@ fn rename_images_in(conn: &rusqlite::Connection, items: &[RenameItem], log: bool
         }
         let temp_s = temp.to_string_lossy().to_string();
         let temp_rel = replace_last_segment(&j.old_rel, "__micoll_tmp");
-        db::apply_image_rename(&conn, j.id, &j.old_path, &temp_s, &temp_rel).map_err(map_err)?;
+        db::apply_image_rename(conn, j.id, &j.old_path, &temp_s, &temp_rel).map_err(map_err)?;
         temps.push((i, temp_s));
     }
     // phase 2 -> final
@@ -4026,7 +4024,7 @@ fn rename_images_in(conn: &rusqlite::Connection, items: &[RenameItem], log: bool
             &j.old_rel,
             target.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default().as_str(),
         );
-        db::apply_image_rename(&conn, j.id, &temp, &target_s, &new_rel).map_err(map_err)?;
+        db::apply_image_rename(conn, j.id, &temp, &target_s, &new_rel).map_err(map_err)?;
         if target_s != j.old_path {
             renamed.push(history::Item {
                 name: file_name_of(&target_s),
@@ -4040,12 +4038,12 @@ fn rename_images_in(conn: &rusqlite::Connection, items: &[RenameItem], log: bool
     }
     let (artist, place) = jobs
         .first()
-        .and_then(|j| db::image_row(&conn, j.id).ok().flatten())
-        .map(|(_, _, rid)| reward_place(&conn, rid))
+        .and_then(|j| db::image_row(conn, j.id).ok().flatten())
+        .map(|(_, _, rid)| reward_place(conn, rid))
         .unwrap_or((None, None));
     if log {
         history::log(
-            &conn,
+            conn,
             history::Entry { action: "rename", kind: "image", artist, place, files: history::Files::None, items: renamed },
         );
     }
@@ -4699,7 +4697,7 @@ fn artist_dir_on_disk(
             .ok()
             .flatten()
             .filter(|s| !s.trim().is_empty())
-            .map(|c| managed_artist_dir(&conn, &c, name));
+            .map(|c| managed_artist_dir(conn, &c, name));
     }
     None
 }
@@ -4729,20 +4727,20 @@ fn rename_artist_in(
     if new_name.is_empty() {
         return Err("Enter a name.".into());
     }
-    let (old_name, _) = db::artist_info(&conn, artist_id)
+    let (old_name, _) = db::artist_info(conn, artist_id)
         .map_err(map_err)?
         .ok_or("Creator not found.")?;
     if old_name == new_name {
         return Ok(()); // nothing changed
     }
     // only block if a DIFFERENT creator has the name (case changes are fine)
-    if db::artist_name_taken(&conn, &new_name, artist_id).map_err(map_err)? {
+    if db::artist_name_taken(conn, &new_name, artist_id).map_err(map_err)? {
         return Err(format!("A creator named “{new_name}” already exists."));
     }
 
     // rename the folder and update paths if we can find it
     let mut moved_dir: Option<(String, String)> = None;
-    if let Some(old_dir) = artist_dir_on_disk(&conn, artist_id, &old_name) {
+    if let Some(old_dir) = artist_dir_on_disk(conn, artist_id, &old_name) {
         if old_dir.is_dir() {
             let new_dir = old_dir
                 .parent()
@@ -4761,17 +4759,17 @@ fn rename_artist_in(
             }
             if old_s != new_s {
                 move_tree(&old_dir, &new_dir).map_err(map_err)?;
-                db::relink_prefix(&conn, &old_s, &new_s).map_err(map_err)?;
-                allow_asset_dir(&app, &new_s);
+                db::relink_prefix(conn, &old_s, &new_s).map_err(map_err)?;
+                allow_asset_dir(app, &new_s);
                 moved_dir = Some((old_s, new_s));
             }
         }
     }
 
-    db::rename_artist(&conn, artist_id, &new_name).map_err(map_err)?;
+    db::rename_artist(conn, artist_id, &new_name).map_err(map_err)?;
     if log {
         history::log(
-            &conn,
+            conn,
             history::Entry {
                 action: "rename",
                 kind: "artist",
@@ -4789,7 +4787,7 @@ fn rename_artist_in(
             },
         );
     }
-    db::checkpoint(&conn);
+    db::checkpoint(conn);
     Ok(())
 }
 
@@ -6895,7 +6893,7 @@ async fn run_sweep(
                 errors += 1;
             }
             done += 1;
-            if done % 8 == 0 || done == total {
+            if done.is_multiple_of(8) || done == total {
                 let _ = app2.emit(
                     "encrypt-progress",
                     serde_json::json!({ "done": done, "total": total, "errors": errors, "encrypt": encrypt }),
@@ -7120,8 +7118,6 @@ fn db_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(app_data(app)?.join("micoll.db"))
 }
 
-/// Write a clean snapshot of the database to dest (artists, tags, notes, templates,
-/// covers, settings, encryption), not the media files.
 /* ---- automatic daily snapshots --------------------------------------- */
 
 /// Does the daily backup run at startup? Missing = on.
@@ -7246,6 +7242,8 @@ fn reveal_backups(app: AppHandle) -> Result<(), String> {
     open_dir(&dir)
 }
 
+/// Write a clean snapshot of the database to dest (artists, tags, notes, templates,
+/// covers, settings, encryption), not the media files.
 #[tauri::command]
 fn backup_database(db: State<Db>, dest: String) -> Result<(), String> {
     let conn = db.lock().map_err(map_err)?;
@@ -8495,7 +8493,7 @@ async fn media_dimensions(
     paths: Vec<String>,
 ) -> Result<Vec<(u32, u32)>, String> {
     let key = session_key(&dek);
-    Ok(tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || {
         paths
             .iter()
             .map(|s| {
@@ -8527,7 +8525,7 @@ async fn media_dimensions(
             .collect()
     })
     .await
-    .map_err(|e| e.to_string())?)
+    .map_err(|e| e.to_string())
 }
 
 /// Upload to MEGA with optional shrinking and progress. Files are staged (decrypted
@@ -8904,7 +8902,7 @@ fn list_templates(app: AppHandle, db: State<Db>) -> Result<Vec<TemplatePreview>,
         }
         out.push(p);
     }
-    out.sort_by(|a, b| a.artist.to_lowercase().cmp(&b.artist.to_lowercase()));
+    out.sort_by_key(|a| a.artist.to_lowercase());
     Ok(out)
 }
 
@@ -9365,7 +9363,7 @@ fn reconcile_dropped_rewards(
         let kept = keep.get(key);
         let stale: std::collections::HashSet<&String> = old_titles
             .iter()
-            .filter(|t| kept.map_or(true, |ks| !ks.contains(*t)))
+            .filter(|t| kept.is_none_or(|ks| !ks.contains(*t)))
             .collect();
         if stale.is_empty() {
             continue;
@@ -9678,7 +9676,7 @@ async fn find_duplicates(
                     .then(b.bytes.cmp(&a.bytes))
             });
         }
-        out.sort_by(|a, b| b.len().cmp(&a.len()));
+        out.sort_by_key(|g| std::cmp::Reverse(g.len()));
         return Ok(out);
     }
 
@@ -9730,7 +9728,7 @@ async fn find_duplicates(
         }
     }
     let mut out: Vec<Vec<DupImage>> = groups.into_values().filter(|g| g.len() > 1).collect();
-    out.sort_by(|a, b| b.len().cmp(&a.len()));
+    out.sort_by_key(|g| std::cmp::Reverse(g.len()));
     Ok(out)
 }
 
@@ -9769,7 +9767,7 @@ async fn storage_breakdown(db: State<'_, Db>) -> Result<Vec<ArtistStorage>, Stri
                 files,
             })
             .collect();
-        v.sort_by(|a, b| b.bytes.cmp(&a.bytes));
+        v.sort_by_key(|e| std::cmp::Reverse(e.bytes));
         v
     })
     .await

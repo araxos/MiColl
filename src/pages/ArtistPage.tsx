@@ -575,7 +575,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
       showToast({
         tone: "success",
         title: t("Wallpaper slideshow set"),
-        detail: `${paths.length} favourite${paths.length === 1 ? "" : "s"} from ${artist.name}`,
+        detail: tf("{what} from {name}", { what: tp("{n} favourites", paths.length), name: artist.name }),
       });
     } catch (e) {
       showToast({ tone: "error", title: t("Couldn’t set wallpaper"), detail: `${e}` });
@@ -672,7 +672,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
       showToast({
         tone: "success",
         title: t("Wallpaper slideshow set"),
-        detail: `${paths.length} image${paths.length === 1 ? "" : "s"} from “${c.name}”`,
+        detail: tf("{what} from {name}", { what: tp("{n} images", paths.length), name: c.name }),
       });
     } catch (e) {
       showToast({ tone: "error", title: t("Couldn’t set wallpaper"), detail: `${e}` });

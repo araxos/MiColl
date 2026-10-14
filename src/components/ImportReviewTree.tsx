@@ -1361,8 +1361,17 @@ export function ImportReviewTree({
                                       onClick={doBundle}
                                       title={
                                         ancRow
-                                          ? `Fold ${bundleKids.length} reward${bundleKids.length === 1 ? "" : "s"} into “${ancRow.title || baseName(ancRow.folder)}” — they'll show as groups inside it in the viewer (undo via the toggle on that row)`
-                                          : `Bundle these ${period.rows.length} rewards into ONE reward — they'll show as groups inside it in the viewer (undo via the toggle on the bundled row)`
+                                          ? tf(
+                                              "Fold {rewards} into “{name}” — they’ll show as groups inside it in the viewer (undo via the toggle on that row)",
+                                              {
+                                                rewards: tp("{n} rewards", bundleKids.length),
+                                                name: ancRow.title || baseName(ancRow.folder),
+                                              },
+                                            )
+                                          : tf(
+                                              "Bundle these {n} rewards into ONE reward — they’ll show as groups inside it in the viewer (undo via the toggle on the bundled row)",
+                                              { n: period.rows.length },
+                                            )
                                       }
                                       className="inline-flex items-center gap-1 rounded-md border border-dashed border-brand-500/50 bg-brand-500/5 px-1.5 py-0.5 text-brand-200 transition-colors hover:bg-brand-500/15"
                                     >
@@ -1384,9 +1393,10 @@ export function ImportReviewTree({
                                     {r.root ? (
                                       <button
                                         onClick={() => patchRow(r.folder, { root: false })}
-                                        title={`Files go straight into “${period.label}” (was “${baseName(
-                                          r.folder,
-                                        )}”). Click to give it a named folder again.`}
+                                        title={tf(
+                                          "Files go straight into “{period}” (was “{name}”). Click to give it a named folder again.",
+                                          { period: period.label, name: baseName(r.folder) },
+                                        )}
                                         className={cn(
                                           "flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-dashed px-2 text-left text-xs text-zinc-500 hover:brightness-125",
                                           softClass,
@@ -1504,7 +1514,9 @@ export function ImportReviewTree({
                                           onClick={() =>
                                             patchRow(r.folder, { creator: r.promotedFrom!, promotedFrom: null })
                                           }
-                                          title={`Undo “this is a creator” — file it back under “${r.promotedFrom}” as a reward`}
+                                          title={tf("Undo “this is a creator” — file it back under “{name}” as a reward", {
+                                            name: r.promotedFrom!,
+                                          })}
                                           className="rounded-md bg-brand-500/15 p-1 text-brand-200 hover:bg-brand-500/25"
                                         >
                                           <Undo2 className="h-3.5 w-3.5" />
@@ -1523,8 +1535,14 @@ export function ImportReviewTree({
                                         onClick={() => toggleFoldChildren(r, !folded)}
                                         title={
                                           folded
-                                            ? `The ${foldedKids.length} subfolder reward${foldedKids.length === 1 ? "" : "s"} show INSIDE this reward (one card, grouped in the viewer). Click to import them as separate cards.`
-                                            : `This folder contains ${kids.length} subfolder reward${kids.length === 1 ? "" : "s"}. Click to show them inside this reward instead of as separate cards.`
+                                            ? tf(
+                                                "The {rewards} show INSIDE this reward (one card, grouped in the viewer). Click to import them as separate cards.",
+                                                { rewards: tp("{n} subfolder rewards", foldedKids.length) },
+                                              )
+                                            : tf(
+                                                "This folder contains {rewards}. Click to show them inside this reward instead of as separate cards.",
+                                                { rewards: tp("{n} subfolder rewards", kids.length) },
+                                              )
                                         }
                                         className={cn(
                                           "rounded-md p-1",

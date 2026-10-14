@@ -89,18 +89,22 @@ export function WindowControls({ menus = true }: { menus?: boolean }) {
       onDoubleClick={winBtnDouble}
       {...ctx(() => [
         {
-          label: `Change default to ${other}`,
+          label: other === "minimize" ? t("Change default to minimize") : t("Change default to close"),
           icon: other === "minimize" ? <Minus className="h-4 w-4" /> : <X className="h-4 w-4" />,
           onClick: toggleCloseAction,
         },
-        { label: `Double-click to ${other}`, info: true },
+        { label: other === "minimize" ? t("Double-click to minimize") : t("Double-click to close"), info: true },
         {
           label: t("Show both window buttons"),
           icon: <Columns2 className="h-4 w-4" />,
           onClick: toggleWindowButtons,
         },
       ])}
-      title={`${closeAction === "close" ? "Close MiColl" : "Minimize"} (double-click to ${other}, right-click for options)`}
+      title={
+        closeAction === "close"
+          ? t("Close MiColl (double-click to minimize, right-click for options)")
+          : t("Minimize (double-click to close, right-click for options)")
+      }
       className={
         closeAction === "close"
           ? "hover:bg-rose-500/20 hover:text-rose-200"

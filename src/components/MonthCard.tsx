@@ -470,7 +470,7 @@ function MonthCardBase({
       sdItems.push(
         sdQueued > 0
           ? {
-              label: `Unmark move (${sdQueued})`,
+              label: tf("Unmark move ({n})", { n: sdQueued }),
               icon: <HardDrive className="h-4 w-4" />,
               onClick: () =>
                 void sdMark({ periodId: Number(month.id), marked: false }).then(() => refresh()),
@@ -483,7 +483,7 @@ function MonthCardBase({
             },
         sdBackupQueued > 0
           ? {
-              label: `Unmark backup (${sdBackupQueued})`,
+              label: tf("Unmark backup ({n})", { n: sdBackupQueued }),
               icon: <DatabaseBackup className="h-4 w-4" />,
               onClick: () =>
                 void sdMark({ periodId: Number(month.id), marked: false, mode: "backup" }).then(
@@ -502,7 +502,7 @@ function MonthCardBase({
     }
     if (backed && sdBackedUp.length) {
       sdItems.push({
-        label: `Remove backup (${sdBackedUp.length})`,
+        label: tf("Remove backup ({n})", { n: sdBackedUp.length }),
         icon: <DatabaseBackup className="h-4 w-4" />,
         danger: true,
         onClick: () =>
@@ -512,7 +512,7 @@ function MonthCardBase({
                 s.failed
                   ? {
                       tone: "warn",
-                      title: `MiSD: removed ${s.moved} backups, ${s.failed} failed`,
+                      title: tf("MiSD: removed {moved} backups, {failed} failed", { moved: s.moved, failed: s.failed }),
                       detail: s.errors.slice(0, 3).join(" · "),
                     }
                   : {
@@ -528,7 +528,7 @@ function MonthCardBase({
     }
     if (backed && sdOn.length) {
       sdItems.push({
-        label: `Bring back (${sdOn.length})`,
+        label: tf("Bring back ({n})", { n: sdOn.length }),
         icon: <HardDrive className="h-4 w-4" />,
         onClick: () => void bringBackFromSd(sdOn.map((r) => Number(r.id))),
       });

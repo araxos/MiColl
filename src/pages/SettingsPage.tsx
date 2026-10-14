@@ -60,7 +60,7 @@ import { SALES_OPEN } from "@/lib/sales";
 import { cn } from "@/lib/utils";
 import { isTauri } from "@/lib/tauri";
 import { version as PKG_VERSION } from "../../package.json";
-import { useT, useTf } from "@/lib/i18n";
+import { useT, useTf, useTp } from "@/lib/i18n";
 import { getCardFx, setCardFx } from "@/lib/fx";
 import { getHoloFreq, setHoloFreq, HOLO_FREQ_LABELS, type HoloFreq } from "@/lib/holoFreq";
 import { getGlassButtons, setGlassButtons } from "@/lib/glassButtons";
@@ -239,6 +239,7 @@ const SECTIONS: NavSection[] = [
 export function SettingsPage({ onLock }: { onLock: () => void }) {
   const t = useT();
   const tf = useTf();
+  const tp = useTp();
   const upNavigate = useUpNavigate();
   const location = useLocation();
   const { backed, refresh, artists } = useData();
@@ -525,7 +526,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     setCloseToTrayOn(on);
     api.setCloseToTray(on).catch((e) => {
       setCloseToTrayOn(!on); // the tray couldn't be built — don't claim it worked
-      setStatus(`Couldn’t change the tray option: ${e}`);
+      setStatus(tf("Couldn’t change the tray option: {error}", { error: String(e) }));
     });
   };
   // which file MEGA uploads by default (saved in the DB)
@@ -665,11 +666,14 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
       await Promise.all([loadRoots(), refresh()]);
       setStatus(
         r.moved
-          ? `Moved your collection to ${r.newRoot}\\MiColl (${r.images} file${r.images === 1 ? "" : "s"} re-linked).`
-          : `Collection folder set to ${r.newRoot}.`,
+          ? tf("Moved your collection to {path} ({files} re-linked).", {
+              path: `${r.newRoot}\\MiColl`,
+              files: tp("{n} files", r.images),
+            })
+          : tf("Collection folder set to {path}.", { path: r.newRoot }),
       );
     } catch (e) {
-      setStatus(`Error: ${e}`);
+      setStatus(tf("Error: {error}", { error: String(e) }));
     } finally {
       setBusy(false);
       setPendingRoot(null);
@@ -683,7 +687,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     if (!picked) return;
     setCollectionRoot(picked);
     await api.setSetting("collection_root", picked);
-    setStatus(`Collection folder set to ${picked}. Existing files were left in place.`);
+    setStatus(tf("Collection folder set to {path}. Existing files were left in place.", { path: picked }));
   };
 
   const doOrganize = async () => {
@@ -699,7 +703,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
           (s.failed ? `, failed ${s.failed} (${s.errors.join("; ")})` : "."),
       );
     } catch (e) {
-      setStatus(`Error: ${e}`);
+      setStatus(tf("Error: {error}", { error: String(e) }));
     } finally {
       setBusy(false);
       setConfirmOrganize(false);
@@ -716,7 +720,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
       setSource(picked);
       setReview(plan);
     } catch (e) {
-      setStatus(`Error: ${e}`);
+      setStatus(tf("Error: {error}", { error: String(e) }));
     } finally {
       setBusy(false);
     }
@@ -739,12 +743,20 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
       await Promise.all([loadRoots(), refresh()]);
       setStatus(
         managed && collectionRoot
-          ? `Imported & moved ${s.rewards} reward(s) into your collection.`
-          : `Imported ${s.rewards} reward(s) across ${s.artists} artist(s)` +
-              (s.needsReview ? ` — ${s.needsReview} still need a platform.` : "."),
+          ? tf("Imported & moved {rewards} into your collection.", { rewards: tp("{n} rewards", s.rewards) })
+          : s.needsReview
+            ? tf("Imported {rewards} across {creators} — {n} still need a platform.", {
+                rewards: tp("{n} rewards", s.rewards),
+                creators: tp("{n} creators", s.artists),
+                n: s.needsReview,
+              })
+            : tf("Imported {rewards} across {creators}.", {
+                rewards: tp("{n} rewards", s.rewards),
+                creators: tp("{n} creators", s.artists),
+              }),
       );
     } catch (e) {
-      setStatus(`Error: ${e}`);
+      setStatus(tf("Error: {error}", { error: String(e) }));
     } finally {
       setBusy(false);
     }
@@ -756,9 +768,15 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     try {
       const s = await api.rescan();
       await refresh();
-      setStatus(`Rescanned: ${s.artists} artist(s), ${s.rewards} reward(s), ${s.images} image(s).`);
+      setStatus(
+        tf("Rescanned: {creators}, {rewards}, {images}.", {
+          creators: tp("{n} creators", s.artists),
+          rewards: tp("{n} rewards", s.rewards),
+          images: tp("{n} images", s.images),
+        }),
+      );
     } catch (e) {
-      setStatus(`Error: ${e}`);
+      setStatus(tf("Error: {error}", { error: String(e) }));
     } finally {
       setBusy(false);
     }
@@ -771,10 +789,14 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
       const s = await api.rescanCollection();
       await Promise.all([loadRoots(), refresh()]);
       setStatus(
-        `Rescanned collection: ${s.artists} artist(s), ${s.rewards} reward(s), ${s.images} image(s).`,
+        tf("Rescanned collection: {creators}, {rewards}, {images}.", {
+          creators: tp("{n} creators", s.artists),
+          rewards: tp("{n} rewards", s.rewards),
+          images: tp("{n} images", s.images),
+        }),
       );
     } catch (e) {
-      setStatus(`Error: ${e}`);
+      setStatus(tf("Error: {error}", { error: String(e) }));
     } finally {
       setBusy(false);
     }
@@ -798,7 +820,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
       await refresh();
       setStatus(n > 0 ? t("Missing covers reset.") : t("No missing covers found."));
     } catch (e) {
-      setStatus(`Error: ${e}`);
+      setStatus(tf("Error: {error}", { error: String(e) }));
     } finally {
       setBusy(false);
       setConfirmCovers(false);
@@ -813,7 +835,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
       await Promise.all([loadRoots(), refresh()]);
       setStatus("Library cleared. Add a folder to import fresh.");
     } catch (e) {
-      setStatus(`Error: ${e}`);
+      setStatus(tf("Error: {error}", { error: String(e) }));
     } finally {
       setBusy(false);
       setConfirmClear(false);
@@ -1570,7 +1592,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                     <button
                       key={s.key}
                       onClick={() => changeTileShape(scope.key, s.key)}
-                      title={s.hint}
+                      title={t(s.hint)}
                       aria-pressed={on}
                       className={cn(
                         "flex min-w-0 items-center gap-2 px-2.5 py-2 text-left transition-colors",

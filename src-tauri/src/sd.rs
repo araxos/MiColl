@@ -142,7 +142,7 @@ pub const PREVIEWS_SETTING: &str = "sd_previews";
 /// Keep those previews? On by default, otherwise moved tiles only show a gradient
 /// while the disk is unplugged. Off saves cache space.
 pub fn keep_previews(conn: &Connection) -> bool {
-    setting(conn, PREVIEWS_SETTING).map_or(true, |v| v != "0")
+    setting(conn, PREVIEWS_SETTING).is_none_or(|v| v != "0")
 }
 
 fn read_marker(root: &Path) -> Option<Marker> {

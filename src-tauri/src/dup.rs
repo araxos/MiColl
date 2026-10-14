@@ -89,7 +89,7 @@ pub fn hamming(a: u64, b: u64) -> u32 {
 /// so they're skipped in the similar scan (the exact scan still finds copies)
 pub fn is_featureless(hash: u64) -> bool {
     let ones = hash.count_ones();
-    ones < 6 || ones > 58
+    !(6..=58).contains(&ones)
 }
 
 /// hash + grid from one decode

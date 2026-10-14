@@ -76,7 +76,7 @@ export function RewardSlot({
     <motion.div layout className="group relative" onContextMenu={onContextMenu}>
       <button
         onClick={owned ? onOpen : canAdd ? onAdd : undefined}
-        title={canAdd ? `Add files for “${reward.title}”` : undefined}
+        title={canAdd ? tf("Add files for “{name}”", { name: reward.title }) : undefined}
         className={cn(
           "relative block w-full overflow-hidden rounded-xl border outline-none transition-all focus-visible:ring-2 focus-visible:ring-brand-500",
           aspect,

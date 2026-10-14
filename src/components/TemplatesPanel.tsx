@@ -110,9 +110,9 @@ export function TemplatesPanel({
     if (typeof path !== "string") return;
     try {
       await api.exportTemplate(path, await api.readTemplate(tpl.fileName));
-      setStatus(`Saved “${tpl.artist}” template to ${path}.`);
+      setStatus(tf("Saved “{name}” template to {path}.", { name: tpl.artist, path }));
     } catch (e) {
-      setStatus(`Error: ${e}`);
+      setStatus(tf("Error: {error}", { error: String(e) }));
     }
   };
 
@@ -139,7 +139,7 @@ export function TemplatesPanel({
       await load();
       setStatus(`Updated “${tpl.artist}” from its template.`);
     } catch (e) {
-      setStatus(`Error: ${e}`);
+      setStatus(tf("Error: {error}", { error: String(e) }));
     } finally {
       setBusy(false);
     }
@@ -156,7 +156,7 @@ export function TemplatesPanel({
       await load();
       setStatus(`Deactivated “${tpl.artist}” — its tracking was removed.`);
     } catch (e) {
-      setStatus(`Error: ${e}`);
+      setStatus(tf("Error: {error}", { error: String(e) }));
     } finally {
       setBusy(false);
     }
@@ -177,7 +177,7 @@ export function TemplatesPanel({
       await load();
       setStatus(`Re-activated “${tpl.artist}”.`);
     } catch (e) {
-      setStatus(`Error: ${e}`);
+      setStatus(tf("Error: {error}", { error: String(e) }));
     } finally {
       setBusy(false);
     }
@@ -191,9 +191,9 @@ export function TemplatesPanel({
     try {
       await api.deleteTemplate(tpl.fileName);
       await load();
-      setStatus(`Deleted the “${tpl.artist}” template file.`);
+      setStatus(tf("Deleted the “{name}” template file.", { name: tpl.artist }));
     } catch (e) {
-      setStatus(`Error: ${e}`);
+      setStatus(tf("Error: {error}", { error: String(e) }));
     } finally {
       setBusy(false);
     }
@@ -228,15 +228,15 @@ export function TemplatesPanel({
           ]
         : [
             {
-              label: `Shrink covers${tpl.bytes ? ` (${MB(tpl.bytes)})` : ""}`,
+              label: tpl.bytes ? tf("Shrink covers ({size})", { size: MB(tpl.bytes) }) : t("Shrink covers"),
               icon: <Minimize2 className="h-4 w-4" />,
               onClick: () => void doShrink(tpl),
             },
           ]),
       {
-        label:
-          "Covers are stored inside the template file at full size. Shrinking re-encodes " +
-          "them to 512px and keeps the untouched file next to it, so you can go back.",
+        label: t(
+          "Covers are stored inside the template file at full size. Shrinking re-encodes them to 512px and keeps the untouched file next to it, so you can go back.",
+        ),
         info: true,
       },
       {
@@ -259,12 +259,14 @@ export function TemplatesPanel({
       await load();
       setStatus(
         r.covers === 0
-          ? `“${tpl.artist}” has no oversized covers — nothing to do.`
-          : `Shrank ${r.covers} cover(s) in “${tpl.artist}”: ${MB(r.before)} → ${MB(r.after)}. ` +
-            "The original is kept — right-click to put it back.",
+          ? tf("“{name}” has no oversized covers — nothing to do.", { name: tpl.artist })
+          : tf(
+              "Shrank {n} cover(s) in “{name}”: {before} → {after}. The original is kept — right-click to put it back.",
+              { n: r.covers, name: tpl.artist, before: MB(r.before), after: MB(r.after) },
+            ),
       );
     } catch (e) {
-      setStatus(`Error: ${e}`);
+      setStatus(tf("Error: {error}", { error: String(e) }));
     } finally {
       setBusy(false);
     }
@@ -276,9 +278,9 @@ export function TemplatesPanel({
     try {
       await api.restoreTemplateCovers(tpl.fileName);
       await load();
-      setStatus(`Put back the original covers of “${tpl.artist}”.`);
+      setStatus(tf("Put back the original covers of “{name}”.", { name: tpl.artist }));
     } catch (e) {
-      setStatus(`Error: ${e}`);
+      setStatus(tf("Error: {error}", { error: String(e) }));
     } finally {
       setBusy(false);
     }
@@ -303,7 +305,7 @@ export function TemplatesPanel({
         }),
       );
     } catch (e) {
-      setStatus(`Error: ${e}`);
+      setStatus(tf("Error: {error}", { error: String(e) }));
     } finally {
       setBusy(false);
     }
@@ -487,7 +489,7 @@ export function TemplatesPanel({
                       void api
                         .readTemplate(tpl.fileName)
                         .then((raw) => setEditTarget({ raw, fileName: tpl.fileName }))
-                        .catch((e) => setStatus(`Error: ${e}`))
+                        .catch((e) => setStatus(tf("Error: {error}", { error: String(e) })))
                     }
                     disabled={busy}
                     title={t("Edit this template")}
@@ -665,7 +667,7 @@ function ApplyDialog({
     const picked = await open({
       directory: true,
       multiple: false,
-      title: `Where should ${tpl.artist}'s folders be created?`,
+      title: tf("Where should {name}’s folders be created?", { name: tpl.artist }),
     });
     if (typeof picked === "string") setBaseDir(picked);
   };

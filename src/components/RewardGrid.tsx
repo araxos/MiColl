@@ -25,7 +25,7 @@ import { buildFolderOrder } from "@/lib/rewardOrder";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { useAccent } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-import { useT, useTf } from "@/lib/i18n";
+import { useT, useTf, useTp } from "@/lib/i18n";
 import { isVirtualMonthId, type Reward } from "@/types";
 import { CollabPicker } from "@/components/CollabPicker";
 import { TileGate } from "@/components/TileGate";
@@ -102,6 +102,7 @@ export function RewardGrid({
 }) {
   const t = useT();
   const tf = useTf();
+  const tp = useTp();
   // everything below (selection ranges, the viewer, menus) uses this order
   const items = useMemo(() => extrasLast(itemsIn), [itemsIn]);
   const { artists, refresh, backed, markRewardSeen } = useData();
@@ -169,11 +170,11 @@ export function RewardGrid({
   /** "Save a copy...": pick a folder and copy the files into a <name> subfolder. */
   const saveCopy = async (srcs: string[], name: string) => {
     if (!srcs.length) return;
-    const dir = await open({ directory: true, multiple: false, title: `Save “${name}” to…` });
+    const dir = await open({ directory: true, multiple: false, title: tf("Save “{name}” to…", { name }) });
     if (typeof dir !== "string") return;
     try {
       const n = await exportFiles(srcs, dir, name);
-      showToast({ tone: "success", title: `Saved ${n} file${n === 1 ? "" : "s"}`, detail: `${dir}\\${name}` });
+      showToast({ tone: "success", title: tf("Saved {what}", { what: tp("{n} files", n) }), detail: `${dir}\\${name}` });
     } catch (e) {
       showToast({ tone: "error", title: t("Couldn’t save a copy"), detail: `${e}` });
     }
@@ -188,7 +189,7 @@ export function RewardGrid({
       const n = await moveRewards(ids, periodId);
       await refresh();
       exitSelect();
-      showToast({ tone: "success", title: `Moved ${n} ${n === 1 ? "reward" : "rewards"}` });
+      showToast({ tone: "success", title: tf("Moved {what}", { what: tp("{n} rewards", n) }) });
     } catch (e) {
       showToast({ tone: "error", title: t("Couldn’t move"), detail: `${e}` });
     }
@@ -205,7 +206,7 @@ export function RewardGrid({
       const n = await moveRewards(ids, String(periodId));
       await refresh();
       exitSelect();
-      showToast({ tone: "success", title: `Moved ${n} ${n === 1 ? "reward" : "rewards"}` });
+      showToast({ tone: "success", title: tf("Moved {what}", { what: tp("{n} rewards", n) }) });
     } catch (e) {
       showToast({ tone: "error", title: t("Couldn’t move"), detail: `${e}` });
     }
@@ -229,7 +230,7 @@ export function RewardGrid({
       const n = await mergeRewards(sources, destRewardId, keepFolder);
       await refresh();
       exitSelect();
-      showToast({ tone: "success", title: `Merged ${n} file${n === 1 ? "" : "s"}` });
+      showToast({ tone: "success", title: tf("Merged {what}", { what: tp("{n} files", n) }) });
     } catch (e) {
       showToast({ tone: "error", title: t("Couldn’t merge"), detail: `${e}` });
     }
@@ -243,7 +244,7 @@ export function RewardGrid({
     try {
       await createReward(periodId, name);
       await refresh();
-      showToast({ tone: "success", title: `Created “${name}”` });
+      showToast({ tone: "success", title: tf("Created “{name}”", { name }) });
     } catch (e) {
       showToast({ tone: "error", title: t("Couldn’t create folder"), detail: `${e}` });
     }
@@ -257,7 +258,7 @@ export function RewardGrid({
     try {
       await createMissingReward(periodId, name);
       await refresh();
-      showToast({ tone: "success", title: `Added missing “${name}”` });
+      showToast({ tone: "success", title: tf("Added missing “{name}”", { name }) });
     } catch (e) {
       showToast({ tone: "error", title: t("Couldn’t add missing reward"), detail: `${e}` });
     }
@@ -308,7 +309,7 @@ export function RewardGrid({
     if (!backed || addingId) return;
     const picked = await open({
       multiple: true,
-      title: `Add files for “${r.title}”`,
+      title: tf("Add files for “{name}”", { name: r.title }),
       filters: [{ name: "Media", extensions: MEDIA_EXTS }],
     });
     const paths = Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : [];
@@ -319,14 +320,13 @@ export function RewardGrid({
       const report = await fillRewardInteractive(r.id, paths, { label: r.title });
       if (report === null) return; // user cancelled the whole import
       await refresh();
-      const plural = (n: number) => (n === 1 ? "file" : "files");
       const problems: string[] = [];
-      if (report.failed > 0) problems.push(`${report.failed} couldn’t be imported`);
-      if (report.skipped > 0) problems.push(`${report.skipped} skipped`);
+      if (report.failed > 0) problems.push(tf("{n} couldn’t be imported", { n: report.failed }));
+      if (report.skipped > 0) problems.push(tf("{n} skipped", { n: report.skipped }));
       showToast({
         tone: report.failed > 0 ? "warn" : "success",
-        title: `${report.added} ${plural(report.added)} added`,
-        detail: `to ${r.title}`,
+        title: tf("{what} added", { what: tp("{n} files", report.added) }),
+        detail: tf("to {name}", { name: r.title }),
         problem: problems.length ? problems.join(" · ") : undefined,
       });
     } catch (e) {
@@ -513,7 +513,7 @@ export function RewardGrid({
     const ids = editableSelection();
     if (ids.length === 0) return;
     requestDelete({
-      title: `${ids.length} reward${ids.length > 1 ? "s" : ""}`,
+      title: tp("{n} rewards", ids.length),
       rewardIds: ids,
       onDone: exitSelect,
     });
@@ -527,7 +527,7 @@ export function RewardGrid({
       showToast({
         tone: "success",
         title: t("Wallpaper slideshow set"),
-        detail: `${imgs.length} image${imgs.length === 1 ? "" : "s"} from ${name}`,
+        detail: tf("{what} from {name}", { what: tp("{n} images", imgs.length), name }),
       });
     } catch (e) {
       showToast({ tone: "error", title: t("Couldn’t set wallpaper"), detail: `${e}` });
@@ -552,7 +552,7 @@ export function RewardGrid({
         s.failed
           ? {
               tone: "warn",
-              title: `MiSD: removed ${s.moved} backups, ${s.failed} failed`,
+              title: tf("MiSD: removed {moved} backups, {failed} failed", { moved: s.moved, failed: s.failed }),
               detail: s.errors.slice(0, 3).join(" · "),
             }
           : {
@@ -621,7 +621,7 @@ export function RewardGrid({
       const from = r.collabFrom;
       openMenu(e, [
         {
-          label: `Collab — lives in ${from.artistName}’s folder`,
+          label: tf("Collab — lives in {name}’s folder", { name: from.artistName }),
           icon: <Users className="h-4 w-4" />,
           info: true,
         },
@@ -637,7 +637,7 @@ export function RewardGrid({
           onClick: () => reveal(r.folderPath),
         },
         {
-          label: `Go to ${from.artistName}`,
+          label: tf("Go to {name}", { name: from.artistName }),
           icon: <ExternalLink className="h-4 w-4" />,
           onClick: () => navigate(`/artist/${from.artistId}`),
         },
@@ -740,7 +740,7 @@ export function RewardGrid({
             ...(r.collabWith?.length
               ? [
                   {
-                    label: `Also shown in: ${r.collabWith.map((c) => c.artistName).join(", ")}`,
+                    label: tf("Also shown in: {names}", { names: r.collabWith.map((c) => c.artistName).join(", ") }),
                     info: true,
                   },
                 ]

@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ArtistLink } from "@/types";
 import * as api from "@/api/library";
 import { cn } from "@/lib/utils";
+import { useTf } from "@/lib/i18n";
 
 /**
  * Hostname of a link without www (also works without https://). Empty if it's not a URL.
@@ -20,6 +21,7 @@ function hostOf(url: string): string {
  * (cyan on cyberpunk, blue elsewhere). First letter if there's no favicon.
  */
 function LinkChip({ link, cyber }: { link: ArtistLink; cyber: boolean }) {
+  const tf = useTf();
   const [broken, setBroken] = useState(false);
   const url = link.url.trim();
   const host = hostOf(url);
@@ -32,7 +34,7 @@ function LinkChip({ link, cyber }: { link: ArtistLink; cyber: boolean }) {
     <button
       type="button"
       onClick={() => url && void api.openUrl(url)}
-      aria-label={`Open link: ${text}`}
+      aria-label={tf("Open link: {text}", { text })}
       className={cn(
         "group/link inline-flex h-7 items-center rounded-md border px-1 transition-colors",
         cyber

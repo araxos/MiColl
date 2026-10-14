@@ -119,11 +119,12 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
   const [style, setStyle] = useState<ReleaseStyle>("monthly");
   // only monthly creators get year folders
   const dated = style === "monthly";
-  const [platforms, setPlatforms] = useState<Set<string>>(new Set(["Patreon"]));
+  // nothing picked: the hierarchy is optional, the user opts in
+  const [platforms, setPlatforms] = useState<Set<string>>(new Set());
   const [customPlatforms, setCustomPlatforms] = useState<string[]>([]);
   const [newPlatform, setNewPlatform] = useState<string | null>(null);
   const thisYear = new Date().getFullYear();
-  const [years, setYears] = useState<Set<number>>(new Set([thisYear]));
+  const [years, setYears] = useState<Set<number>>(new Set());
   const [newYear, setNewYear] = useState("");
   // off by default
   const [months, setMonths] = useState(false);
@@ -342,16 +343,16 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
               {t("Type")} <span className="text-zinc-600">{t("— pick any that fit (optional)")}</span>
             </div>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {CREATOR_TYPES.map((t) => {
-                const on = kinds.has(t.key);
+              {CREATOR_TYPES.map((ct) => {
+                const on = kinds.has(ct.key);
                 return (
                   <button
-                    key={t.key}
-                    onClick={() => toggleKind(t.key)}
+                    key={ct.key}
+                    onClick={() => toggleKind(ct.key)}
                     className={cn("inline-flex items-center gap-1.5", chipCls(on))}
                   >
-                    <t.Icon className={cn("h-3.5 w-3.5", t.color)} />
-                    {t.label}
+                    <ct.Icon className={cn("h-3.5 w-3.5", ct.color)} />
+                    {t(ct.label)}
                   </button>
                 );
               })}
@@ -365,9 +366,15 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
               premium ? dlg.box : "rounded-xl border border-zinc-800 bg-zinc-950/40",
             )}
           >
-            <h3 className="text-sm font-medium text-zinc-200">{t("Create folder hierarchy")}</h3>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-medium text-zinc-200">{t("Create folder hierarchy")}</h3>
+              {/* same look as the "Managed" badge on the path below */}
+              <span className="shrink-0 rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-[10px] uppercase tracking-wide text-zinc-500">
+                {t("Optional")}
+              </span>
+            </div>
             <p className="mt-0.5 text-xs text-zinc-500">
-              {t("Optional — makes empty folders you can drop rewards into later.")}
+              {t("Makes empty folders you can drop rewards into later.")}
             </p>
 
             <div className="mt-3 text-xs font-medium text-zinc-400">{t("Platforms")}</div>
@@ -456,7 +463,7 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
               )}
               title={
                 managed
-                  ? "Destination can't be chosen — managed collection is on (set the collection folder in Settings)."
+                  ? t("Destination can’t be chosen — managed collection is on (set the collection folder in Settings).")
                   : undefined
               }
             >
@@ -485,7 +492,7 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
               )}
             </div>
             {(managed || baseDir) && platforms.size === 0 && (
-              <p className="mt-2 text-xs text-amber-400/80">
+              <p className="mt-2 text-xs text-zinc-500">
                 {t("No platforms selected — only the creator folder will be created.")}
               </p>
             )}

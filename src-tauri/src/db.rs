@@ -1746,7 +1746,7 @@ pub fn repair_missing_previews(conn: &Connection) -> rusqlite::Result<u32> {
         let tail = norm(&tail_of(old)?);
         let mut fallback: Option<String> = None;
         for (orig, low) in &normalized {
-            if low.ends_with(&tail) && within.as_deref().map_or(true, |w| inside(low, w)) {
+            if low.ends_with(&tail) && within.as_deref().is_none_or(|w| inside(low, w)) {
                 if std::path::Path::new(orig).exists() {
                     return Some(orig.clone());
                 }
@@ -2294,7 +2294,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
     for artist in artists.iter_mut() {
         let mut periods: Vec<Period> = Vec::new();
         {
-            let mut stmt = conn.prepare(
+            let mut stmt = conn.prepare_cached(
                 "SELECT id, platform, year, month, span, label, folder_path, needs_review, preview_image, official_total, skipped, verified, open_as_cards, number
                  FROM periods WHERE artist_id = ?1
                  ORDER BY year DESC, month DESC, number DESC, label DESC",
@@ -2329,7 +2329,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
             {
                 // light load: only the count, images are loaded per artist with
                 // artist_images
-                let mut stmt = conn.prepare(
+                let mut stmt = conn.prepare_cached(
                     "SELECT id, title, category, folder_path, cover_image, status, is_root, image_count,
                             sd_marked, sd_volume, cover_custom, sd_backup, sd_backup_at, fresh, wished,
                             is_extra, is_partial

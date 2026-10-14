@@ -6,6 +6,7 @@
 //!   * sets the official reward count per period and adds every listed reward
 //!     as a "missing" placeholder (skips ones that already exist)
 //!   * optionally creates the empty Platform/Year/MM/<reward> folders
+//!
 //! When real files get indexed into such a folder, the indexer flips it to "owned".
 
 use crate::db;

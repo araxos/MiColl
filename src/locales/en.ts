@@ -57,4 +57,8 @@ export const dict: Dict = {
   "{n} photos#other": "{n} photos",
   "{n} stars#one": "{n} star",
   "{n} stars#other": "{n} stars",
+  "{n} subfolder rewards#one": "{n} subfolder reward",
+  "{n} subfolder rewards#other": "{n} subfolder rewards",
+  "{n} favourites#one": "{n} favourite",
+  "{n} favourites#other": "{n} favourites",
 };
