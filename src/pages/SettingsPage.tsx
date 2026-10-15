@@ -219,7 +219,8 @@ const SECTIONS: NavSection[] = [
     id: "feedback",
     label: "Feedback",
     Icon: MessageSquare,
-    keywords: "feedback bug report idea suggestion contact support anonymous write message",
+    keywords:
+      "feedback bug report idea suggestion contact support anonymous write message error log logs logging crash diagnostics problem",
   },
   {
     id: "language",
@@ -1956,7 +1957,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
 
         {(
           <div id="platforms" className="scroll-mt-4">
-            <PlatformSettings glass={glass} irid={irid} iriInner={iriInner} />
+            <PlatformSettings glass={glass} irid={irid} />
           </div>
         )}
 
@@ -2156,8 +2157,9 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
             {/* managed collection (optional, off by default) */}
             <div className={cn("glass-box mt-6 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4", irid && iriInner)}>
               <div className="flex items-start gap-3">
-                <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", irid ? iriTile : "bg-zinc-800 text-zinc-300")}>
-                  <Boxes className="h-4 w-4" />
+                {/* just the icon, no tile behind it */}
+                <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center", irid ? "text-white" : "text-zinc-300")}>
+                  <Boxes className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-3">

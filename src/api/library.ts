@@ -1298,8 +1298,17 @@ export async function copyFilesToClipboard(srcs: string[]): Promise<number> {
  * only offers COPY, so the original never moves. Call while the mouse button is held.
  */
 export async function dragOut(src: string): Promise<void> {
-  await invoke("drag_out", { src });
+  draggingOut = true;
+  try {
+    await invoke("drag_out", { src });
+  } finally {
+    draggingOut = false;
+  }
 }
+
+let draggingOut = false;
+/** Our own drag-out is running (the drop zone ignores it, or it would import a copy). */
+export const isDraggingOut = (): boolean => draggingOut;
 
 /** Put a single still on the clipboard as a picture (for pasting into a chat/editor). */
 export async function copyImageToClipboard(src: string): Promise<void> {

@@ -1,4 +1,5 @@
 mod ai;
+mod applog;
 mod audio;
 mod crypto;
 mod db;
@@ -82,7 +83,7 @@ fn detect_portable_root() -> Option<std::path::PathBuf> {
             Some(dir)
         }
         Err(e) => {
-            eprintln!("micoll: portable marker found but {} is not writable: {e}", dir.display());
+            crate::elog!("micoll: portable marker found but {} is not writable: {e}", dir.display());
             None
         }
     }
@@ -110,7 +111,7 @@ fn copy_data_extras(from: &std::path::Path, to: &std::path::Path) {
     let entries = match std::fs::read_dir(from) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("micoll: could not read {}: {e}", from.display());
+            crate::elog!("micoll: could not read {}: {e}", from.display());
             return;
         }
     };
@@ -128,7 +129,7 @@ fn copy_data_extras(from: &std::path::Path, to: &std::path::Path) {
         };
         // one unreadable extra isn't worth failing for, the library is already in place
         if let Err(e) = res {
-            eprintln!("micoll: could not copy {}: {e}", entry.path().display());
+            crate::elog!("micoll: could not copy {}: {e}", entry.path().display());
         }
     }
 }
@@ -1141,7 +1142,7 @@ fn fill_sd_previews(
     let Ok(cache) = app_cache(app) else { return };
     match sd::fill_previews(conn, &cache.join("thumbs"), key, only) {
         Ok(n) if n > 0 => eprintln!("micoll: stored {n} missing MiSD preview(s)"),
-        Err(e) => eprintln!("micoll: MiSD preview fill skipped: {e}"),
+        Err(e) => crate::elog!("micoll: MiSD preview fill skipped: {e}"),
         _ => {}
     }
 }
@@ -6549,7 +6550,7 @@ fn open_new_window(app: &AppHandle) {
             Ok(w) => {
                 let _ = w.set_focus();
             }
-            Err(e) => eprintln!("micoll: new window failed: {e}"),
+            Err(e) => crate::elog!("micoll: new window failed: {e}"),
         }
     });
 }
@@ -7167,6 +7168,22 @@ fn import_wish_cover(app: AppHandle, src: String) -> Result<String, String> {
 /// Read the auto-backup flag WITHOUT opening the DB read-write.
 /// The backup runs before db::open (which folds the WAL), so a read-only connection
 /// is used. Any problem = on.
+/// A "true"/"false" setting read before the database is opened (read-only).
+/// Missing or unreadable = false.
+fn setting_is_true(db_file: &std::path::Path, key: &str) -> bool {
+    let Ok(conn) = rusqlite::Connection::open_with_flags(
+        db_file,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+    ) else {
+        return false;
+    };
+    conn.query_row("SELECT value FROM settings WHERE key = ?1", rusqlite::params![key], |r| {
+        r.get::<_, String>(0)
+    })
+    .map(|v| v == "true")
+    .unwrap_or(false)
+}
+
 fn auto_backup_enabled(db_file: &std::path::Path) -> bool {
     let Ok(conn) = rusqlite::Connection::open_with_flags(
         db_file,
@@ -7232,6 +7249,49 @@ fn restore_backup(
     }
     let wal = dir.join(format!("{name}-wal"));
     swap_in_database(&app, &db, &dek_state, &src, Some(&wal))
+}
+
+/* ---- error log (applog.rs) -------------------------------------------- */
+
+/// Turn the error log on/off (off deletes the log files) and remember it.
+#[tauri::command]
+fn log_set_enabled(app: AppHandle, db: State<Db>, on: bool) -> Result<(), String> {
+    applog::set_enabled(on)?;
+    let conn = db.lock().map_err(map_err)?;
+    db::set_setting(&conn, applog::SETTING_KEY, if on { "true" } else { "false" }).map_err(map_err)?;
+    if on {
+        applog::write(
+            "INFO",
+            "app",
+            &format!("Error log turned on (MiColl {}, {})", app.package_info().version, std::env::consts::OS),
+        );
+    }
+    Ok(())
+}
+
+/// A line from the webview (console errors, failed actions, crashes).
+#[tauri::command]
+fn log_write(level: String, message: String) {
+    let level = match level.as_str() {
+        "warn" => "WARN",
+        "info" => "INFO",
+        _ => "ERROR",
+    };
+    applog::write(level, "ui", &message);
+}
+
+/// The newest log lines for the feedback form, user folder hidden ("" = none).
+#[tauri::command]
+fn log_recent() -> String {
+    applog::recent()
+}
+
+/// Open the logs folder in Explorer.
+#[tauri::command]
+fn open_log_folder() -> Result<(), String> {
+    let dir = applog::dir().ok_or("The log isn’t set up.")?;
+    std::fs::create_dir_all(&dir).map_err(map_err)?;
+    open_dir(&dir)
 }
 
 /// Open the backups folder in Explorer.
@@ -9918,6 +9978,21 @@ pub fn run() {
             // portable)
             let dir = app_data(app)?;
             std::fs::create_dir_all(&dir)?;
+            // the error log (off unless turned on in Settings), first so startup errors
+            // land in it too
+            applog::init(&dir, setting_is_true(&dir.join("micoll.db"), applog::SETTING_KEY));
+            if applog::enabled() {
+                applog::write(
+                    "INFO",
+                    "app",
+                    &format!(
+                        "MiColl {} started ({}{})",
+                        app.package_info().version,
+                        std::env::consts::OS,
+                        if portable_root().is_some() { ", portable" } else { "" }
+                    ),
+                );
+            }
             // a portable copy doesn't take the installed library by itself anymore, it asks
             // (see portable_first_run).
             // daily backup of the db as it was BEFORE this session (open() folds the WAL
@@ -9925,7 +10000,7 @@ pub fn run() {
             // Can be turned off in Settings, the flag is read read-only.
             if auto_backup_enabled(&dir.join("micoll.db")) {
                 if let Err(e) = db::backup_rotate(&dir) {
-                    eprintln!("micoll: db backup skipped: {e}");
+                    crate::elog!("micoll: db backup skipped: {e}");
                 }
             }
             let conn = db::open(&dir.join("micoll.db"))?;
@@ -9935,7 +10010,7 @@ pub fn run() {
             app.manage(CloseToTray(std::sync::atomic::AtomicBool::new(tray_on)));
             if tray_on {
                 if let Err(e) = build_tray(app.handle()) {
-                    eprintln!("micoll: tray icon unavailable: {e}");
+                    crate::elog!("micoll: tray icon unavailable: {e}");
                 }
             }
             // a second start (pinned icon while in the tray, Start menu) shows this one,
@@ -9999,7 +10074,7 @@ pub fn run() {
                 // remove verified marks whose template doesn't verify anymore
                 startup_step("template re-verification", || {
                     if let Err(e) = template::reverify_applied(&conn) {
-                        eprintln!("micoll: template re-verification skipped: {e}");
+                        crate::elog!("micoll: template re-verification skipped: {e}");
                     }
                 });
                 // fix previews of rewards moved by older builds
@@ -10007,7 +10082,7 @@ pub fn run() {
                     startup_step("MiSD preview repair", || {
                         match sd::repair_previews(&conn, thumbs) {
                             Ok(n) if n > 0 => eprintln!("micoll: re-keyed {n} MiSD preview(s)"),
-                            Err(e) => eprintln!("micoll: MiSD preview repair skipped: {e}"),
+                            Err(e) => crate::elog!("micoll: MiSD preview repair skipped: {e}"),
                             _ => {}
                         }
                     });
@@ -10225,6 +10300,10 @@ pub fn run() {
             copy_image_to_clipboard,
             windows_share,
             drag_out,
+            log_set_enabled,
+            log_write,
+            log_recent,
+            open_log_folder,
             claim_audio_name,
             export_file,
             export_files,

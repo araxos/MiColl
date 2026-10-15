@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { logLine } from "@/lib/applog";
 import { ArrowLeft, FolderOpen, Info, RefreshCw } from "lucide-react";
 import { askForPageDetails } from "@/lib/pageDetails";
 import { listen } from "@tauri-apps/api/event";
@@ -164,6 +165,10 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
   const toastSeq = useRef(0);
 
   const showToast = useCallback((t: Omit<ToastData, "id">) => {
+    // an error the user saw goes to the error log too (when it's on)
+    if (t.tone === "error") {
+      logLine("error", [t.title, t.detail, t.problem].filter(Boolean).join(" — "));
+    }
     const id = ++toastSeq.current;
     setToasts((prev) => {
       const next = [...prev, { ...t, id }];

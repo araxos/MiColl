@@ -23,6 +23,10 @@ import { applyAccent, getAccent } from "@/lib/theme";
 import { applyGlassButtons } from "@/lib/glassButtons";
 import { applyTemplateFont } from "@/lib/templateFont";
 import { applyDocumentLang } from "@/lib/i18n";
+import { initAppLog } from "@/lib/applog";
+
+// the error log (only writes when turned on in Settings → Feedback)
+void initAppLog();
 
 // apply the saved accent before the first paint (no color flash)
 applyAccent(getAccent());

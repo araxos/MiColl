@@ -141,7 +141,7 @@ pub fn log_with_snapshot(conn: &Connection, e: Entry, snap: Option<Snapshot>) {
             )
         });
     if let Err(err) = res {
-        eprintln!("micoll: history not written: {err}");
+        crate::elog!("micoll: history not written: {err}");
     }
 }
 
@@ -268,7 +268,7 @@ impl Snapshot {
         match dump(conn, table, where_sql, args) {
             Ok(t) if !t.rows.is_empty() => self.tables.push(t),
             Ok(_) => {}
-            Err(e) => eprintln!("micoll: snapshot of {table} failed: {e}"),
+            Err(e) => crate::elog!("micoll: snapshot of {table} failed: {e}"),
         }
     }
     fn rows_of<'a>(&'a self, table: &'a str) -> impl Iterator<Item = &'a serde_json::Map<String, serde_json::Value>> {

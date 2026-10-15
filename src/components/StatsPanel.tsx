@@ -102,11 +102,11 @@ export function StatsPanel({ onClose }: { onClose: () => void }) {
   }, [backed]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 pt-[4.5rem] backdrop-blur-sm">
       <motion.div
         initial={{ opacity: 0, y: 12, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        className={cn("flex max-h-[88vh] w-[40rem] max-w-full flex-col overflow-hidden", panel)}
+        className={cn("flex max-h-full w-[40rem] max-w-full flex-col overflow-hidden", panel)}
       >
         <div className={cn("flex shrink-0 items-center justify-between border-b px-5 py-4", divider)}>
           <h2 className="text-base font-semibold text-zinc-100">{t("Collection stats")}</h2>

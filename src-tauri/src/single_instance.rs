@@ -222,7 +222,7 @@ pub fn register_jump_list(tasks: &[(&str, &str)]) {
         tasks.iter().map(|(t, a)| (t.to_string(), a.to_string())).collect();
     std::thread::spawn(move || {
         if let Err(e) = jump_list(&tasks) {
-            eprintln!("micoll: jump list not set: {e}");
+            crate::elog!("micoll: jump list not set: {e}");
         }
     });
 }

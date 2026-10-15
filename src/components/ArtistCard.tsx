@@ -46,7 +46,7 @@ import { useCardMeta } from "@/lib/cardMeta";
 import { useShowHidden } from "@/lib/showHidden";
 import { GraveyardIcon } from "@/lib/graveyardIcon";
 import { useCardPlus } from "@/lib/cardPlus";
-import { useAccent } from "@/lib/theme";
+import { useAccent, isPremium } from "@/lib/theme";
 import { useActions } from "@/actions";
 import { useLibraryActions } from "@/store";
 import {
@@ -340,6 +340,29 @@ function CyberPin({ fill, faceted, glow }: { fill: string; faceted?: boolean; gl
 /** A flicker animation + opacity for an inline style. */
 const flicker = (anim: string, o: number): React.CSSProperties =>
   ({ animation: anim, "--fx-o": o }) as React.CSSProperties;
+
+/**
+ * Pinned marker in the casual (non-premium) themes: a pin outline in the theme gradient,
+ * standing on the middle of the card's top edge (the card gets a glowing rim, see
+ * .card-pin-rim / .card-pin-halo). The classic pushpin (CardPin's last branch) is no
+ * longer shown in these themes, kept for going back.
+ */
+function CasualPin() {
+  return (
+    <svg viewBox="0 0 24 24" className="card-pin-casual">
+      <defs>
+        {/* user space: the needle is a straight line, a bounding-box gradient can't paint it */}
+        <linearGradient id="micoll-pin-casual" gradientUnits="userSpaceOnUse" x1="2" y1="2" x2="22" y2="22">
+          <stop offset="0" style={{ stopColor: "var(--color-brand-300)" }} />
+          <stop offset="0.5" style={{ stopColor: "var(--color-brand-500)" }} />
+          <stop offset="1" style={{ stopColor: "var(--color-accent2-600)" }} />
+        </linearGradient>
+      </defs>
+      <path d="M12 17v5" />
+      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+    </svg>
+  );
+}
 
 /**
  * The "pinned" marker on the card corner. Pushpin for basic accents,
@@ -1206,8 +1229,22 @@ function ArtistCardBase({
         />
       )}
 
-      {/* pin marker on the top right, outside the clip */}
-      {pinned && (
+      {/* casual themes: glowing rim (plus a light running round it while animations are
+          on) and the pin in the middle of the top edge */}
+      {pinned && !isPremium(accent) && (
+        <>
+          <span aria-hidden className={cn("card-pin-rim pointer-events-none absolute inset-0 z-20", cardRadius)} />
+          <span aria-hidden className="card-pin-halo pointer-events-none absolute -inset-[2px] z-20 rounded-[18px]" />
+          <div
+            aria-label={t("Pinned")}
+            className="pointer-events-none absolute left-1/2 top-[-15px] z-30 -translate-x-1/2"
+          >
+            <CasualPin />
+          </div>
+        </>
+      )}
+      {/* premium themes: their own pin on the top right, outside the clip */}
+      {pinned && isPremium(accent) && (
         <div
           aria-label={t("Pinned")}
           className="pointer-events-none absolute -right-2 -top-3 z-30"

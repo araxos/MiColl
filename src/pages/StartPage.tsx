@@ -35,7 +35,7 @@ import { Button } from "@/components/ui/Button";
 import { useData } from "@/store";
 import { librarySizes, storageBreakdown } from "@/api/library";
 import { artistTags, tagRank } from "@/lib/artistTags";
-import { useAccent } from "@/lib/theme";
+import { useAccent, isPremium } from "@/lib/theme";
 import { CREATOR_TYPES, creatorTypeDefs } from "@/lib/creatorTypes";
 import { useSfwMode, tagsAreNsfw } from "@/lib/contentMode";
 import { usePins } from "@/lib/pins";
@@ -208,6 +208,15 @@ export function StartPage({ onLock }: { onLock: () => void }) {
   // Create Card: iri-lead puts the spectrum on the rim, square corners like the icon
   // buttons next to it (not the primary pill)
   const iriLead = irid ? "iri-lead rounded-lg" : undefined;
+  // casual (non-premium) themes: the round icon buttons without the grey ring
+  const bareIcon = isPremium(accent) ? undefined : "border-transparent";
+  // casual themes: Create Card gets the gradient pill (index.css .create-card-casual)
+  const casualLead = isPremium(accent) ? undefined : "create-card-casual";
+  // casual themes: a thin divider between the icon buttons, in the theme's colour.
+  // The negative margin eats the row's two gaps, so the buttons keep their spacing.
+  const btnDivider = isPremium(accent) ? null : (
+    <span aria-hidden className="-mx-[4.5px] h-5 w-px shrink-0 rounded-full bg-brand-400/45" />
+  );
   // sakura: the petal-cut rose glass from the platform tabs, with blossom for the main
   // action
   const sakura = accent === "sakura";
@@ -726,7 +735,9 @@ export function StartPage({ onLock }: { onLock: () => void }) {
           <div className="relative" ref={typeRef}>
             <button
               onClick={() => setTypeOpen((o) => !o)}
-              className="group flex items-center gap-2 rounded-lg outline-none"
+              // 2px up: the capitals are centred on the buttons, but the lowercase and
+              // the "(8)" make the line look low (iridescent's font already sits higher)
+              className={cn("group flex items-center gap-2 rounded-lg outline-none", !irid && "-translate-y-0.5")}
               title={t("Filter by creator type")}
             >
               <h1 className="text-3xl font-bold leading-none tracking-tight text-zinc-50">
@@ -940,7 +951,7 @@ export function StartPage({ onLock }: { onLock: () => void }) {
                 size="icon"
                 onClick={surprise}
                 title={t("Surprise me — open a random creator")}
-                className={iriOutline}
+                className={cn(iriOutline, bareIcon)}
               >
                 <Dices className="h-4 w-4" />
               </Button>
@@ -955,30 +966,32 @@ export function StartPage({ onLock }: { onLock: () => void }) {
                   size="icon"
                   onClick={() => setStatsOpen(true)}
                   title={t("Stats")}
-                  className={iriOutline}
+                  className={cn(iriOutline, bareIcon)}
                 >
                   <BarChart3 className="h-4 w-4" />
                 </Button>
+                {btnDivider}
                 <Button
                   variant="outline"
                   size="icon"
                   onClick={() => setRecentOpen((o) => !o)}
                   title={t("Recently updated")}
-                  className={iriOutline}
+                  className={cn(iriOutline, bareIcon)}
                 >
                   <History className="h-4 w-4" />
                 </Button>
+                {btnDivider}
               </>
             )}
-            <ImportFolderButton className={iriOutline} />
+            <ImportFolderButton className={cn(iriOutline, bareIcon)} />
             <Button
               // sakura glass on outline (primary's !important would paint over it)
               variant={sakura ? "outline" : "primary"}
               onClick={() => setAddOpen(true)}
               disabled={!backed}
-              className={cn(iriLead, sakura && sakChipLead)}
+              className={cn(iriLead, sakura && sakChipLead, casualLead)}
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="h-4 w-4" strokeWidth={casualLead ? 2.5 : 2} />
               {t("Create Card")}
             </Button>
           </div>
@@ -1012,9 +1025,9 @@ export function StartPage({ onLock }: { onLock: () => void }) {
                 variant={sakura ? "outline" : "primary"}
                 onClick={() => setAddOpen(true)}
                 disabled={!backed}
-                className={cn(iriLead, sakura && sakChipLead)}
+                className={cn(iriLead, sakura && sakChipLead, casualLead)}
               >
-                <UserPlus className="h-4 w-4" />
+                <UserPlus className="h-4 w-4" strokeWidth={casualLead ? 2.5 : 2} />
                 {t("Create Card")}
               </Button>
               <ImportFolderButton labeled className={cn(iriOutline, sakura && "sak-chip sak-petal-cut")} />

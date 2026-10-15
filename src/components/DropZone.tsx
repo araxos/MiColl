@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { FolderInput, Image as ImageIcon } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { isTauri } from "@/lib/tauri";
+import { isDraggingOut } from "@/api/library";
 import { useActions, type DropContext } from "@/actions";
 import { useT } from "@/lib/i18n";
 
@@ -146,10 +147,18 @@ export function DropZone() {
     let unlisten: (() => void) | undefined;
     let alive = true;
     const blockedRoute = () => routeRef.current.startsWith("/settings");
+    // only real files count: selected text dragged inside a field (no paths) and our
+    // own drag-out from the viewer are ignored until they leave or drop
+    let ignore = false;
 
     getCurrentWebview()
       .onDragDropEvent((event) => {
         const p = event.payload;
+        if (p.type === "enter") ignore = !p.paths?.length || isDraggingOut();
+        if (ignore) {
+          if (p.type === "leave" || p.type === "drop") ignore = false;
+          return;
+        }
         if (p.type === "enter" || p.type === "over") {
           setOver(true);
           setHit(resolveDrop(p.position, blockedRoute()));
