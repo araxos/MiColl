@@ -2507,7 +2507,7 @@ dependencies = [
 
 [[package]]
 name = "micoll"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "argon2",
  "base64 0.22.1",
