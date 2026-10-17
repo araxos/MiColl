@@ -1884,4 +1884,8 @@ export const dict: Dict = {
   "Error log": "Journal d’erreurs",
   "Off by default. When on, MiColl writes errors to a file on this PC (the last 7 days are kept), so a bug report can show what went wrong. Nothing leaves your PC unless you attach it to feedback. Turning it off deletes the log.": "Désactivé par défaut. Une fois activé, MiColl écrit les erreurs dans un fichier sur ce PC (les 7 derniers jours sont conservés), pour qu’un rapport de bug montre ce qui n’a pas marché. Rien ne quitte votre PC, sauf si vous le joignez à un retour. Le désactiver supprime le journal.",
   "Open log folder": "Ouvrir le dossier des journaux",
+  "Keep dropped folders": "Garder les dossiers déposés",
+  "A folder you drop on a reward lands inside it as a subfolder, with its name — like copying it in Explorer. Turn off to bring only the files from inside the folder. Loose files and archives always go straight in.": "Un dossier déposé sur une récompense y arrive comme sous-dossier, avec son nom — comme une copie dans l’Explorateur. Désactivez pour n’apporter que les fichiers qu’il contient. Les fichiers isolés et les archives vont toujours directement dedans.",
+  "Add folder…": "Ajouter un dossier…",
+  "Add a folder to “{name}”": "Ajouter un dossier à « {name} »",
 };

@@ -1862,4 +1862,8 @@ export const dict: Dict = {
   "Error log": "エラーログ",
   "Off by default. When on, MiColl writes errors to a file on this PC (the last 7 days are kept), so a bug report can show what went wrong. Nothing leaves your PC unless you attach it to feedback. Turning it off deletes the log.": "初期設定ではオフです。オンにすると、MiColl はエラーをこの PC 上のファイルに書き込みます（直近 7 日分を保持）。バグ報告で何が起きたかを示せるようにするためです。フィードバックに添付しない限り、PC の外には出ません。オフにするとログは削除されます。",
   "Open log folder": "ログフォルダーを開く",
+  "Keep dropped folders": "ドロップしたフォルダーを保持",
+  "A folder you drop on a reward lands inside it as a subfolder, with its name — like copying it in Explorer. Turn off to bring only the files from inside the folder. Loose files and archives always go straight in.": "リワードにドロップしたフォルダーは、エクスプローラーでコピーしたときと同じように、名前付きのサブフォルダーとして入ります。オフにすると、フォルダー内のファイルだけが入ります。単体のファイルとアーカイブは常に直接入ります。",
+  "Add folder…": "フォルダーを追加…",
+  "Add a folder to “{name}”": "「{name}」にフォルダーを追加",
 };

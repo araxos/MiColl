@@ -177,7 +177,7 @@ const SECTIONS: NavSection[] = [
     label: "Library",
     Icon: FolderOpen,
     keywords:
-      "folder folders add root roots managed collection organize move rescan reindex health missing files clear database warnings reset",
+      "folder folders add root roots managed collection organize move rescan reindex health missing files clear database warnings reset drop subfolder keep contents",
   },
   {
     id: "history",
@@ -622,19 +622,28 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
 
   const loadRoots = useCallback(async () => {
     if (!backed) return;
-    const [r, enabled, root] = await Promise.all([
+    const [r, enabled, root, keep] = await Promise.all([
       api.listRoots(),
       api.getSetting("managed_enabled"),
       api.getSetting("collection_root"),
+      api.getSetting(api.KEEP_FOLDERS_KEY),
     ]);
     setRoots(r);
     setManaged(enabled === "true");
     setCollectionRoot(root ?? "");
+    setKeepFolders(keep !== "false");
   }, [backed]);
 
   useEffect(() => {
     void loadRoots();
   }, [loadRoots]);
+
+  // a folder dropped on a reward: keep it as a subfolder (default) or only its contents
+  const [keepFolders, setKeepFolders] = useState(true);
+  const toggleKeepFolders = async (on: boolean) => {
+    setKeepFolders(on);
+    await api.setSetting(api.KEEP_FOLDERS_KEY, on ? "true" : "false");
+  };
 
   const toggleManaged = async (on: boolean) => {
     setManaged(on);
@@ -2229,6 +2238,23 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                 </div>
               </div>
             </div>
+
+            {/* dropping a folder on a reward */}
+            {backed && (
+              <div className={cn("glass-box mt-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4", irid && iriInner)}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="text-base font-semibold text-zinc-100">{t("Keep dropped folders")}</h2>
+                    <p className="settings-desc mt-0.5 text-sm text-zinc-400">
+                      {t(
+                        "A folder you drop on a reward lands inside it as a subfolder, with its name — like copying it in Explorer. Turn off to bring only the files from inside the folder. Loose files and archives always go straight in.",
+                      )}
+                    </p>
+                  </div>
+                  <Toggle checked={keepFolders} onChange={(v) => void toggleKeepFolders(v)} />
+                </div>
+              </div>
+            )}
 
           </>
         )}

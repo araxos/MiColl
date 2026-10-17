@@ -1862,4 +1862,8 @@ export const dict: Dict = {
   "Error log": "错误日志",
   "Off by default. When on, MiColl writes errors to a file on this PC (the last 7 days are kept), so a bug report can show what went wrong. Nothing leaves your PC unless you attach it to feedback. Turning it off deletes the log.": "默认关闭。开启后，MiColl 会将错误写入此电脑上的文件（保留最近 7 天），以便错误报告能显示出了什么问题。除非你将其附加到反馈中，否则不会离开你的电脑。关闭后会删除日志。",
   "Open log folder": "打开日志文件夹",
+  "Keep dropped folders": "保留拖入的文件夹",
+  "A folder you drop on a reward lands inside it as a subfolder, with its name — like copying it in Explorer. Turn off to bring only the files from inside the folder. Loose files and archives always go straight in.": "拖到奖励上的文件夹会作为带名称的子文件夹放入其中——就像在资源管理器中复制一样。关闭后只放入文件夹内的文件。单个文件和压缩包始终直接放入。",
+  "Add folder…": "添加文件夹…",
+  "Add a folder to “{name}”": "向“{name}”添加文件夹",
 };

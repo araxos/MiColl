@@ -17,7 +17,7 @@ import { SdNoticeDialog } from "@/components/SdNoticeDialog";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useData } from "@/store";
 import { useActions } from "@/actions";
-import { setRewardCover, exportFiles, createReward, createMissingReward, ensurePeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, type SdMode } from "@/api/library";
+import { KEEP_FOLDERS_KEY, setRewardCover, exportFiles, createReward, createMissingReward, ensurePeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, type SdMode } from "@/api/library";
 import { isTauri } from "@/lib/tauri";
 import { useCardSize } from "@/lib/useCardSize";
 import { useTileShapeFor, type TileScope } from "@/lib/tileShape";
@@ -314,10 +314,29 @@ export function RewardGrid({
     });
     const paths = Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : [];
     if (!paths.length) return;
+    await addPathsToReward(r, paths);
+  };
+
+  // "Add folder…": like dropping folders on the reward (subfolder with its name, unless
+  // Settings > Library says contents only). Copies, the picked folders stay.
+  const addFolderToReward = async (r: Reward) => {
+    if (!backed || addingId) return;
+    const picked = await open({
+      directory: true,
+      multiple: true,
+      title: tf("Add a folder to “{name}”", { name: r.title }),
+    });
+    const paths = Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : [];
+    if (!paths.length) return;
+    const keep = (await getSetting(KEEP_FOLDERS_KEY).catch(() => null)) !== "false";
+    await addPathsToReward(r, paths, keep ? paths : []);
+  };
+
+  const addPathsToReward = async (r: Reward, paths: string[], keepFolders?: string[]) => {
     setAddErr(null);
     setAddingId(r.id);
     try {
-      const report = await fillRewardInteractive(r.id, paths, { label: r.title });
+      const report = await fillRewardInteractive(r.id, paths, { label: r.title, keepFolders });
       if (report === null) return; // user cancelled the whole import
       await refresh();
       const problems: string[] = [];
@@ -731,6 +750,11 @@ export function RewardGrid({
               label: t("Move"),
               icon: <FolderInput className="h-4 w-4" />,
               onClick: () => setMovePick({ rewardIds: [r.id], fromMonthId: monthId }),
+            },
+            {
+              label: t("Add folder…"),
+              icon: <FolderPlus className="h-4 w-4" />,
+              onClick: () => void addFolderToReward(r),
             },
           ]
         : []),

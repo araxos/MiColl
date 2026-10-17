@@ -97,8 +97,11 @@ interface ActionsCtx {
   fillRewardInteractive: (
     rewardId: string,
     paths: string[],
-    /** label = the target's name for the progress toast */
-    opts?: { moveSources?: boolean; label?: string },
+    /**
+     * label = the target's name for the progress toast. keepFolders = dropped folders that
+     * land as a subfolder with their name (otherwise only their contents go in)
+     */
+    opts?: { moveSources?: boolean; label?: string; keepFolders?: string[] },
   ) => Promise<api.FillReport | null>;
   /**
    * Bring rewards back from the MiSD disk, with the same blocking overlay as a
@@ -241,7 +244,7 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
   const fillRewardInteractive = async (
     rewardId: string,
     paths: string[],
-    opts?: { moveSources?: boolean; label?: string },
+    opts?: { moveSources?: boolean; label?: string; keepFolders?: string[] },
   ): Promise<api.FillReport | null> => {
     if (filling.current.has(rewardId)) {
       showToast({
@@ -262,12 +265,12 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
   const fillRewardRun = async (
     rewardId: string,
     paths: string[],
-    opts?: { moveSources?: boolean; label?: string },
+    opts?: { moveSources?: boolean; label?: string; keepFolders?: string[] },
   ): Promise<api.FillReport | null> => {
     let resolutions: Record<string, api.ConflictChoice> | undefined;
     // check for name clashes first and ask per file
     try {
-      const plan = await api.fillRewardPlan(rewardId, paths);
+      const plan = await api.fillRewardPlan(rewardId, paths, opts?.keepFolders);
       if (plan.conflicts.length > 0) {
         const answer = await askConflicts(plan.conflicts);
         if (answer === null) return null; // cancelled the whole import
@@ -313,7 +316,14 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       }
     });
     try {
-      const report = await api.fillReward(rewardId, paths, resolutions, opts?.moveSources, job);
+      const report = await api.fillReward(
+        rewardId,
+        paths,
+        resolutions,
+        opts?.moveSources,
+        job,
+        opts?.keepFolders,
+      );
       if (report.cancelled) {
         showToast({ tone: "warn", title: t("Copy cancelled"), detail: t("Nothing was changed.") });
         return null; // like a cancelled prompt for the callers
@@ -741,10 +751,11 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
     if (!backed || paths.length === 0) return;
     // like a normal import: in a managed collection the dropped files are moved (copy,
     // then the originals go to the Recycle Bin), with the same notice first
-    const [enabled, root, ask] = await Promise.all([
+    const [enabled, root, ask, keep] = await Promise.all([
       api.getSetting("managed_enabled"),
       api.getSetting("collection_root"),
       api.getSetting("managed_move_ask"),
+      api.getSetting(api.KEEP_FOLDERS_KEY),
     ]);
     const managed = enabled === "true" && !!root;
     if (managed && ask !== "false") {
@@ -769,7 +780,14 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       }
       // managed: the backend sends the dropped folders/files to the Recycle Bin, but only
       // once every single file arrived and was checked
-      const report = await fillRewardInteractive(rewardId, resolved, { label, moveSources: managed });
+      // like Explorer: a dropped folder stays a folder inside the reward (Settings can
+      // switch it to "contents only"). Archives always bring just their contents.
+      const keepFolders = keep === "false" ? [] : paths.filter((p) => !/\.(zip|rar|7z)$/i.test(p));
+      const report = await fillRewardInteractive(rewardId, resolved, {
+        label,
+        moveSources: managed,
+        keepFolders,
+      });
       if (report === null) return; // user cancelled the whole import
       await refresh();
       const problems: string[] = [];

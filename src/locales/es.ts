@@ -1884,4 +1884,8 @@ export const dict: Dict = {
   "Error log": "Registro de errores",
   "Off by default. When on, MiColl writes errors to a file on this PC (the last 7 days are kept), so a bug report can show what went wrong. Nothing leaves your PC unless you attach it to feedback. Turning it off deletes the log.": "Desactivado por defecto. Si está activado, MiColl escribe los errores en un archivo de este PC (se guardan los últimos 7 días), para que un informe de error muestre qué falló. Nada sale de tu PC salvo que lo adjuntes a un comentario. Al desactivarlo se borra el registro.",
   "Open log folder": "Abrir carpeta de registros",
+  "Keep dropped folders": "Conservar carpetas soltadas",
+  "A folder you drop on a reward lands inside it as a subfolder, with its name — like copying it in Explorer. Turn off to bring only the files from inside the folder. Loose files and archives always go straight in.": "Una carpeta que sueltas sobre una recompensa entra como subcarpeta, con su nombre, como al copiarla en el Explorador. Desactívalo para traer solo los archivos de dentro. Los archivos sueltos y los comprimidos siempre entran directamente.",
+  "Add folder…": "Añadir carpeta…",
+  "Add a folder to “{name}”": "Añadir una carpeta a «{name}»",
 };

@@ -11,9 +11,11 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-const IMAGE_EXTS: &[&str] = &[
-    "jpg", "jpeg", "jfif", "png", "gif", "webp", "bmp", "avif", "tif", "tiff",
-];
+const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "jfif", "png", "gif", "webp", "bmp", "avif"];
+/// Pictures MiColl can't show (neither the backend nor the webview decodes TIFF): they
+/// still make a folder a reward, but are file tiles that open in their own app and never
+/// become a cover.
+const UNSHOWN_IMAGE_EXTS: &[&str] = &["tif", "tiff"];
 const VIDEO_EXTS: &[&str] = &["mp4", "webm", "mov", "m4v", "mkv", "avi", "wmv", "flv"];
 /// archives inside a content folder show as their own tiles (zip icon) so they can
 /// be found and extracted later (a dropped archive is still extracted on import)
@@ -415,7 +417,8 @@ fn is_reserved(path: &Path) -> bool {
 
 /// Reward content: images, GIFs or videos (not our marker/cover files).
 fn is_media(path: &Path) -> bool {
-    !is_reserved(path) && (is_image(path) || is_video(path) || is_archive(path))
+    !is_reserved(path)
+        && (is_image(path) || ext_in(path, UNSHOWN_IMAGE_EXTS) || is_video(path) || is_archive(path))
 }
 
 /// OS/app junk that never counts. .micoll-sd.json is the MiSD marker (see sd.rs).

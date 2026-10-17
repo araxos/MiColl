@@ -66,8 +66,8 @@ half = "2"
 ureq = "2"
 # checks the signature of portable updates (same key as the installer updates)
 minisign-verify = "0.2"
-tauri-plugin-updater = "~2.12"
-tauri-plugin-process = "~2.3"
+tauri-plugin-updater = "~2.14"
+tauri-plugin-process = "~2.4"
 
 # Windows file properties (Title/Subject/Rating/Tags/Comments) via the Shell
 # Property System — the same fields Explorer shows under Properties → Details.
@@ -98,7 +98,9 @@ windows = { version = "0.61", features = [
     "Win32_UI_Shell_Common",
     "Win32_UI_Shell_PropertiesSystem",
     # One MiColl per library + the taskbar "New window" task (see single_instance.rs).
+    # Gdi: RegisterClassW/WNDCLASSW live behind it (Tauri used to turn it on for us).
     "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
     "Win32_System_Threading",
     "Win32_Security",
     "Win32_System_LibraryLoader",

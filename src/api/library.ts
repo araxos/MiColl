@@ -187,8 +187,8 @@ export interface StyleChoice {
 const UNSORTED = "Unsorted";
 
 const VIDEO_RE = /\.(mp4|webm|mov|m4v|mkv|avi|wmv|flv)$/i;
-// same list as IMAGE_EXTS in indexer.rs
-const IMAGE_RE = /\.(jpe?g|jfif|png|gif|webp|bmp|avif|tiff?)$/i;
+// same list as IMAGE_EXTS in indexer.rs (TIFF can't be shown, so it's a file tile)
+const IMAGE_RE = /\.(jpe?g|jfif|png|gif|webp|bmp|avif)$/i;
 /**
  * File kind by extension. GIFs are "image". Everything we can't show
  * (archives, PSD, PDF...) is "archive" (file tile, opens in Explorer).
@@ -1528,9 +1528,19 @@ export interface FillPlan {
   conflicts: FillConflict[];
 }
 
+/**
+ * Setting: a folder dropped on a reward lands as a subfolder with its name ("true", the
+ * default) or only brings its contents ("false").
+ */
+export const KEEP_FOLDERS_KEY = "fill_keep_folders";
+
 /** Dry run: list the files that clash with existing ones, so the UI can ask. */
-export async function fillRewardPlan(rewardId: string, paths: string[]): Promise<FillPlan> {
-  return invoke<FillPlan>("fill_reward_plan", { rewardId: Number(rewardId), paths });
+export async function fillRewardPlan(
+  rewardId: string,
+  paths: string[],
+  keepFolders?: string[],
+): Promise<FillPlan> {
+  return invoke<FillPlan>("fill_reward_plan", { rewardId: Number(rewardId), paths, keepFolders });
 }
 
 /**
@@ -1547,6 +1557,8 @@ export async function fillReward(
   moveSources?: boolean,
   /** Tags the "fill-progress" events (see FillProgress). */
   job?: number,
+  /** Dropped folders that land as a subfolder of the reward, keeping their name. */
+  keepFolders?: string[],
 ): Promise<FillReport> {
   return invoke<FillReport>("fill_reward", {
     rewardId: Number(rewardId),
@@ -1554,6 +1566,7 @@ export async function fillReward(
     resolutions,
     moveSources,
     job,
+    keepFolders,
   });
 }
 

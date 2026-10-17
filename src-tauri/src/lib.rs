@@ -2059,10 +2059,15 @@ struct FillPlan {
 }
 
 /// Turn the picked sources into (source file, destination path in the reward) pairs.
-/// Files -> their name, folders keep their sub-paths. Same layout as fill_reward writes.
+/// Files -> their name, folders keep their sub-paths. A folder listed in keep also keeps
+/// its own name (it lands as a subfolder of the reward, like a copy in Explorer), any
+/// other folder only brings its contents. Same layout as fill_reward writes.
 /// Also returns how many entries couldn't be read (a folder without access, a missing
 /// path, a link): they count as failed, so their source is never deleted.
-fn collect_fill_items(paths: &[String]) -> (Vec<(std::path::PathBuf, std::path::PathBuf)>, u32) {
+fn collect_fill_items(
+    paths: &[String],
+    keep: &[String],
+) -> (Vec<(std::path::PathBuf, std::path::PathBuf)>, u32) {
     let mut out = Vec::new();
     let mut unreadable = 0u32;
     for p in paths {
@@ -2073,6 +2078,12 @@ fn collect_fill_items(paths: &[String]) -> (Vec<(std::path::PathBuf, std::path::
                 None => unreadable += 1,
             }
         } else if src.is_dir() {
+            let prefix = keep
+                .iter()
+                .any(|k| k == p)
+                .then(|| src.file_name().map(std::path::PathBuf::from))
+                .flatten()
+                .unwrap_or_default();
             for entry in walkdir::WalkDir::new(src) {
                 let Ok(entry) = entry else {
                     unreadable += 1;
@@ -2083,7 +2094,7 @@ fn collect_fill_items(paths: &[String]) -> (Vec<(std::path::PathBuf, std::path::
                 }
                 match entry.path().strip_prefix(src) {
                     Ok(rel) if entry.file_type().is_file() => {
-                        out.push((entry.path().to_path_buf(), rel.to_path_buf()))
+                        out.push((entry.path().to_path_buf(), prefix.join(rel)))
                     }
                     _ => unreadable += 1,
                 }
@@ -2125,13 +2136,18 @@ fn fill_target(conn: &rusqlite::Connection, reward_id: i64) -> Result<std::path:
 
 /// Dry run: which files would overwrite existing ones, so the UI can ask.
 #[tauri::command]
-fn fill_reward_plan(db: State<Db>, reward_id: i64, paths: Vec<String>) -> Result<FillPlan, String> {
+fn fill_reward_plan(
+    db: State<Db>,
+    reward_id: i64,
+    paths: Vec<String>,
+    keep_folders: Option<Vec<String>>,
+) -> Result<FillPlan, String> {
     let target = {
         let conn = db.lock().map_err(map_err)?;
         fill_target(&conn, reward_id)?
     };
     let mut conflicts = Vec::new();
-    for (_src, rel) in collect_fill_items(&paths).0 {
+    for (_src, rel) in collect_fill_items(&paths, &keep_folders.unwrap_or_default()).0 {
         if target.join(&rel).exists() {
             conflicts.push(FillConflict {
                 rel: rel_key(&rel),
@@ -2178,6 +2194,8 @@ async fn fill_reward(
     move_sources: Option<bool>,
     // tags the "fill-progress" events so the UI's progress toast knows they're its own
     job: Option<u64>,
+    // dropped folders that land as a subfolder (with their name), see collect_fill_items
+    keep_folders: Option<Vec<String>>,
 ) -> Result<FillReport, String> {
     let key = session_key(&dek);
     // the real target folder
@@ -2208,7 +2226,7 @@ async fn fill_reward(
             std::fs::create_dir_all(&target2).map_err(map_err)?;
             let mut added = 0u32;
             let mut skipped = 0u32;
-            let (items, unreadable) = collect_fill_items(&paths);
+            let (items, unreadable) = collect_fill_items(&paths, &keep_folders.unwrap_or_default());
             let mut failed = unreadable;
             // every source file that was copied and checked at the destination
             let mut arrived = transfer::Arrived::new();
@@ -10445,6 +10463,32 @@ mod tests {
             period_own_dir(&conn, 3),
             Some(PathBuf::from(r"C:\coll\MiColl\A\Patreon\2026\03"))
         );
+    }
+
+    /// a dropped folder in keep lands with its name, any other only brings its contents
+    #[test]
+    fn dropped_folders_keep_their_name_when_asked() {
+        let base = std::env::temp_dir().join(format!("micoll_fillkeep_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let folder = base.join("xyreward");
+        std::fs::create_dir_all(folder.join("sub")).unwrap();
+        std::fs::write(folder.join("a.png"), b"x").unwrap();
+        std::fs::write(folder.join("sub").join("b.png"), b"x").unwrap();
+        std::fs::write(base.join("loose.png"), b"x").unwrap();
+        let folder_s = folder.to_string_lossy().to_string();
+        let loose_s = base.join("loose.png").to_string_lossy().to_string();
+        let rels = |keep: &[String]| {
+            let mut v: Vec<String> = super::collect_fill_items(&[folder_s.clone(), loose_s.clone()], keep)
+                .0
+                .iter()
+                .map(|(_, rel)| super::rel_key(rel))
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(rels(&[folder_s.clone()]), ["loose.png", "xyreward/a.png", "xyreward/sub/b.png"]);
+        assert_eq!(rels(&[]), ["a.png", "loose.png", "sub/b.png"]);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// a folder only goes whole when no file is left anywhere inside

@@ -1936,4 +1936,8 @@ export const dict: Dict = {
   "Error log": "Журнал ошибок",
   "Off by default. When on, MiColl writes errors to a file on this PC (the last 7 days are kept), so a bug report can show what went wrong. Nothing leaves your PC unless you attach it to feedback. Turning it off deletes the log.": "По умолчанию выключен. Если включён, MiColl записывает ошибки в файл на этом ПК (хранятся последние 7 дней), чтобы отчёт об ошибке мог показать, что пошло не так. Ничего не покидает ваш ПК, пока вы не приложите это к отзыву. Выключение удаляет журнал.",
   "Open log folder": "Открыть папку журналов",
+  "Keep dropped folders": "Сохранять перетащенные папки",
+  "A folder you drop on a reward lands inside it as a subfolder, with its name — like copying it in Explorer. Turn off to bring only the files from inside the folder. Loose files and archives always go straight in.": "Папка, перетащенная на награду, попадает в неё как подпапка со своим именем — как при копировании в Проводнике. Выключите, чтобы добавлялись только файлы из папки. Отдельные файлы и архивы всегда добавляются напрямую.",
+  "Add folder…": "Добавить папку…",
+  "Add a folder to “{name}”": "Добавить папку в «{name}»",
 };
