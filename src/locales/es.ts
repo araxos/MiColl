@@ -708,7 +708,6 @@ export const dict: Dict = {
   "Which build of MiColl you’re running, and its updates. MiColl looks for a new version shortly after it starts and every six hours — switch that off below and it only looks when you press the button.": "Qué versión de MiColl estás usando y sus actualizaciones. MiColl busca una versión nueva poco después de iniciarse y cada seis horas; desactívalo abajo y solo buscará cuando pulses el botón.",
   "Check for updates automatically": "Buscar actualizaciones automáticamente",
   "After starting and every six hours. Only the version number is fetched from GitHub; nothing is sent. Installing always waits for you.": "Al iniciar y cada seis horas. Solo se consulta el número de versión en GitHub; no se envía nada. La instalación siempre espera a que tú decidas.",
-  "MiColl {version} is available.": "MiColl {version} está disponible.",
   "Installing…": "Instalando…",
   "Updates are only available in the desktop app.": "Las actualizaciones solo están disponibles en la aplicación de escritorio.",
   "Slideshow settings": "Ajustes de la presentación",

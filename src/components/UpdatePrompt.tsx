@@ -21,6 +21,49 @@ import {
 
 const mb = (n: number) => (n / (1024 * 1024)).toFixed(1);
 
+/** **bold** spans of one line as React nodes (the notes are plain text, no HTML). */
+function inlineBold(line: string) {
+  return line.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith("**") && part.endsWith("**") && part.length > 4 ? (
+      <strong key={i} className="font-semibold text-zinc-100">
+        {part.slice(2, -2)}
+      </strong>
+    ) : (
+      part
+    ),
+  );
+}
+
+/**
+ * The release notes as written on GitHub: "- " lines become a list, **bold** is bold,
+ * other lines stay paragraphs.
+ */
+function ReleaseNotes({ text }: { text: string }) {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const blocks: Array<{ list: boolean; lines: string[] }> = [];
+  for (const line of lines) {
+    const item = /^[-*]\s+/.test(line);
+    const last = blocks[blocks.length - 1];
+    if (last && last.list === item) last.lines.push(item ? line.replace(/^[-*]\s+/, "") : line);
+    else blocks.push({ list: item, lines: [item ? line.replace(/^[-*]\s+/, "") : line] });
+  }
+  return (
+    <div className="space-y-2">
+      {blocks.map((b, i) =>
+        b.list ? (
+          <ul key={i} className="list-disc space-y-1.5 pl-4 marker:text-zinc-500">
+            {b.lines.map((l, j) => (
+              <li key={j}>{inlineBold(l)}</li>
+            ))}
+          </ul>
+        ) : (
+          b.lines.map((l, j) => <p key={`${i}-${j}`}>{inlineBold(l)}</p>)
+        ),
+      )}
+    </div>
+  );
+}
+
 /**
  * Popup that shows a new version with its notes and "Later" / "Update now".
  * Mounted once for the whole app and also starts the auto checks.
@@ -133,11 +176,11 @@ export function UpdatePrompt({ active }: { active: boolean }) {
             {notes && (
               <div
                 className={cn(
-                  "max-h-56 overflow-y-auto whitespace-pre-line px-3 py-2.5 text-sm leading-relaxed text-zinc-300",
+                  "max-h-56 overflow-y-auto px-3 py-2.5 text-sm leading-relaxed text-zinc-300",
                   dlg.box,
                 )}
               >
-                {notes}
+                <ReleaseNotes text={notes} />
               </div>
             )}
 

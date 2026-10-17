@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { Info, RefreshCw, Download, Check, FolderOpen, Copy, Scale } from "lucide-react";
+import { Info, RefreshCw, Download, Check, FolderOpen, Copy, Scale, ArrowRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { LicensesDialog } from "@/components/LicensesDialog";
 import { useActions } from "@/actions";
@@ -68,6 +68,10 @@ export function VersionPanel() {
   // real app: version from tauri.conf.json, browser: from package.json
   const [version, setVersion] = useState(PKG_VERSION);
   const { state: check } = useUpdater();
+  // a newer version was found (or is being installed): the version row shows it and
+  // the check button turns into "Update now"
+  const updating =
+    check.kind === "available" || check.kind === "downloading" || check.kind === "installing";
   const autoCheck = useAutoUpdateCheck();
   const dlg = useDialogTheme();
   const accent = useAccent();
@@ -155,8 +159,15 @@ export function VersionPanel() {
       >
         <div>
           <div className="text-sm font-medium text-zinc-100">MiColl</div>
-          <div className="mt-0.5 font-mono text-2xl font-semibold leading-tight text-brand-300">
+          <div className="mt-0.5 flex items-center gap-2 font-mono text-2xl font-semibold leading-tight text-brand-300">
             {version}
+            {/* an update is waiting: where it goes */}
+            {updating && (
+              <>
+                <ArrowRight className={cn("h-5 w-5", irid ? "text-white/70" : "text-zinc-500")} />
+                <span className={dlg.accentText}>{check.version}</span>
+              </>
+            )}
           </div>
           {/* lighter text on iridescent */}
           {released && (
@@ -165,14 +176,30 @@ export function VersionPanel() {
             </div>
           )}
         </div>
+        {updating ? (
+          // the check button becomes the update button (same as the popup's)
+          <Button
+            variant="primary"
+            onClick={showUpdatePrompt}
+            disabled={check.kind !== "available"}
+            className={dlg.primary}
+          >
+            {check.kind === "available" ? (
+              <Download className="h-4 w-4" />
+            ) : (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            )}
+            {check.kind === "installing"
+              ? t("Installing…")
+              : check.kind === "downloading"
+                ? t("Downloading…")
+                : t("Update now")}
+          </Button>
+        ) : (
         <Button
           variant="outline"
           onClick={runCheck}
-          disabled={
-            check.kind === "checking" ||
-            check.kind === "downloading" ||
-            check.kind === "installing"
-          }
+          disabled={check.kind === "checking"}
           // green in every theme (success), the transition makes the switch soft
           className={cn(
             "transition-[background-color,border-color,color,box-shadow] duration-300",
@@ -191,30 +218,8 @@ export function VersionPanel() {
               ? t("You’re on the latest version")
               : t("Check for updates")}
         </Button>
+        )}
       </div>
-
-      {(check.kind === "available" ||
-        check.kind === "downloading" ||
-        check.kind === "installing") && (
-        <div className={cn("mt-3 flex flex-wrap items-center justify-between gap-3 p-4", dlg.box)}>
-          <div className="min-w-0">
-            <div className={cn("text-sm font-medium", dlg.accentText)}>
-              {tf("MiColl {version} is available.", { version: check.version })}
-            </div>
-            {check.kind !== "available" && (
-              <p className="mt-0.5 text-xs text-zinc-400">
-                {check.kind === "installing" ? t("Installing…") : t("Downloading…")}
-              </p>
-            )}
-          </div>
-          {check.kind === "available" && (
-            <Button variant="primary" onClick={showUpdatePrompt} className={dlg.primary}>
-              <Download className="h-4 w-4" />
-              {t("Update now")}
-            </Button>
-          )}
-        </div>
-      )}
 
       {check.kind === "unsupported" && (
         <p className="mt-3 text-sm text-zinc-400">

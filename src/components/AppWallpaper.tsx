@@ -9,13 +9,17 @@ import {
   isWallpaperPreset,
   wallpaperPresetId,
 } from "@/lib/wallpaper";
-import { findWallpaperPreset, IRI_DEFAULT_WALLPAPER } from "@/lib/wallpaperPresets";
+import {
+  findWallpaperPreset,
+  IRI_DEFAULT_WALLPAPER,
+  CYBER_DEFAULT_WALLPAPER,
+} from "@/lib/wallpaperPresets";
 import { isTauri } from "@/lib/tauri";
 import { readImage } from "@/api/library";
 import { SakuraFx } from "@/components/SakuraFx";
 import { SakuraStill } from "@/components/SakuraStill";
-import { CyberpunkFx } from "@/components/CyberpunkFx";
-import { CyberpunkStill } from "@/components/CyberpunkStill";
+// CyberpunkFx (the old glitch background) stays in the codebase but isn't mounted
+import { CyberpunkAnimated } from "@/components/CyberpunkAnimated";
 import { IridescentFx } from "@/components/IridescentFx";
 import { ClassicGlintsFx } from "@/components/ClassicGlintsFx";
 
@@ -28,7 +32,6 @@ export function AppWallpaper() {
   // "Animated background" off -> skip the live FX and show the static gradient
   const animated = useAnimatedBg();
   const sakura = animated && accent === "sakura";
-  const cyber = animated && accent === "cyberpunk";
   const irid = animated && accent === "iridescent";
   // iridescent without animation: show the saved shader snapshot (see iridSnapshot)
   const snapshot = useIridSnapshot();
@@ -66,14 +69,25 @@ export function AppWallpaper() {
     accent === "iridescent" && !animated && !wallpaperPath
       ? findWallpaperPreset(IRI_DEFAULT_WALLPAPER)
       : undefined;
+  // cyberpunk default (design 01), with the animation on or off. Also stands in for a
+  // stored preset id a newer build dropped.
+  const cyberDefault =
+    accent === "cyberpunk" && (!wallpaperPath || (isWallpaperPreset(wallpaperPath) && !preset))
+      ? findWallpaperPreset(CYBER_DEFAULT_WALLPAPER)
+      : undefined;
+  const cyberPreset = preset?.accent === "cyberpunk" ? preset : cyberDefault;
+  // animation on and the picked cyberpunk picture has a moving version: that instead
+  const cyberAnim = accent === "cyberpunk" && animated ? cyberPreset?.animated : undefined;
   // the picture painted over the whole background (the shader preset is handled by
   // iridStill)
-  const custom = preset ? preset.url : (iriDefault?.url ?? file);
+  const custom = cyberAnim
+    ? ""
+    : preset
+      ? preset.url
+      : (iriDefault?.url ?? cyberDefault?.url ?? file);
 
   // a custom picture covers everything, so skip the iridescent shader behind it
   const iridStill = !custom && !animated && accent === "iridescent" && !!snapshot;
-  // cyberpunk still is drawn from scratch (nothing to capture)
-  const cyberStill = !custom && !animated && accent === "cyberpunk";
   // same for sakura
   const sakStill = !custom && !animated && accent === "sakura";
   return (
@@ -104,13 +118,14 @@ export function AppWallpaper() {
           style={{ backgroundImage: `url(${snapshot})` }}
         />
       )}
-      {/* static cyberpunk wallpaper when animation is off (see CyberpunkStill) */}
-      {cyberStill && <CyberpunkStill />}
       {/* static sakura wallpaper when animation is off (see SakuraStill) */}
       {sakStill && <SakuraStill />}
       {/* premium FX above the veil. Only the iridescent shader gets replaced by a
           custom wallpaper, petals and rain still fall over it. */}
       {irid && !custom && <IridescentFx />}
+      {/* cyberpunk's moving picture: covers everything like a picture, so it sits
+          under the dim like one */}
+      {cyberAnim && <CyberpunkAnimated variant={cyberAnim} />}
       {custom && (
         <div
           className="absolute inset-0 bg-cover bg-center"
@@ -122,7 +137,6 @@ export function AppWallpaper() {
         <div className="absolute inset-0 bg-black" style={{ opacity: dim / 100 }} />
       )}
       {sakura && <SakuraFx />}
-      {cyber && <CyberpunkFx />}
     </div>
   );
 }

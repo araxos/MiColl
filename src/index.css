@@ -661,6 +661,32 @@ textarea,
   background-color: #ffc1da;
 }
 
+/* Iridescent: a dark pearl thumb, the frame's four pastels sunk to deep tones and
+   run top to bottom, on a barely-there lavender track. A gradient needs the
+   ::-webkit-scrollbar parts, and Chromium ignores those as soon as
+   scrollbar-width / scrollbar-color are set, so both go back to auto here. */
+[data-accent="iridescent"] * {
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+[data-accent="iridescent"] *::-webkit-scrollbar-track {
+  background: rgba(196, 181, 253, 0.04);
+}
+[data-accent="iridescent"] *::-webkit-scrollbar-thumb {
+  background-color: #3e3a5c;
+  background-image: linear-gradient(180deg, #4a4272, #57405f 35%, #34524f 68%, #384a66);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+[data-accent="iridescent"] *::-webkit-scrollbar-thumb:hover {
+  background-image: linear-gradient(180deg, #5a5088, #6a4d73 35%, #406560 68%, #455a7c);
+}
+[data-accent="iridescent"] *::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* No image drag ghost in the viewer */
 img {
   -webkit-user-drag: none;
@@ -5758,12 +5784,30 @@ html[data-classic-luxe="1"] .classic-panel .classic-info {
     box-shadow 160ms ease,
     filter 160ms ease;
 }
+/* yellow: its two theme colours are both light gold, so the standard gradient looks
+   flat. Its own: lemon at the top left down to deep gold, a brighter top edge, a
+   darker bottom edge for depth, and warm dark text (white on yellow is hard to read). */
+[data-accent="yellow"] .create-card-casual {
+  color: #422006;
+  text-shadow: 0 1px 0 rgb(255 255 255 / 0.35);
+  background-image: linear-gradient(135deg, #fef08a 0%, #facc15 42%, #eab308 72%, #ca8a04 100%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.6),
+    inset 0 -1px 0 rgb(113 63 18 / 0.35),
+    0 8px 22px -10px #eab308;
+}
 .create-card-casual:hover:not(:disabled) {
   transform: translateY(-1px);
   filter: brightness(1.07);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.36),
     0 12px 28px -10px var(--color-brand-500);
+}
+[data-accent="yellow"] .create-card-casual:hover:not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.7),
+    inset 0 -1px 0 rgb(113 63 18 / 0.35),
+    0 12px 28px -10px #facc15;
 }
 .create-card-casual:active:not(:disabled) {
   transform: translateY(0);
@@ -5844,4 +5888,241 @@ html[data-animations="on"] .card-pin-halo {
   to {
     rotate: 1turn;
   }
+}
+
+/* "SFW mode is on" dot, casual (non-premium) themes: a small glossy orb in the theme
+   gradient (like Create Card and the pin), no dark ring, with a soft glow that breathes while
+   animations are on. Premium themes keep their own dots above. */
+html:is([data-accent="original"], [data-accent="purple"], [data-accent="rose"], [data-accent="blue"], [data-accent="green"], [data-accent="yellow"]) .sfw-dot {
+  width: 0.6875rem;
+  height: 0.6875rem;
+  background:
+    radial-gradient(circle at 34% 28%, rgb(255 255 255 / 0.9) 0 12%, rgb(255 255 255 / 0.25) 30%, transparent 46%),
+    linear-gradient(135deg, var(--color-brand-300), var(--color-brand-500) 50%, var(--color-accent2-600));
+  box-shadow:
+    0 0 8px 1px color-mix(in srgb, var(--color-brand-500) 65%, transparent);
+}
+html[data-animations="on"]:is([data-accent="original"], [data-accent="purple"], [data-accent="rose"], [data-accent="blue"], [data-accent="green"], [data-accent="yellow"]) .sfw-dot {
+  animation: sfw-casual-glow 3.2s ease-in-out infinite;
+}
+@keyframes sfw-casual-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 6px 0 color-mix(in srgb, var(--color-brand-500) 55%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 12px 2px color-mix(in srgb, var(--color-brand-500) 80%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html:is([data-accent="original"], [data-accent="purple"], [data-accent="rose"], [data-accent="blue"], [data-accent="green"], [data-accent="yellow"]) .sfw-dot {
+    animation: none !important;
+  }
+}
+
+/* ---- TEST: Create Card fine rim (iridescent) ------------------------------ */
+/* The dashboard's Create Card wears the lit top-bar button's rim (header [data-lit]):
+   a thin flowing pearl foil with a soft pink glow, instead of the thick spectrum rim
+   of .iri-lead. Only on .iri-lead--fine (StartPage), so "Add rewards" keeps its own.
+   To undo: delete this block and the iri-lead--fine class in StartPage. */
+[data-accent="iridescent"] .iri-lead--fine {
+  box-shadow: 0 0 10px rgba(245, 194, 255, 0.3);
+}
+/* The rim is a real (transparent) border, masked to the ring, not padding: Chromium
+   snaps border widths to whole device pixels, padding it doesn't. At 125 % Windows
+   scaling a 1.5px padding ring lands on half pixels and the top line came out
+   thicker than the bottom one. */
+[data-accent="iridescent"] .iri-lead--fine::after {
+  padding: 0;
+  border: 1.5px solid transparent;
+  background: linear-gradient(135deg, #c4b5fd, #f5c2ff 45%, #a7f3d0 75%, #bae6fd) border-box;
+  background-size: 200% 200%;
+  -webkit-mask:
+    linear-gradient(#000 0 0) padding-box,
+    linear-gradient(#000 0 0) border-box;
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: micoll-iri-flow 3.5s steps(35) infinite;
+}
+[data-accent="iridescent"] .iri-lead--fine:hover {
+  box-shadow: 0 0 14px rgba(245, 194, 255, 0.45);
+}
+[data-accent="iridescent"] .iri-lead--fine:hover::after {
+  filter: none;
+}
+[data-animations="off"] .iri-lead--fine::after {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="iridescent"] .iri-lead--fine::after {
+    animation: none;
+  }
+}
+
+/* ---- Cyberpunk: Create Card ---------------------------------------------- */
+/* Extruded like the settings titles (a cyan, then a black layer behind it), a cyan
+   HUD tick on the top edge. Hover "hacks" it: the extrusion splits into magenta and
+   cyan, the button twitches, colour-torn slices flash through it and the label
+   decrypts itself (CyberScramble). The burst sits at the start of a 2.4 s loop, so
+   it keeps re-glitching now and then while the mouse stays. */
+[data-accent="cyberpunk"] .cp-create {
+  position: relative;
+  overflow: visible;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  /* a few px smaller than the md button, the extrusion adds visual size */
+  height: 2.125rem;
+  padding: 0 0.8rem;
+  gap: 0.375rem;
+  font-size: 0.8rem;
+  box-shadow:
+    2px 2px 0 #00e5ff,
+    4px 4px 0 #0a0a0a,
+    0 0 14px rgba(252, 238, 10, 0.3);
+  transition: box-shadow 0.15s steps(2);
+}
+[data-accent="cyberpunk"] .cp-create::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: -4px;
+  width: 22px;
+  height: 3px;
+  background: #00e5ff;
+  box-shadow: 26px 0 0 -0.5px rgba(0, 229, 255, 0.45);
+  pointer-events: none;
+}
+[data-accent="cyberpunk"] .cp-create::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    linear-gradient(
+      180deg,
+      transparent 0 22%,
+      rgba(0, 229, 255, 0.95) 22% 30%,
+      transparent 30% 58%,
+      rgba(255, 43, 214, 0.9) 58% 64%,
+      transparent 64%
+    );
+  mix-blend-mode: hard-light;
+}
+[data-accent="cyberpunk"] .cp-create:hover:not(:disabled) {
+  box-shadow:
+    -2px -1.5px 0 #ff2bd6,
+    2px 2px 0 #00e5ff,
+    4px 4px 0 #0a0a0a,
+    0 0 20px rgba(252, 238, 10, 0.5);
+  text-shadow:
+    1.5px 0 0 rgba(255, 43, 214, 0.8),
+    -1.5px 0 0 rgba(0, 229, 255, 0.8);
+  animation: cp-create-twitch 2.4s steps(1) infinite;
+}
+[data-accent="cyberpunk"] .cp-create:hover:not(:disabled)::after {
+  animation: cp-create-slice 2.4s steps(1) infinite;
+}
+@keyframes cp-create-twitch {
+  0% {
+    transform: translate(0, 0);
+  }
+  2% {
+    transform: translate(-3px, 1px) skewX(-8deg);
+  }
+  4% {
+    transform: translate(3px, -1px) skewX(5deg);
+  }
+  6% {
+    transform: translate(-1px, 0);
+  }
+  8% {
+    transform: translate(2px, 1px) skewX(-3deg);
+  }
+  10%,
+  100% {
+    transform: translate(0, 0);
+  }
+}
+@keyframes cp-create-slice {
+  0% {
+    opacity: 1;
+    transform: translateX(-8px);
+    clip-path: inset(18% 0 55% 0);
+  }
+  3% {
+    opacity: 1;
+    transform: translateX(6px);
+    clip-path: inset(55% 0 20% 0);
+  }
+  6% {
+    opacity: 1;
+    transform: translateX(-4px);
+    clip-path: inset(8% 0 78% 0);
+  }
+  9% {
+    opacity: 1;
+    transform: translateX(3px);
+    clip-path: inset(62% 0 10% 0);
+  }
+  11%,
+  100% {
+    opacity: 0;
+    transform: none;
+    clip-path: inset(0);
+  }
+}
+[data-animations="off"] .cp-create:hover,
+[data-animations="off"] .cp-create:hover::after {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="cyberpunk"] .cp-create:hover,
+  [data-accent="cyberpunk"] .cp-create:hover::after {
+    animation: none;
+  }
+}
+
+/* ---- Cyberpunk: the dashboard's red glow band ---------------------------- */
+/* From right under the top bar to just below "Creators (n)": a lit red line along the
+   top, brightest in the middle and fading out toward both ends, and a see-through red
+   glow hanging down from it that also fades toward the sides and the bottom. */
+[data-accent="cyberpunk"] .cp-dash-glow {
+  background:
+    radial-gradient(
+      55% 100% at 50% 0%,
+      rgba(255, 46, 66, 0.2) 0%,
+      rgba(255, 46, 66, 0.08) 50%,
+      transparent 100%
+    ),
+    linear-gradient(180deg, rgba(255, 46, 66, 0.06), transparent 85%);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+}
+/* the line, and a blurred copy of it as its glow */
+[data-accent="cyberpunk"] .cp-dash-glow::before,
+[data-accent="cyberpunk"] .cp-dash-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 70, 86, 0.35) 15%,
+    #ff4a5a 50%,
+    rgba(255, 70, 86, 0.35) 85%,
+    transparent 100%
+  );
+}
+[data-accent="cyberpunk"] .cp-dash-glow::before {
+  height: 1.5px;
+}
+[data-accent="cyberpunk"] .cp-dash-glow::after {
+  height: 8px;
+  top: -3px;
+  filter: blur(5px);
+  opacity: 0.75;
 }

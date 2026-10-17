@@ -9,9 +9,11 @@ import type { AccentKey } from "@/lib/theme";
 import prismFold from "@/assets/wallpapers/iri-prism-fold.jpg";
 import pearlDrift from "@/assets/wallpapers/iri-pearl-drift.svg";
 import steelVeil from "@/assets/wallpapers/iri-steel-veil.svg";
-import neonSkyline from "@/assets/wallpapers/cyber-neon-skyline.svg";
-import circuitTrace from "@/assets/wallpapers/cyber-circuit-trace.svg";
-import hazardLine from "@/assets/wallpapers/cyber-hazard-line.svg";
+import cpDataTear from "@/assets/wallpapers/cyber-01-data-tear.webp";
+import cpRestricted from "@/assets/wallpapers/cyber-02-restricted.webp";
+import cpHorizon from "@/assets/wallpapers/cyber-03-horizon.webp";
+import cpCodeRain from "@/assets/wallpapers/cyber-04-code-rain.webp";
+import type { CyberAnimatedId } from "@/components/CyberpunkAnimated";
 import toriiMist from "@/assets/wallpapers/sakura-torii-mist.svg";
 import petalWind from "@/assets/wallpapers/sakura-petal-wind.svg";
 import moonPond from "@/assets/wallpapers/sakura-moon-pond.svg";
@@ -26,6 +28,9 @@ export interface WallpaperPreset {
   url: string;
   /** Which theme it belongs to (switching away removes it, see theme.ts). */
   accent: AccentKey;
+  /** Cyberpunk: the moving version shown instead while "Animated background" is on
+   *  (CyberpunkAnimated). Without one the picture stays still either way. */
+  animated?: CyberAnimatedId;
 }
 
 /** What iridescent shows when nothing is chosen and the animated background is off. */
@@ -65,37 +70,39 @@ export const IRI_WALLPAPERS: WallpaperPreset[] = [
   },
 ];
 
-/** Cyberpunk's default: "grid-horizon" has no image, it's CyberpunkStill. */
-export const CYBER_DEFAULT_WALLPAPER = "grid-horizon";
+/** Cyberpunk's default, with the animation on as well as off (01 animates). */
+export const CYBER_DEFAULT_WALLPAPER = "cp-data-tear";
 
-/** Cyberpunk presets in menu order (generated SVGs, dark and calm on the left). */
+/** Cyberpunk presets in menu order (the designs 01-04, WebP from the 2560x1440 PNGs). */
 export const CYBER_WALLPAPERS: WallpaperPreset[] = [
   {
-    id: "grid-horizon",
-    label: "Grid horizon",
-    hint: "The theme’s own still — a lit floor grid running to a slit sun.",
-    url: "",
+    id: "cp-data-tear",
+    label: "Data tear",
+    hint: "A yellow seam torn across the dark, red and cyan in the corners. Animated when the animated background is on.",
+    url: cpDataTear,
+    accent: "cyberpunk",
+    animated: "data-tear",
+  },
+  {
+    id: "cp-restricted",
+    label: "Restricted",
+    hint: "A yellow warning panel on the left, a red cut on the right.",
+    url: cpRestricted,
     accent: "cyberpunk",
   },
   {
-    id: "neon-skyline",
-    label: "Neon skyline",
-    hint: "A city at night in the rain, its windows and two neon signs lit.",
-    url: neonSkyline,
+    id: "cp-horizon",
+    label: "Horizon",
+    hint: "A lit horizon over a yellow floor grid. Animated when the animated background is on.",
+    url: cpHorizon,
     accent: "cyberpunk",
+    animated: "horizon",
   },
   {
-    id: "circuit-trace",
-    label: "Circuit trace",
-    hint: "A board in the dark, three of its traces live.",
-    url: circuitTrace,
-    accent: "cyberpunk",
-  },
-  {
-    id: "hazard-line",
-    label: "Hazard line",
-    hint: "Warning tape across one corner, a faint HUD panel across the other.",
-    url: hazardLine,
+    id: "cp-code-rain",
+    label: "Code rain",
+    hint: "Columns of hex falling in cyan, yellow and red.",
+    url: cpCodeRain,
     accent: "cyberpunk",
   },
 ];

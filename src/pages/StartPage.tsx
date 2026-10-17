@@ -27,6 +27,7 @@ import { ArtistCard } from "@/components/ArtistCard";
 import { DASHBOARD_SHAPE } from "@/lib/tileShape";
 import { VirtualGrid } from "@/components/VirtualGrid";
 import { RecentPanel } from "@/components/RecentPanel";
+import { CyberScramble } from "@/components/CyberScramble";
 import { AddArtistSheet } from "@/components/AddArtistSheet";
 import { ImportFolderButton } from "@/components/ImportFolderButton";
 import { NeedsReviewBanner } from "@/components/NeedsReview";
@@ -197,6 +198,8 @@ export function StartPage({ onLock }: { onLock: () => void }) {
   // dropdown style, cyberpunk gets a hard-edged neon panel
   const cyber = accent === "cyberpunk";
   const irid = accent === "iridescent";
+  // cyberpunk Create Card: hovered -> the label scrambles (CyberScramble)
+  const [createHover, setCreateHover] = useState(false);
   // iridescent: Sort/Class labels and icons in a light holo tint so they're readable
   const iriLabel = "font-semibold text-[#C7F1FF]";
   const iriSym = "text-[#C7F1FF]";
@@ -207,7 +210,9 @@ export function StartPage({ onLock }: { onLock: () => void }) {
     : undefined;
   // Create Card: iri-lead puts the spectrum on the rim, square corners like the icon
   // buttons next to it (not the primary pill)
-  const iriLead = irid ? "iri-lead rounded-lg" : undefined;
+  // iri-lead--fine (TEST): the thin glowing rim of a lit top-bar button instead
+  // (index.css, block "TEST: Create Card fine rim"). Drop the class to undo.
+  const iriLead = irid ? "iri-lead iri-lead--fine rounded-lg" : undefined;
   // casual (non-premium) themes: the round icon buttons without the grey ring
   const bareIcon = isPremium(accent) ? undefined : "border-transparent";
   // casual themes: Create Card gets the gradient pill (index.css .create-card-casual)
@@ -732,6 +737,15 @@ export function StartPage({ onLock }: { onLock: () => void }) {
               "rounded-2xl border border-white/12 bg-zinc-900/28 px-4 py-2.5 backdrop-blur-xl [transform:translateZ(0)]",
           )}
         >
+          {/* cyberpunk: a red glow band from under the top bar to under the title, a lit
+              line on top (index.css .cp-dash-glow). Behind the bar's content (-z-10
+              inside the bar's z-20), reaching out over the page padding. */}
+          {cyber && (
+            <div
+              aria-hidden
+              className="cp-dash-glow pointer-events-none absolute -inset-x-6 -bottom-5 -top-5 -z-10 2xl:-inset-x-10"
+            />
+          )}
           <div className="relative" ref={typeRef}>
             <button
               onClick={() => setTypeOpen((o) => !o)}
@@ -989,10 +1003,18 @@ export function StartPage({ onLock }: { onLock: () => void }) {
               variant={sakura ? "outline" : "primary"}
               onClick={() => setAddOpen(true)}
               disabled={!backed}
-              className={cn(iriLead, sakura && sakChipLead, casualLead)}
+              // cyberpunk: 3D split + glitch on hover (index.css .cp-create), the label
+              // "decrypts" itself
+              onMouseEnter={cyber ? () => setCreateHover(true) : undefined}
+              onMouseLeave={cyber ? () => setCreateHover(false) : undefined}
+              className={cn(iriLead, sakura && sakChipLead, casualLead, cyber && "cp-create")}
             >
-              <Plus className="h-4 w-4" strokeWidth={casualLead ? 2.5 : 2} />
-              {t("Create Card")}
+              <Plus className="h-4 w-4" strokeWidth={casualLead || cyber ? 2.5 : 2} />
+              {cyber ? (
+                <CyberScramble text={t("Create Card")} active={createHover} />
+              ) : (
+                t("Create Card")
+              )}
             </Button>
           </div>
         </div>

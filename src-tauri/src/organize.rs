@@ -27,6 +27,19 @@ enum Moved {
     /// All files arrived, but the source folder couldn't be removed (a file was open).
     /// Nothing is missing, there's just a duplicate to clean up.
     LeftBehind,
+    /// Copied, but the source changed while it was copied (a file added or edited), so
+    /// it was left completely alone. The new or changed files may not be in the copy.
+    Changed,
+}
+
+/// Send a source folder whose every file arrived to the Recycle Bin (not a hard delete:
+/// if anything ever goes wrong it can still come back from there). Tests delete
+/// directly, they mustn't fill the real Recycle Bin.
+fn bin_source(src: &Path) {
+    #[cfg(not(test))]
+    let _ = trash::delete(src);
+    #[cfg(test)]
+    let _ = std::fs::remove_dir_all(src);
 }
 
 /// Replace characters that aren't allowed in Windows paths.
@@ -93,10 +106,10 @@ fn move_dir(src: &Path, dst: &Path) -> std::io::Result<Moved> {
         .map_err(std::io::Error::other)?;
     // something was added or changed meanwhile: the source stays whole
     if crate::transfer::all_arrived(src, &copied.arrived, &keep_out).is_err() {
-        return Ok(Moved::LeftBehind);
+        return Ok(Moved::Changed);
     }
-    let _ = std::fs::remove_dir_all(src);
-    // ask the filesystem if anything is still there (a delete can stop half way)
+    bin_source(src);
+    // ask the filesystem if anything is still there (a removal can stop half way)
     Ok(if src.exists() { Moved::LeftBehind } else { Moved::Clean })
 }
 
@@ -300,9 +313,19 @@ pub fn organize_collection(
         // the user gets the folder name to delete it themselves
         if outcome == Moved::LeftBehind && sum.errors.len() < 10 {
             sum.errors.push(format!(
-                "{}: filed into the collection, but the original folder at {} could not be \
-                 removed — something still had a file in it open. Delete it yourself once \
-                 nothing is using it.",
+                "{}: every file arrived in the collection and was checked. Only the rest of \
+                 the original folder at {} couldn't be moved to the Recycle Bin, because a \
+                 program still had a file in it open. Please delete that folder yourself — \
+                 everything in it is already in the collection.",
+                row.title,
+                old.display()
+            ));
+        }
+        if outcome == Moved::Changed && sum.errors.len() < 10 {
+            sum.errors.push(format!(
+                "{}: filed into the collection, but the original folder at {} changed while \
+                 it was copied, so it was left as it is. Compare the two and delete the \
+                 original yourself once you're sure nothing is missing.",
                 row.title,
                 old.display()
             ));

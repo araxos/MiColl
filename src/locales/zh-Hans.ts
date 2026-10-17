@@ -701,7 +701,6 @@ export const dict: Dict = {
   "Which build of MiColl you’re running, and its updates. MiColl looks for a new version shortly after it starts and every six hours — switch that off below and it only looks when you press the button.": "你正在运行的 MiColl 版本及其更新。MiColl 会在启动后不久以及每六小时检查一次新版本——在下方关闭后，只有按下按钮时才会检查。",
   "Check for updates automatically": "自动检查更新",
   "After starting and every six hours. Only the version number is fetched from GitHub; nothing is sent. Installing always waits for you.": "启动后以及每六小时一次。只会从 GitHub 读取版本号，不会发送任何内容。安装始终等待你的确认。",
-  "MiColl {version} is available.": "MiColl {version} 可用。",
   "Installing…": "正在安装…",
   "Updates are only available in the desktop app.": "更新仅在桌面应用中提供。",
   "Slideshow settings": "幻灯片设置",
