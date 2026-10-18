@@ -1263,6 +1263,8 @@ export const dict: Dict = {
   "Top": "Sopra",
   "Bottom": "Sotto",
   "Already this shape": "Ha già questa forma",
+  "too big": "troppo grande",
+  "Too big at original size, pick a smaller output size": "Troppo grande a dimensione originale, scegli una dimensione di uscita più piccola",
   "AI fill — grows the new border out of the picture with the local LaMa model (nothing leaves your PC). Big pictures take a little while": "Riempimento IA — fa crescere il nuovo bordo dall’immagine con il modello locale LaMa (nulla lascia il tuo PC). Le immagini grandi richiedono un po’",
   "AI fill": "Riempimento IA",
   "Blur fill — a soft, darker copy of the picture behind it, instant": "Riempimento sfocato — una copia morbida e più scura dell’immagine dietro, all’istante",

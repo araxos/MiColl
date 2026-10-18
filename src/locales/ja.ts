@@ -1252,6 +1252,8 @@ export const dict: Dict = {
   "Top": "上",
   "Bottom": "下",
   "Already this shape": "すでにこの形です",
+  "too big": "大きすぎ",
+  "Too big at original size, pick a smaller output size": "元のサイズでは大きすぎます。小さい出力サイズを選んでください",
   "AI fill — grows the new border out of the picture with the local LaMa model (nothing leaves your PC). Big pictures take a little while": "AI 塗りつぶし — ローカルの LaMa モデルで画像から新しい余白を広げます(PC の外には何も出ません)。大きな画像は少し時間がかかります",
   "AI fill": "AI 塗りつぶし",
   "Blur fill — a soft, darker copy of the picture behind it, instant": "ぼかし塗りつぶし — 画像のやわらかく暗いコピーを背景に置きます。すぐに終わります",

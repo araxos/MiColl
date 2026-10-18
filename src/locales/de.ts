@@ -1263,6 +1263,8 @@ export const dict: Dict = {
   "Top": "Oben",
   "Bottom": "Unten",
   "Already this shape": "Hat schon dieses Format",
+  "too big": "zu groß",
+  "Too big at original size, pick a smaller output size": "Im Original zu groß, wähl eine kleinere Ausgabegröße",
   "AI fill — grows the new border out of the picture with the local LaMa model (nothing leaves your PC). Big pictures take a little while": "KI-Füllung — lässt den neuen Rand mit dem lokalen LaMa-Modell aus dem Bild wachsen (nichts verlässt deinen PC). Große Bilder brauchen einen Moment",
   "AI fill": "KI-Füllung",
   "Blur fill — a soft, darker copy of the picture behind it, instant": "Unschärfe-Füllung — eine weiche, dunklere Kopie des Bildes dahinter, sofort fertig",

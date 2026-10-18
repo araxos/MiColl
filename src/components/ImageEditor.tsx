@@ -162,9 +162,14 @@ const EXPAND_SIZES: { id: string; short: number; name: string }[] = [
   { id: "2160", short: 2160, name: "4K" },
 ];
 
+/** The biggest canvas side Expand makes (bigger only works through a smaller output size). */
+const EXPAND_MAX_SIDE = 16000;
+
 /**
  * The expanded canvas for an image of w×h at ratio rw:rh, the picture placed at pos
- * (0 = left/top, 1 = right/bottom). null when it already has that shape.
+ * (0 = left/top, 1 = right/bottom). null when it already has that shape. It can be
+ * bigger than EXPAND_MAX_SIDE, the caller checks that (a huge picture still has the
+ * smaller output sizes).
  */
 function expandPlan(w: number, h: number, rw: number, rh: number, pos: number) {
   const r = rw / rh;
@@ -172,7 +177,6 @@ function expandPlan(w: number, h: number, rw: number, rh: number, pos: number) {
   const wider = w / h < r;
   const W = wider ? Math.round(h * r) : w;
   const H = wider ? h : Math.round(w / r);
-  if (W > 16000 || H > 16000) return null;
   return {
     W,
     H,
@@ -995,7 +999,10 @@ export function ImageEditor({
           h: Math.max(1, Math.round((dims.h * exSizeDef.short) / exShort)),
         }
       : dims;
-  const exPlan = exPic ? expandPlan(exPic.w, exPic.h, exDef.w, exDef.h, exPos) : null;
+  const exPlanAny = exPic ? expandPlan(exPic.w, exPic.h, exDef.w, exDef.h, exPos) : null;
+  // too big at this output size (only the original size of a huge picture gets there)
+  const exTooBig = !!exPlanAny && Math.max(exPlanAny.W, exPlanAny.H) > EXPAND_MAX_SIDE;
+  const exPlan = exTooBig ? null : exPlanAny;
 
   // AI fill needs LaMa, HQ needs LaMa (the layout) and Stable Diffusion (the detail)
   const exModelsReady =
@@ -1581,7 +1588,9 @@ export function ImageEditor({
                 {
                   value: "orig",
                   label: exFull
-                    ? `${t("Original size")} · ${exFull.W} × ${exFull.H}`
+                    ? `${t("Original size")} · ${exFull.W} × ${exFull.H}${
+                        Math.max(exFull.W, exFull.H) > EXPAND_MAX_SIDE ? ` · ${t("too big")}` : ""
+                      }`
                     : t("Original size"),
                 },
                 ...[...exSizes].reverse().map((s) => {
@@ -1738,7 +1747,9 @@ export function ImageEditor({
                   ? `${dims?.w} × ${dims?.h} → ${exPlan.W} × ${exPlan.H} px`
                   : canRetry
                     ? `${dims?.w} × ${dims?.h} px`
-                    : t("Already this shape")}
+                    : exTooBig
+                      ? t("Too big at original size, pick a smaller output size")
+                      : t("Already this shape")}
               </span>
               <div className="flex h-9 items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-900/70 p-1">
                 <ToolBtn

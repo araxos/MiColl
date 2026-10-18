@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
+import { OverlayScrollbar } from "@/components/OverlayScrollbar";
 import { Button } from "@/components/ui/Button";
 import { Lock, Search, Settings, Tv, TvMinimal, Gift, Eye, EyeOff, History } from "lucide-react";
-import { CyberHomeIcon } from "@/lib/classIcons";
 import { GlobeSearchIcon } from "@/lib/globeSearchIcon";
 import { BrandMark } from "@/components/BrandMark";
+import { CyberLogo } from "@/components/CyberLogo";
 import { WindowControls } from "@/components/WindowControls";
 import { SdTransportButton } from "@/components/SdTransportButton";
 import { UpdateButton } from "@/components/UpdateButton";
@@ -35,7 +36,6 @@ import { GraveyardIcon } from "@/lib/graveyardIcon";
 import { useTopbarHintSeen } from "@/lib/topbarHint";
 import { TopbarHint } from "@/components/TopbarHint";
 import { recordHistoryEntry } from "@/lib/nav";
-import { markPhase } from "@/lib/markClock";
 
 /**
  * Scroll position per history entry (by location.key). Back restores the scroll,
@@ -113,8 +113,6 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
   const sakura = accent === "sakura";
   const cyber = accent === "cyberpunk";
   const irid = accent === "iridescent";
-  // keep the glitch animation in phase across page changes (markClock)
-  const cyberSwapPhase = markPhase(4200);
   // no OS title bar (decorations off), the header is the drag region
   const customChrome = true;
   const tauri = isTauri();
@@ -193,25 +191,11 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
               )}
             </span>
           ) : cyber ? (
-            // cyberpunk: house and M glitch-swap on the yellow plate.
+            // cyberpunk: the MiColl mark cycling yellow / cyan / magenta (CyberLogo).
             // the SFW dot sits outside the plate clip so its glow isn't cut off
             <span className="relative inline-flex h-8 w-8 items-center justify-center">
-              <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg bg-[#fcee0a] text-zinc-950 shadow-lg shadow-brand-900/40">
-                {/* same phase offset so the swap stays in step (markClock) */}
-                <span className="relative inline-flex h-5 w-5 items-center justify-center">
-                  <CyberHomeIcon
-                    fill="currentColor"
-                    className="cyber-mark-house absolute inset-0 h-5 w-5"
-                    style={{ animationDelay: cyberSwapPhase }}
-                  />
-                  <span
-                    className="cyber-mark-m absolute inset-0 h-5 w-5"
-                    style={{ animationDelay: cyberSwapPhase }}
-                  >
-                    <BrandMark solid="#09090b" className="h-5 w-5" />
-                  </span>
-                </span>
-              </span>
+              {/* the app icon with animations off, else the colour-glitching plate */}
+              <CyberLogo />
               {sfw && (
                 <span
                   title={t("SFW mode is on")}
@@ -612,16 +596,16 @@ export function Layout({ children, search, titleSlot, toolbar }: LayoutProps) {
 
   return (
     <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-      {/* reserves the same scrollbar space as <main> so things line up */}
-      {toolbar && (
-        <div className="shrink-0 overflow-y-auto [scrollbar-gutter:stable]">{toolbar}</div>
-      )}
+      {toolbar && <div className="shrink-0">{toolbar}</div>}
 
-      {/* scroll content */}
-      {/* scrollbar-gutter: stable so the cards don't resize when the scrollbar disappears */}
-      <main ref={mainRef} className={cn("flex-1 overflow-y-auto [scrollbar-gutter:stable]")}>
-        {children}
-      </main>
+      {/* scroll content: no scrollbar column (the full width is the page's), a thin bar
+          floats over the right edge while scrolling (OverlayScrollbar) */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <main ref={mainRef} className="overlay-scroll-host flex-1 overflow-y-auto">
+          {children}
+        </main>
+        <OverlayScrollbar target={mainRef} />
+      </div>
     </div>
   );
 }

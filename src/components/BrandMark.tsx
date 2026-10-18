@@ -1,50 +1,8 @@
-import type { SVGProps } from "react";
 import { useAccent, type AccentKey } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { DASHBOARD_ICONS } from "@/lib/appIcon";
 import { markPhase } from "@/lib/markClock";
 import logoUrl from "@/assets/micoll-logo.png";
-
-/** The MiColl mark: three nodes branching off one trunk. One color (currentColor). */
-export function MiCollLogo(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      // tight viewBox so the mark looks big
-      viewBox="2 1 28 29"
-      width={24}
-      height={24}
-      fill="none"
-      {...props}
-    >
-      {/* trunk + two branches */}
-      <g
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2.9}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M16 27.5 L16 12.5" />
-        <path d="M16 19 L9.5 11.2" />
-        <path d="M16 19 L22 13" />
-      </g>
-      {/* the three nodes */}
-      <g fill="currentColor" stroke="none">
-        <rect x="4.5" y="3" width="6" height="8.5" rx="1.6" />
-        <rect x="13" y="5.5" width="6" height="7" rx="1.5" />
-        <rect
-          x="21"
-          y="9"
-          width="7"
-          height="7"
-          rx="1.6"
-          transform="rotate(45 24.5 12.5)"
-        />
-      </g>
-    </svg>
-  );
-}
 
 /**
  * Gradient colors per theme for the app icon mark. Only the color changes.
@@ -69,7 +27,7 @@ export function BrandMark({ className, solid }: { className?: string; solid?: st
   const accent = useAccent();
   const stops = MARK_GRADIENTS[accent];
 
-  // solid: the logo shape in one flat color (for the yellow cyberpunk plate)
+  // solid: the logo shape in one flat color ("currentColor" works: CyberLogo colours it)
   if (solid) {
     const mid = "micoll-mark-mask-solid";
     return (

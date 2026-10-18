@@ -887,8 +887,15 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
             // no bottom gap when the collection tabs follow
             showTabs ? "mb-0" : dateless ? "mb-3" : "mb-6",
             irid && glassBox,
+            accent === "cyberpunk" && "p-4",
           )}
         >
+        {/* cyberpunk: a HUD plate behind the block (index.css .cp-artist-plate). A layer
+            of its own, not the box itself: its cut corners are a clip-path, and a clip
+            on the box would cut off the dropdowns inside it too. */}
+        {accent === "cyberpunk" && (
+          <div aria-hidden className="cp-artist-plate pointer-events-none absolute inset-0 -z-10" />
+        )}
         <div className="mb-4 flex flex-wrap items-center gap-y-2">
           <Button
             variant="ghost"

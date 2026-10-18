@@ -1252,6 +1252,8 @@ export const dict: Dict = {
   "Top": "上",
   "Bottom": "下",
   "Already this shape": "已经是这个比例",
+  "too big": "太大",
+  "Too big at original size, pick a smaller output size": "原始尺寸太大，请选择较小的输出尺寸",
   "AI fill — grows the new border out of the picture with the local LaMa model (nothing leaves your PC). Big pictures take a little while": "AI 填充 — 用本地 LaMa 模型从图片中延伸出新边缘(不会离开你的电脑)。大图需要一点时间",
   "AI fill": "AI 填充",
   "Blur fill — a soft, darker copy of the picture behind it, instant": "模糊填充 — 在背后放一张柔和、偏暗的图片副本,立即完成",

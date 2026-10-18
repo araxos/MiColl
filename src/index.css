@@ -6126,3 +6126,241 @@ html[data-animations="on"]:is([data-accent="original"], [data-accent="purple"], 
   filter: blur(5px);
   opacity: 0.75;
 }
+
+/* ---- Cyberpunk: the creator page's HUD plate ----------------------------- */
+/* Behind "All Creators" / types / platform tabs / Details. Cut corners (top left,
+   bottom right). The element is the see-through face (clipped to the cut shape):
+   a faint cyan grid, a warm yellow wash from the left, two HUD ticks top right and a
+   row of signal blocks bottom left. ::before is the 1px rim, yellow into cyan, masked
+   down to a ring plus the two diagonal cut edges, so nothing of it shows through the
+   face. ::after is the lit yellow bar on the left edge. */
+[data-accent="cyberpunk"] .cp-artist-plate {
+  --cut-a: 14px;
+  --cut-b: 18px;
+  clip-path: polygon(
+    var(--cut-a) 0,
+    100% 0,
+    100% calc(100% - var(--cut-b)),
+    calc(100% - var(--cut-b)) 100%,
+    0 100%,
+    0 var(--cut-a)
+  );
+  background:
+    linear-gradient(#00e5ff, #00e5ff) right 26px top 8px / 56px 2px no-repeat,
+    linear-gradient(rgba(0, 229, 255, 0.45), rgba(0, 229, 255, 0.45)) right 90px top 8px / 14px
+      2px no-repeat,
+    /* bottom left: a row of signal blocks fading out, the last one magenta, and a
+       hairline trailing after them */
+    linear-gradient(
+        90deg,
+        #00e5ff 0 6px,
+        transparent 6px 9px,
+        #00e5ff 9px 15px,
+        transparent 15px 18px,
+        rgba(0, 229, 255, 0.6) 18px 24px,
+        transparent 24px 27px,
+        rgba(0, 229, 255, 0.35) 27px 33px,
+        transparent 33px 36px,
+        #ff2bd6 36px 42px,
+        transparent 42px
+      )
+      left 22px bottom 8px / 42px 3px no-repeat,
+    linear-gradient(rgba(0, 229, 255, 0.25), rgba(0, 229, 255, 0.25)) left 70px bottom 9px / 90px
+      1px no-repeat,
+    repeating-linear-gradient(90deg, rgba(0, 229, 255, 0.035) 0 1px, transparent 1px 32px),
+    repeating-linear-gradient(0deg, rgba(0, 229, 255, 0.035) 0 1px, transparent 1px 32px),
+    linear-gradient(90deg, rgba(252, 238, 10, 0.07), transparent 35%),
+    rgba(8, 8, 11, 0.55);
+}
+[data-accent="cyberpunk"] .cp-artist-plate::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  background: linear-gradient(
+    120deg,
+    rgba(252, 238, 10, 0.8),
+    rgba(252, 238, 10, 0.3) 38%,
+    rgba(0, 229, 255, 0.25) 70%,
+    rgba(0, 229, 255, 0.6)
+  );
+  /* ring = border box minus content box, plus a 1.4px band along each cut edge
+     (in a square, "to bottom right" puts 50% exactly on the corner-to-corner line) */
+  -webkit-mask:
+    linear-gradient(to bottom right, transparent 50%, #000 50%, #000 calc(50% + 1.4px), transparent calc(50% + 1.4px))
+      top left / var(--cut-a) var(--cut-a) no-repeat border-box,
+    linear-gradient(to bottom right, transparent calc(50% - 1.4px), #000 calc(50% - 1.4px), #000 50%, transparent 50%)
+      bottom right / var(--cut-b) var(--cut-b) no-repeat border-box,
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0) border-box;
+  -webkit-mask-composite: source-over, source-over, xor, source-over;
+  mask:
+    linear-gradient(to bottom right, transparent 50%, #000 50%, #000 calc(50% + 1.4px), transparent calc(50% + 1.4px))
+      top left / var(--cut-a) var(--cut-a) no-repeat border-box,
+    linear-gradient(to bottom right, transparent calc(50% - 1.4px), #000 calc(50% - 1.4px), #000 50%, transparent 50%)
+      bottom right / var(--cut-b) var(--cut-b) no-repeat border-box,
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0) border-box;
+  mask-composite: add, add, exclude, add;
+  pointer-events: none;
+}
+[data-accent="cyberpunk"] .cp-artist-plate::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: calc(var(--cut-a) + 6px);
+  width: 3px;
+  height: 38%;
+  background: #fcee0a;
+  box-shadow: 0 0 10px rgba(252, 238, 10, 0.65);
+}
+
+/* ---- floating scrollbar of the main page (OverlayScrollbar) ----
+   The page hides its native bar so the content gets the full width; this thin pill
+   floats over the right edge while scrolling. Thicker on hover/drag. Per theme. */
+.overlay-scroll-host {
+  scrollbar-width: none !important;
+}
+.overlay-scroll-host::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+}
+.overlay-scroll-thumb {
+  width: 6px;
+  border-radius: 9999px;
+  background: rgb(161 161 170 / 0.5);
+  cursor: default;
+  transition:
+    width 150ms ease,
+    background-color 150ms ease;
+}
+.overlay-scroll-track:hover .overlay-scroll-thumb,
+.overlay-scroll-thumb.is-dragging {
+  width: 9px;
+  background: rgb(212 212 216 / 0.75);
+}
+[data-accent="cyberpunk"] .overlay-scroll-thumb {
+  border-radius: 0;
+  background: rgb(0 229 255 / 0.7);
+  box-shadow: 0 0 8px rgb(0 229 255 / 0.5);
+}
+[data-accent="cyberpunk"] .overlay-scroll-track:hover .overlay-scroll-thumb,
+[data-accent="cyberpunk"] .overlay-scroll-thumb.is-dragging {
+  background: #00e5ff;
+}
+[data-accent="sakura"] .overlay-scroll-thumb {
+  background: rgb(249 168 212 / 0.6);
+}
+[data-accent="sakura"] .overlay-scroll-track:hover .overlay-scroll-thumb,
+[data-accent="sakura"] .overlay-scroll-thumb.is-dragging {
+  background: rgb(249 168 212 / 0.9);
+}
+[data-accent="iridescent"] .overlay-scroll-thumb {
+  background: linear-gradient(180deg, rgb(196 181 253 / 0.75), rgb(245 194 255 / 0.75), rgb(167 243 208 / 0.75));
+  box-shadow: 0 0 6px rgb(255 255 255 / 0.25);
+}
+[data-accent="iridescent"] .overlay-scroll-track:hover .overlay-scroll-thumb,
+[data-accent="iridescent"] .overlay-scroll-thumb.is-dragging {
+  background: linear-gradient(180deg, #c4b5fd, #f5c2ff, #a7f3d0);
+}
+
+/* ---- Cyberpunk: the logo next to "Dashboard" (CyberLogo) ------------------ */
+/* The MiColl mark in one of three colours (no plate), torn by two colour ghosts (the
+   other two colours, offset left and right) and a small twitch every few seconds. data-glitch is the
+   hard burst every 20-60 s (or on hover) that hands over to the next colour. */
+.cp-logo {
+  --cp-a: #00e5ff;
+  --cp-b: #ff2bd6;
+  color: var(--cp-plate);
+  filter: drop-shadow(-1.5px 0 color-mix(in srgb, var(--cp-a) 80%, transparent))
+    drop-shadow(1.5px 0 color-mix(in srgb, var(--cp-b) 80%, transparent))
+    drop-shadow(0 0 5px color-mix(in srgb, var(--cp-plate) 55%, transparent));
+  animation: cp-logo-twitch 3.7s steps(1) infinite;
+}
+.cp-logo--yellow {
+  --cp-plate: #fcee0a;
+  --cp-a: #00e5ff;
+  --cp-b: #ff2bd6;
+}
+.cp-logo--cyan {
+  --cp-plate: #00e5ff;
+  --cp-a: #ff2bd6;
+  --cp-b: #fcee0a;
+}
+.cp-logo--pink {
+  --cp-plate: #ff2bd6;
+  --cp-a: #fcee0a;
+  --cp-b: #00e5ff;
+}
+@keyframes cp-logo-twitch {
+  0%,
+  90%,
+  100% {
+    transform: none;
+  }
+  91% {
+    transform: translate(1px, 0) skewX(-6deg);
+  }
+  93% {
+    transform: translate(-1.5px, 0) skewX(4deg);
+  }
+  95% {
+    transform: translate(0.5px, 0);
+  }
+}
+.cp-logo[data-glitch] {
+  animation: cp-logo-burst 0.65s steps(1) both;
+}
+@keyframes cp-logo-burst {
+  0% {
+    transform: translate(-3px, 1px) skewX(-12deg);
+    clip-path: inset(10% 0 55% 0);
+    filter: drop-shadow(-4px 0 var(--cp-a)) drop-shadow(4px 0 var(--cp-b));
+  }
+  12% {
+    transform: translate(3px, -1px);
+    clip-path: inset(50% 0 12% 0);
+    filter: invert(1);
+  }
+  24% {
+    transform: translate(-2px, 0) skewX(8deg);
+    clip-path: inset(0 0 70% 0);
+    filter: none;
+  }
+  36% {
+    transform: translate(4px, 1px);
+    clip-path: inset(30% 0 30% 0);
+    filter: hue-rotate(90deg) saturate(2);
+  }
+  48% {
+    transform: translate(-1px, -1px) skewX(-6deg);
+    clip-path: inset(0);
+    filter: drop-shadow(-3px 0 var(--cp-a)) drop-shadow(3px 0 var(--cp-b));
+  }
+  60% {
+    transform: translate(2px, 0);
+    clip-path: inset(62% 0 4% 0);
+  }
+  72% {
+    transform: translate(-2px, 0) skewX(5deg);
+    clip-path: inset(0 0 40% 0);
+  }
+  84% {
+    transform: translate(1px, 0);
+    clip-path: inset(0);
+  }
+  100% {
+    transform: none;
+    clip-path: inset(0);
+    filter: none;
+  }
+}
+[data-animations="off"] .cp-logo {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cp-logo,
+  .cp-logo[data-glitch] {
+    animation: none;
+  }
+}

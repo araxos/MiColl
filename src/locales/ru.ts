@@ -1291,6 +1291,8 @@ export const dict: Dict = {
   "Top": "Сверху",
   "Bottom": "Снизу",
   "Already this shape": "Уже такой формы",
+  "too big": "слишком большой",
+  "Too big at original size, pick a smaller output size": "Слишком большой в исходном размере, выбери размер поменьше",
   "AI fill — grows the new border out of the picture with the local LaMa model (nothing leaves your PC). Big pictures take a little while": "ИИ-заливка — выращивает новый край из изображения локальной моделью LaMa (ничего не покидает ваш ПК). Большие изображения занимают немного времени",
   "AI fill": "ИИ-заливка",
   "Blur fill — a soft, darker copy of the picture behind it, instant": "Размытая заливка — мягкая, более тёмная копия изображения позади, сразу",
