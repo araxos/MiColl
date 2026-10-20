@@ -35,7 +35,7 @@ import { SakuraCardFrame, SakuraCardScreen, SAKURA_CARD_CLIP } from "@/component
 import { IriCardFrame, IriCardScreen } from "@/components/IriCardFrame";
 import { CreatorDetails } from "@/components/CreatorDetails";
 import { PlatformCheck } from "@/components/ThemeCheck";
-import { useCardFx, useCardFxPref } from "@/lib/fx";
+import { useFx, useFxPref } from "@/lib/fx";
 import { useCyberFrame } from "@/lib/cyberFrame";
 import { useSakuraFrame } from "@/lib/sakuraFrame";
 import { useIriFrame } from "@/lib/iriFrame";
@@ -535,7 +535,7 @@ function TypeCorner({
     return (
       <div
         {...buttonProps}
-        className="iri-type-dot absolute right-3 top-3 z-20 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full outline-none"
+        className="iri-type-dot fx-corner absolute right-3 top-3 z-20 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full outline-none"
       >
         <span className="iri-type-dot-q pointer-events-none text-[13px] font-bold leading-none">
           ?
@@ -548,7 +548,7 @@ function TypeCorner({
     <div
       {...buttonProps}
       className={cn(
-        "absolute right-0 top-0 z-20 h-12 w-12 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-white/70",
+        "fx-corner absolute right-0 top-0 z-20 h-12 w-12 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-white/70",
         // classic accents: hooks for the "Premium look" (index.css), inert without it
         !cyber && !sakura && "classic-corner-wrap",
       )}
@@ -683,9 +683,13 @@ function ArtistCardBase({
     );
 
   // premium hover: tag icons floating along the edges (falling on sakura)
-  const cardFx = useCardFx();
+  // holo/frame effects and the class icons on hover each have their own switch
+  const holoFx = useFx("holo");
+  // the VHS screen of the cyberpunk frame (scanlines, shine, tape tears) has its own
+  const vhsFx = useFx("vhs");
+  const tagsFx = useFx("tags");
   // hover effects use the saved switch only (see useCardFxPref)
-  const fxPref = useCardFxPref();
+  const tagsPref = useFxPref("tags");
   const hideNames = useHideNames();
   const nameSize = useCardNameSize();
   // platform logos + reward count under the name
@@ -1014,14 +1018,14 @@ function ArtistCardBase({
           Cyberpunk: template cards get CyberHoloCard, others the CSS sheen. Other accents:
           CSS sheen. */}
       {/* framed cards have their own effects instead of the holo */}
-      {cyberFrame && cardFx && (
+      {cyberFrame && vhsFx && (
         <CyberCardScreen tone={hasTemplate ? "yellow" : "cyan"} wave={wave} />
       )}
       {/* every framed card, each one has its own timer (see SakuraCardScreen) */}
-      {sakFrame && cardFx && <SakuraCardScreen tone={hasTemplate ? "bloom" : "petal"} />}
-      {iriFrame && cardFx && <IriCardScreen tone={hasTemplate ? "prism" : "pearl"} />}
+      {sakFrame && holoFx && <SakuraCardScreen tone={hasTemplate ? "bloom" : "petal"} />}
+      {iriFrame && holoFx && <IriCardScreen tone={hasTemplate ? "prism" : "pearl"} />}
 
-      {cardFx &&
+      {holoFx &&
         !framed &&
         (irid ? (
           hasTemplate ? (
@@ -1048,7 +1052,7 @@ function ArtistCardBase({
       {/* iridescent: full spectrum = template, paler = the rest */}
       {iriFrame && <IriCardFrame tone={hasTemplate ? "prism" : "pearl"} />}
 
-      {cardFx && tag && hovered && (
+      {tagsFx && tag && hovered && (
         <TagParticles
           Icon={tag.Icon}
           colorClass={tag.color}
@@ -1067,14 +1071,14 @@ function ArtistCardBase({
 
       {/* class icon top left. Its visibility is a setting (0% = not rendered).
           On premium accents it fades out on hover (the hover effect replaces it).
-          Uses the saved switch (fxPref), not the idle pause. */}
+          Uses the saved switch (tagsPref), not the idle pause. */}
       {tag && classIconOpacity > 0 && (
         // own layer as query container (container-type on the card root would break fixed
         // children)
         <div className="pointer-events-none absolute inset-0 z-10 [container-type:size]">
           <div
             className="absolute left-2 top-2 transition-opacity duration-200 ease-out"
-            style={{ opacity: premium && fxPref && hovered ? 0 : classIconOpacity / 100 }}
+            style={{ opacity: premium && tagsPref && hovered ? 0 : classIconOpacity / 100 }}
           >
             <tag.Icon
               aria-label={tag.label}
@@ -1247,7 +1251,8 @@ function ArtistCardBase({
       {pinned && isPremium(accent) && (
         <div
           aria-label={t("Pinned")}
-          className="pointer-events-none absolute -right-2 -top-3 z-30"
+          // fx-pin: the "Pin, NEW badge and corners" animation switch (index.css)
+          className="fx-pin pointer-events-none absolute -right-2 -top-3 z-30"
         >
           <CardPin accent={accent} />
         </div>

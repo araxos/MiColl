@@ -81,15 +81,25 @@ if (!env.TAURI_SIGNING_PRIVATE_KEY) {
 }
 env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ??= "";
 
+/**
+ * Runs `npx …`. npx is a .cmd on Windows and needs a shell, and with a shell Node wants
+ * one command string (args + shell: true is deprecated, DEP0190: they aren't escaped),
+ * so the args are quoted here.
+ */
+function npx(args) {
+  const quote = (a) => (/[\s"&|<>^]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);
+  return spawnSync(["npx", ...args.map(quote)].join(" "), {
+    cwd: root,
+    env,
+    stdio: "inherit",
+    shell: true,
+  });
+}
+
 /* ---- build -------------------------------------------------------------- */
 
-// only the NSIS installer (that's what the updater runs). shell so npx works on Windows
-const built = spawnSync("npx", ["tauri", "build", "--bundles", "nsis"], {
-  cwd: root,
-  env,
-  stdio: "inherit",
-  shell: process.platform === "win32",
-});
+// only the NSIS installer (that's what the updater runs)
+const built = npx(["tauri", "build", "--bundles", "nsis"]);
 if (built.status !== 0) die("the build failed");
 
 const outDir = join(root, "src-tauri", "target", "release", "bundle", "nsis");
@@ -120,13 +130,10 @@ const zipped = spawnSync(
 );
 if (zipped.status !== 0 || !existsSync(portablePath)) die("couldn't make the portable zip");
 console.log(`release: wrote ${portablePath}`);
-// signed with the updater key, so portable copies can check it before swapping their exe
-const signed = spawnSync("npx", ["tauri", "signer", "sign", portablePath], {
-  cwd: root,
-  env,
-  stdio: "inherit",
-  shell: process.platform === "win32",
-});
+// signed with the updater key, so portable copies can check it before swapping their exe.
+// --app-version puts the version into the signed comment (tauri build does the same for
+// the installer); the portable check doesn't read the comment, so it stays compatible
+const signed = npx(["tauri", "signer", "sign", "--app-version", version, portablePath]);
 const portableSig = `${portablePath}.sig`;
 if (signed.status !== 0 || !existsSync(portableSig)) die("couldn't sign the portable zip");
 

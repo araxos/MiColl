@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BrandMark } from "@/components/BrandMark";
-import { useCardFx, useCardFxPref } from "@/lib/fx";
+import { useFx, useFxPref } from "@/lib/fx";
 import cyberpunkIconUrl from "@/assets/icons/micoll-icon-cyberpunk.svg";
 
 /**
@@ -22,8 +22,8 @@ const SWAP_AT_MS = 280;
 const wait = () => 20_000 + Math.random() * 40_000;
 
 export function CyberLogo() {
-  const pref = useCardFxPref();
-  const live = useCardFx();
+  const pref = useFxPref("logo");
+  const live = useFx("logo");
   const [color, setColor] = useState(0);
   const [burst, setBurst] = useState(false);
   const timers = useRef<number[]>([]);

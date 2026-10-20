@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isOverlayScrollbar } from "@/components/OverlayScrollManager";
 import { useDialogTheme } from "@/lib/dialogTheme";
 
 export interface MenuItem {
@@ -60,6 +61,8 @@ export function ContextMenu({
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     // also close on pointerdown anywhere (capture), the title bar is above the backdrop
     const onDown = (e: PointerEvent) => {
+      // the floating scrollbar (OverlayScrollManager) isn't outside
+      if (isOverlayScrollbar(e.target)) return;
       if (!panelRef.current?.contains(e.target as Node)) onClose();
     };
     window.addEventListener("keydown", onKey);

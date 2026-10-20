@@ -76,7 +76,8 @@ export function SdTransportButton() {
   const queued = moves + backups;
   if (!backed || !status?.configured || queued === 0) return null;
 
-  const disk = status.label || t("MiSD");
+  // MiSD is a name, the same in every language
+  const disk = status.label || "MiSD";
 
   const summarize = (verb: string, s: api.SdSummary, detail: string) =>
     showToast(

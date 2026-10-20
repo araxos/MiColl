@@ -52,6 +52,7 @@ const SYNCED = [
   "micoll.animatedBg",
   "micoll.classicLuxe",
   "micoll.cardFx",
+  "micoll.fxGroups",
   "micoll.idlePause",
   "micoll.holoFreq",
   "micoll.glassButtons",

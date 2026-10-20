@@ -237,14 +237,6 @@ const CP_NEW: readonly Px[] = [
 ];
 export const CyberSparkIcon: ClassIcon = (props) => <CyberPixels px={CP_NEW} {...props} />;
 
-/** Home button house with a glitch slice (cyberpunk header). */
-export const CyberHomeIcon: ClassIcon = (props) => (
-  <Svg {...props}>
-    <path d="M11 3 L20 10.5 L20 11 L2 11 L2 10.5 Z" />
-    <path d="M4 12 L22 12 L22 21 L15.5 21 L15.5 15 L10.5 15 L10.5 21 L4 21 Z" />
-  </Svg>
-);
-
 /* ---- Iridescent set (premium skin, holographic-jewel style) ------------ */
 /* Flat faceted icons with one holographic gradient (no outline).
    They ignore the text color. Each one gets its own gradient id (useId)

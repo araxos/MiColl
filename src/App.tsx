@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { DataProvider } from "@/store";
 import { CoverCropMigration } from "@/components/CoverCropMigration";
 import { UpdatePrompt } from "@/components/UpdatePrompt";
+import { OverlayScrollManager } from "@/components/OverlayScrollManager";
 import { ActionsProvider } from "@/actions";
 import { LockScreen } from "@/components/LockScreen";
 import { LaunchActions } from "@/components/LaunchActions";
@@ -304,6 +305,8 @@ export default function App() {
             <DropZone />
             <CoverCropMigration active={booted && !locked && !safe} />
             <UpdatePrompt active={booted && !locked && !safe} />
+            {/* the floating scrollbar of every panel, dialog and list */}
+            <OverlayScrollManager />
             <LaunchActions active={booted && !locked && !safe} />
             <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
             {dupScope && (

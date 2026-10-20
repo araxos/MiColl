@@ -75,7 +75,8 @@ export function BrandMark({ className, solid }: { className?: string; solid?: st
   // continue the animation where it was (see markClock)
   const markPeriod = accent === "cyberpunk" ? 4000 : 7000;
   return (
-    <div className={cn("relative", className)}>
+    // fx-logo: the "Logo" animation switch (index.css)
+    <div className={cn("fx-logo relative", className)}>
       <svg
         viewBox="0 0 100 100"
         className="h-full w-full"

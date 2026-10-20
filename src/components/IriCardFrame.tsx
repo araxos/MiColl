@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useCardFx } from "@/lib/fx";
+import { useFx } from "@/lib/fx";
 import { subscribeRim } from "@/lib/rimClock";
 
 /**
@@ -77,7 +77,7 @@ const HALO: Record<Tone, string> = {
 };
 
 export function IriCardFrame({ tone }: { tone: Tone }) {
-  const anim = useCardFx();
+  const anim = useFx("holo");
   // gradient moves along the rim, driven by the shared 12 fps clock (lib/rimClock)
   // instead of SMIL at 60 fps
   const gradRef = useRef<SVGLinearGradientElement | null>(null);
@@ -249,7 +249,7 @@ const SPARKS = [
  * Clipped by the frame outline.
  */
 export function IriCardScreen({ tone }: { tone: Tone }) {
-  const anim = useCardFx();
+  const anim = useFx("holo");
   // one pass, then a random wait, so cards never do it together (like SakuraCardScreen)
   const graded = tone === "prism";
   const [sweeping, setSweeping] = useState(false);

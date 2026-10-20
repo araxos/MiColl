@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { useT, useTf } from "@/lib/i18n";
 import { isTauri } from "@/lib/tauri";
 import { queuePrefsSync } from "@/lib/prefs";
+import { useFxPref } from "@/lib/fx";
 import { useActions } from "@/actions";
 import {
   readImage,
@@ -265,6 +266,8 @@ export function ImageEditor({
   const t = useT();
   const tf = useTf();
   const { showToast } = useActions();
+  // the theme's loading animation has its own switch (Settings → Animations)
+  const editorFx = useFxPref("editor");
   // a failed step says so instead of just stopping
   const failed = (title: string, err: unknown) => {
     console.error(title, err);
@@ -990,7 +993,12 @@ export function ImageEditor({
   // the output sizes smaller than the full-size result (shrinking only, never blowing up)
   const exShort = exFull ? Math.min(exFull.W, exFull.H) : 0;
   const exSizes = EXPAND_SIZES.filter((s) => s.short < exShort);
-  const exSizeDef = exSizes.find((s) => s.id === exSize) ?? null;
+  // the original size is out of reach for a huge picture: then the biggest size that
+  // works is used (the saved choice stays, a normal picture still gets its original)
+  const exOrigTooBig = !!exFull && Math.max(exFull.W, exFull.H) > EXPAND_MAX_SIDE;
+  const exSizeDef =
+    exSizes.find((s) => s.id === exSize) ??
+    (exOrigTooBig && exSizes.length ? exSizes[exSizes.length - 1] : null);
   // the picture at the output size (as it is for "orig")
   const exPic =
     dims && exSizeDef
@@ -1588,10 +1596,10 @@ export function ImageEditor({
                 {
                   value: "orig",
                   label: exFull
-                    ? `${t("Original size")} · ${exFull.W} × ${exFull.H}${
-                        Math.max(exFull.W, exFull.H) > EXPAND_MAX_SIDE ? ` · ${t("too big")}` : ""
-                      }`
+                    ? `${t("Original size")} · ${exFull.W} × ${exFull.H}${exOrigTooBig ? ` · ${t("too big")}` : ""}`
                     : t("Original size"),
+                  disabled: exOrigTooBig,
+                  title: exOrigTooBig ? t("Too big at original size, pick a smaller output size") : undefined,
                 },
                 ...[...exSizes].reverse().map((s) => {
                   const p = exFull && expandPlan(
@@ -1975,7 +1983,7 @@ export function ImageEditor({
                   busy && "pointer-events-none",
                 )}
               />
-              {longBusy && <AiWorkFx accent={accent} progress={busyProgress} />}
+              {longBusy && editorFx && <AiWorkFx accent={accent} progress={busyProgress} />}
               {/* thirds lines for leveling */}
               {straightening && (
                 <div className="pointer-events-none absolute inset-0">
@@ -2066,7 +2074,7 @@ export function ImageEditor({
                     height: ih,
                   }}
                 />
-                {longBusy && <AiWorkFx accent={accent} progress={busyProgress} />}
+                {longBusy && editorFx && <AiWorkFx accent={accent} progress={busyProgress} />}
               </div>
             );
           })()}

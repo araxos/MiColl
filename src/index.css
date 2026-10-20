@@ -605,13 +605,13 @@ textarea,
   -webkit-user-select: text;
 }
 
-/* Custom scrollbars */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #3f3f46 transparent;
-}
+/* Custom scrollbars. The vertical ones are hidden everywhere, a thin bar floats over
+   the content instead (OverlayScrollbar on the main page, OverlayScrollManager for
+   the rest), so no box loses width to a scrollbar column. The horizontal ones stay,
+   styled per theme below. Only the ::-webkit-scrollbar parts are used: Chromium
+   ignores them as soon as scrollbar-width / scrollbar-color are set. */
 *::-webkit-scrollbar {
-  width: 10px;
+  width: 0;
   height: 10px;
 }
 *::-webkit-scrollbar-thumb {
@@ -625,9 +625,6 @@ textarea,
 }
 
 /* Cyberpunk: neon cyan hard-edged scrollbar. */
-[data-accent="cyberpunk"] * {
-  scrollbar-color: #00e5ff rgba(0, 229, 255, 0.06);
-}
 [data-accent="cyberpunk"] *::-webkit-scrollbar-track {
   background: rgba(0, 229, 255, 0.06);
   box-shadow: inset 1px 0 0 rgba(0, 229, 255, 0.25);
@@ -644,9 +641,6 @@ textarea,
 }
 
 /* Sakura: pink thumb on a faint rose track, fully round. */
-[data-accent="sakura"] * {
-  scrollbar-color: #f9a8d4 rgba(249, 168, 212, 0.08);
-}
 [data-accent="sakura"] *::-webkit-scrollbar-track {
   background: rgba(249, 168, 212, 0.07);
 }
@@ -662,13 +656,7 @@ textarea,
 }
 
 /* Iridescent: a dark pearl thumb, the frame's four pastels sunk to deep tones and
-   run top to bottom, on a barely-there lavender track. A gradient needs the
-   ::-webkit-scrollbar parts, and Chromium ignores those as soon as
-   scrollbar-width / scrollbar-color are set, so both go back to auto here. */
-[data-accent="iridescent"] * {
-  scrollbar-width: auto;
-  scrollbar-color: auto;
-}
+   run top to bottom, on a barely-there lavender track. */
 [data-accent="iridescent"] *::-webkit-scrollbar-track {
   background: rgba(196, 181, 253, 0.04);
 }
@@ -1024,17 +1012,7 @@ img {
     filter: hue-rotate(360deg);
   }
 }
-/* small glitch for the cyberpunk home icon */
-/* slow light sweep over the premium badge */
-@keyframes micoll-sheen {
-  0% {
-    transform: translateX(-140%) skewX(-12deg);
-  }
-  55%,
-  100% {
-    transform: translateX(140%) skewX(-12deg);
-  }
-}
+/* small glitch for the cyberpunk pin and type corner (ArtistCard) */
 @keyframes micoll-icon-glitch {
   0%,
   86% {
@@ -1576,34 +1554,6 @@ img {
 }
 
 /* ---- Background fluid FX (IridescentFx) ------------------------------- */
-/* the color shift comes from the rotating conic swirls (cheaper than hue-rotate) */
-/* counter-rotating swirls, the element rotates and breathes */
-@keyframes micoll-iri-swirl {
-  0% { transform: rotate(0deg) scale(1); }
-  50% { transform: rotate(180deg) scale(1.08); }
-  100% { transform: rotate(360deg) scale(1); }
-}
-@keyframes micoll-iri-swirl-rev {
-  0% { transform: rotate(360deg) scale(1.05); }
-  50% { transform: rotate(180deg) scale(0.96); }
-  100% { transform: rotate(0deg) scale(1.05); }
-}
-/* slime blob: changes its border-radius while drifting and rotating */
-@keyframes micoll-iri-morph-a {
-  0%, 100% { border-radius: 60% 40% 55% 45% / 55% 45% 55% 45%; transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
-  33% { border-radius: 45% 55% 35% 65% / 60% 40% 60% 40%; transform: translate3d(7vw, 5vh, 0) rotate(60deg) scale(1.12); }
-  66% { border-radius: 50% 50% 65% 35% / 40% 60% 45% 55%; transform: translate3d(-5vw, 8vh, 0) rotate(140deg) scale(0.94); }
-}
-@keyframes micoll-iri-morph-b {
-  0%, 100% { border-radius: 50% 50% 40% 60% / 50% 55% 45% 50%; transform: translate3d(0, 0, 0) rotate(0deg) scale(1.05); }
-  33% { border-radius: 65% 35% 55% 45% / 45% 50% 50% 55%; transform: translate3d(-8vw, 6vh, 0) rotate(-70deg) scale(0.9); }
-  66% { border-radius: 35% 65% 45% 55% / 60% 45% 55% 40%; transform: translate3d(6vw, -5vh, 0) rotate(-150deg) scale(1.18); }
-}
-@keyframes micoll-iri-morph-c {
-  0%, 100% { border-radius: 55% 45% 50% 50% / 45% 55% 45% 55%; transform: translate3d(0, 0, 0) rotate(0deg) scale(0.95); }
-  33% { border-radius: 40% 60% 60% 40% / 55% 40% 60% 45%; transform: translate3d(6vw, -7vh, 0) rotate(80deg) scale(1.2); }
-  66% { border-radius: 60% 40% 45% 55% / 50% 60% 40% 50%; transform: translate3d(-7vw, -4vh, 0) rotate(170deg) scale(1); }
-}
 /* film grain: a big noise layer that jumps in steps */
 [data-accent="iridescent"] .iri-grain {
   position: absolute;
@@ -2652,39 +2602,6 @@ img {
 @media (prefers-reduced-motion: reduce) {
   [data-accent="sakura"] .sak-mark {
     transition: none !important;
-  }
-}
-/* Cyberpunk header logo: house and "M" on the yellow plate glitch-swap.
-   Without animations the house is shown. */
-[data-accent="cyberpunk"] .cyber-mark-house {
-  animation: micoll-cyber-swap-house 4.2s linear infinite;
-}
-[data-accent="cyberpunk"] .cyber-mark-m {
-  opacity: 0;
-  animation: micoll-cyber-swap-m 4.2s linear infinite;
-}
-@keyframes micoll-cyber-swap-house {
-  0%, 42% { opacity: 1; transform: translate(0, 0); filter: none; }
-  44% { opacity: 0.8; transform: translate(-1.5px, 1px); filter: drop-shadow(1.5px 0 #00e5ff) drop-shadow(-1.5px 0 #ff2bd6); }
-  46% { opacity: 0.35; transform: translate(1.5px, -1px); }
-  48%, 92% { opacity: 0; transform: translate(0, 0); filter: none; }
-  94% { opacity: 0.4; transform: translate(1.5px, 0); filter: drop-shadow(-1.5px 0 #00e5ff) drop-shadow(1.5px 0 #ff2bd6); }
-  96% { opacity: 0.8; transform: translate(-1px, 1px); }
-  100% { opacity: 1; transform: translate(0, 0); filter: none; }
-}
-@keyframes micoll-cyber-swap-m {
-  0%, 42% { opacity: 0; transform: translate(0, 0); filter: none; }
-  44% { opacity: 0.4; transform: translate(1.5px, -1px); filter: drop-shadow(-1.5px 0 #00e5ff) drop-shadow(1.5px 0 #ff2bd6); }
-  46% { opacity: 0.8; transform: translate(-1.5px, 1px); }
-  48%, 92% { opacity: 1; transform: translate(0, 0); filter: none; }
-  94% { opacity: 0.55; transform: translate(-1.5px, 0); filter: drop-shadow(1.5px 0 #00e5ff) drop-shadow(-1.5px 0 #ff2bd6); }
-  96% { opacity: 0.3; transform: translate(1px, -1px); }
-  100% { opacity: 0; transform: translate(0, 0); filter: none; }
-}
-@media (prefers-reduced-motion: reduce) {
-  [data-accent="cyberpunk"] .cyber-mark-house,
-  [data-accent="cyberpunk"] .cyber-mark-m {
-    animation: none !important;
   }
 }
 
@@ -6215,7 +6132,7 @@ html[data-animations="on"]:is([data-accent="original"], [data-accent="purple"], 
   box-shadow: 0 0 10px rgba(252, 238, 10, 0.65);
 }
 
-/* ---- floating scrollbar of the main page (OverlayScrollbar) ----
+/* ---- floating scrollbar (OverlayScrollbar on the main page, OverlayScrollManager) ----
    The page hides its native bar so the content gets the full width; this thin pill
    floats over the right edge while scrolling. Thicker on hover/drag. Per theme. */
 .overlay-scroll-host {
@@ -6363,4 +6280,54 @@ html[data-animations="on"]:is([data-accent="original"], [data-accent="purple"], 
   .cp-logo[data-glitch] {
     animation: none;
   }
+}
+
+/* ---- Animation groups (Settings → Animations, lib/fx.ts FxGroup) ---------- */
+/* The main switch stops everything ([data-animations="off"] .app-content * above). With
+   it on, each group can be stopped on its own: <html data-fx-off> lists the groups that
+   are off, the premium ones per theme ("holo.cyberpunk"). The class icons on hover, the
+   card frames/screens and the editor effects are React and unmount instead. */
+
+/* Pin, NEW badge and corners */
+html[data-fx-off~="cards"] :is(.fx-pin, .fx-pin *, .fx-corner, .fx-corner *, .new-badge, .card-pin-rim),
+html[data-fx-off~="cards"] :is(.fx-pin, .fx-pin *, .fx-corner, .fx-corner *, .new-badge, .card-pin-rim)::before,
+html[data-fx-off~="cards"] :is(.fx-pin, .fx-pin *, .fx-corner, .fx-corner *, .new-badge, .card-pin-rim)::after {
+  animation: none !important;
+}
+html[data-fx-off~="cards"] .card-pin-halo {
+  display: none !important;
+}
+
+/* SFW dot next to the logo */
+html[data-fx-off~="sfw"] .sfw-dot,
+html[data-fx-off~="sfw"] .sfw-dot::before,
+html[data-fx-off~="sfw"] .sfw-dot::after {
+  animation: none !important;
+}
+
+/* Logo (top bar mark, the breathing mark on an empty dashboard) */
+html[data-fx-off~="logo"] :is(.fx-logo, .fx-logo *, .cp-logo, .cp-logo *, .empty-mark),
+html[data-fx-off~="logo"] :is(.fx-logo, .fx-logo *, .cp-logo, .cp-logo *, .empty-mark)::before,
+html[data-fx-off~="logo"] :is(.fx-logo, .fx-logo *, .cp-logo, .cp-logo *, .empty-mark)::after {
+  animation: none !important;
+}
+
+/* Premium: card holo and frames (creator cards, month cards, card edges) */
+html:is([data-accent="iridescent"][data-fx-off~="holo.iridescent"], [data-accent="sakura"][data-fx-off~="holo.sakura"], [data-accent="cyberpunk"][data-fx-off~="holo.cyberpunk"])
+  :is(.micoll-holo, .iri-holo-bands, .iri-holo-pearl, .iri-holo-prism, .sak-holo-bands, .sak-holo-pearl, .sak-holo-prism, .iri-card-spark, .sak-card-petal, .iri-aura, .iri-edge, .iri-card, .sak-edge, .iri-foot, .iri-kite--on, .cp-ring, .cp-glitch, .cp-flames, .cp-flames > span, .iri-tpl-band1, .iri-tpl-band2),
+html:is([data-accent="iridescent"][data-fx-off~="holo.iridescent"], [data-accent="sakura"][data-fx-off~="holo.sakura"], [data-accent="cyberpunk"][data-fx-off~="holo.cyberpunk"])
+  :is(.micoll-holo, .iri-aura, .iri-edge, .iri-card, .sak-edge, .cp-glitch)::before,
+html:is([data-accent="iridescent"][data-fx-off~="holo.iridescent"], [data-accent="sakura"][data-fx-off~="holo.sakura"], [data-accent="cyberpunk"][data-fx-off~="holo.cyberpunk"])
+  :is(.micoll-holo, .iri-aura, .iri-edge, .iri-card, .sak-edge, .cp-glitch)::after {
+  animation: none !important;
+}
+
+/* Premium: theme shimmer (foil, lines, progress bars, switches, licence, viewer, Create Card) */
+html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-accent="sakura"][data-fx-off~="shimmer.sakura"], [data-accent="cyberpunk"][data-fx-off~="shimmer.cyberpunk"])
+  :is(.fav-title, .iri-fill, .sak-yearfill, .iri-pct, .sak-pct, .imp-fill, .crop-frame, .iri-home-plate, .micoll-viewer .viewer-btn, header [data-lit], .tb-hint, .tb-hint-blossom, .micoll-viewer .viewer-thumb, .collab-chip, .extra-on, .iri-lead--fine, .micoll-viewer .iri-ink, .iri-rule, .cp-rule, .iri-licence, .sak-licence, .cp-licence, .micoll-switch, .cp-check-base, .cp-check-ghost, .cp-create, .iri-crystal-fill, .iri-star-ink),
+html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-accent="sakura"][data-fx-off~="shimmer.sakura"], [data-accent="cyberpunk"][data-fx-off~="shimmer.cyberpunk"])
+  :is(.imp-fill, .crop-frame, .tb-hint, .micoll-viewer .viewer-thumb, .iri-lead--fine, .iri-licence, .sak-licence, .cp-licence, .cp-create)::before,
+html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-accent="sakura"][data-fx-off~="shimmer.sakura"], [data-accent="cyberpunk"][data-fx-off~="shimmer.cyberpunk"])
+  :is(.imp-fill, .crop-frame, .tb-hint, .micoll-viewer .viewer-thumb, .iri-lead--fine, .iri-licence, .sak-licence, .cp-licence, .cp-create)::after {
+  animation: none !important;
 }

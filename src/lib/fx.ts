@@ -6,18 +6,77 @@
  * It works in two ways: a data-animations attribute on <html> for the CSS, and
  * useCardFx() so React can unmount canvas/WebGL effects completely.
  * The idle pause (lib/perf) uses this same switch.
+ *
+ * Under the main switch each group of effects can be turned off on its own (FxGroup).
+ * The groups are remembered while the main switch is off and apply again when it comes
+ * back on. CSS reads <html data-fx-off="tags holo.cyberpunk …">, React useFx(group).
  */
 
 import { useEffect, useState } from "react";
 import { queuePrefsSync } from "@/lib/prefs";
+import { useAccent } from "@/lib/theme";
 import { isTauri } from "@/lib/tauri";
 import { getIdlePause, onIdlePause } from "@/lib/perf";
 import { pauseWanted } from "@/lib/idlePause";
 
 const STORAGE_KEY = "micoll.cardFx";
+const GROUPS_KEY = "micoll.fxGroups";
 
 // declared at the top because applyAttr() uses it during module init
 const listeners = new Set<() => void>();
+
+/* ---- Effect groups ------------------------------------------------------ */
+
+/**
+ * The effects that can be turned off one by one. tags/cards/sfw/logo are in every
+ * theme, holo/shimmer/editor only in the premium themes, and those are kept per theme
+ * (turning off the cyberpunk holo leaves the iridescent one alone).
+ */
+export type FxGroup = "tags" | "cards" | "sfw" | "logo" | "holo" | "vhs" | "shimmer" | "editor";
+export const FX_COMMON_GROUPS: FxGroup[] = ["tags", "cards", "sfw", "logo"];
+export const FX_PREMIUM_GROUPS: FxGroup[] = ["holo", "vhs", "shimmer", "editor"];
+/** Premium groups that only one theme has (the VHS screen of the cyberpunk card frame). */
+export const FX_THEME_ONLY: Partial<Record<FxGroup, string>> = { vhs: "cyberpunk" };
+const PREMIUM_ACCENTS = ["iridescent", "sakura", "cyberpunk"];
+
+/** The stored key of a group: premium groups are per theme ("holo.cyberpunk"). */
+function groupKey(group: FxGroup, accent: string): string {
+  return FX_PREMIUM_GROUPS.includes(group) ? `${group}.${accent}` : group;
+}
+
+/** The groups the user turned off (only the offs are stored, new groups start on). */
+function readOff(): Set<string> {
+  try {
+    const v = JSON.parse(localStorage.getItem(GROUPS_KEY) ?? "[]");
+    return new Set(Array.isArray(v) ? v.filter((k) => typeof k === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+let offGroups = readOff();
+
+/** The group's own switch (ignores the main switch). */
+export function getFxGroup(group: FxGroup, accent: string): boolean {
+  if (FX_PREMIUM_GROUPS.includes(group) && !PREMIUM_ACCENTS.includes(accent)) return true;
+  const only = FX_THEME_ONLY[group];
+  if (only && only !== accent) return true;
+  return !offGroups.has(groupKey(group, accent));
+}
+
+export function setFxGroup(group: FxGroup, accent: string, on: boolean): void {
+  const key = groupKey(group, accent);
+  if (on) offGroups.delete(key);
+  else offGroups.add(key);
+  try {
+    localStorage.setItem(GROUPS_KEY, JSON.stringify([...offGroups]));
+  } catch {
+    /* ignore */
+  }
+  queuePrefsSync();
+  applyAttr();
+  // the main state didn't change, so applyAttr didn't tell anyone
+  listeners.forEach((l) => l());
+}
 
 /** The saved setting from Settings. */
 export function getCardFx(): boolean {
@@ -48,6 +107,7 @@ function applyAttr(): void {
   const on = cardFxNow();
   try {
     document.documentElement.dataset.animations = on ? "on" : "off";
+    document.documentElement.dataset.fxOff = [...offGroups].join(" ");
   } catch {
     /* ignore (non-DOM env) */
   }
@@ -198,6 +258,34 @@ export function useCardFxPref(): boolean {
     };
   }, []);
   return on;
+}
+
+/** Is this group running right now? (main switch + idle pause + its own switch) */
+export function useFx(group: FxGroup): boolean {
+  const live = useCardFx();
+  const accent = useAccent();
+  useGroupsVersion();
+  return live && getFxGroup(group, accent);
+}
+
+/** The saved switches only (main + group), without the idle pause. See useCardFxPref. */
+export function useFxPref(group: FxGroup): boolean {
+  const pref = useCardFxPref();
+  const accent = useAccent();
+  useGroupsVersion();
+  return pref && getFxGroup(group, accent);
+}
+
+/** Re-renders when a group switch changes (the main hooks only fire on main changes). */
+function useGroupsVersion(): void {
+  const [, setV] = useState(0);
+  useEffect(() => {
+    const l = () => setV((v) => v + 1);
+    listeners.add(l);
+    return () => {
+      listeners.delete(l);
+    };
+  }, []);
 }
 
 /** Are animations on right now? (user switch + idle pause) */

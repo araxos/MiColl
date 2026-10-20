@@ -45,6 +45,7 @@ import { useGraveyardMode } from "@/lib/graveyard";
 import { getCustomOrder, setCustomOrder, moveWithin, moveToPinBorder } from "@/lib/customOrder";
 import { useMinimal } from "@/lib/minimal";
 import { cn } from "@/lib/utils";
+import { isOverlayScrollbar } from "@/components/OverlayScrollManager";
 import { useT, useTf } from "@/lib/i18n";
 import { type Artist, ownRewards } from "@/types";
 import { queuePrefsSync } from "@/lib/prefs";
@@ -329,6 +330,8 @@ export function StartPage({ onLock }: { onLock: () => void }) {
     // from the Tauri drag region
     const onDown = (e: PointerEvent) => {
       const node = e.target as Node;
+      // the floating scrollbar (OverlayScrollManager) isn't outside
+      if (isOverlayScrollbar(node)) return;
       const away = (r: { current: HTMLDivElement | null }) => !r.current || !r.current.contains(node);
       if (typeOpen && away(typeRef)) setTypeOpen(false);
       if (sortOpen && away(sortRef)) setSortOpen(false);

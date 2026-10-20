@@ -62,7 +62,16 @@ import { isTauri } from "@/lib/tauri";
 import { collectionDir, rootFromPicked } from "@/lib/collection";
 import { version as PKG_VERSION } from "../../package.json";
 import { useT, useTf, useTp } from "@/lib/i18n";
-import { getCardFx, setCardFx } from "@/lib/fx";
+import {
+  getCardFx,
+  setCardFx,
+  getFxGroup,
+  setFxGroup,
+  FX_COMMON_GROUPS,
+  FX_PREMIUM_GROUPS,
+  FX_THEME_ONLY,
+  type FxGroup,
+} from "@/lib/fx";
 import { getHoloFreq, setHoloFreq, HOLO_FREQ_LABELS, type HoloFreq } from "@/lib/holoFreq";
 import { getGlassButtons, setGlassButtons } from "@/lib/glassButtons";
 import { getTemplateFont, setTemplateFont, useTemplateFont } from "@/lib/templateFont";
@@ -397,6 +406,8 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     setCardFxOn(on);
     setCardFx(on);
   };
+  // the single effects under "Animations" (click the row, not the switch)
+  const [fxOpen, setFxOpen] = useState(false);
   const [holoFreq, setHoloFreqOn] = useState<HoloFreq>(getHoloFreq());
   const changeHoloFreq = (v: HoloFreq) => {
     setHoloFreqOn(v);
@@ -1452,17 +1463,33 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
             <span>{t("Dark")}</span>
           </div>
         </div>
-        <div className={cn("mt-3 flex items-center justify-between gap-3", cardInner, !fxLive && "opacity-60")}>
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-zinc-100">{t("Animations")}</h2>
-            <p className="settings-desc mt-0.5 text-sm text-zinc-400">
-              {t(
-                "All decorative motion: the premium card holo / sparkle / glitch, theme shimmer, and the floating class icons (♥, stars, …) on hover. Turn off for a calmer, lighter UI — the animated background has its own toggle above.",
-              )}
-              {!fxLive && <span className="text-zinc-500"> {fxHint}.</span>}
-            </p>
+        <div className={cn("mt-3", cardInner)}>
+          <div className="flex items-center justify-between gap-3">
+            {/* the row itself opens the single effects, the switch stays the main switch */}
+            <button
+              type="button"
+              onClick={() => setFxOpen((o) => !o)}
+              aria-expanded={fxOpen}
+              className="group min-w-0 flex-1 cursor-pointer text-left outline-none"
+            >
+              <h2 className="flex items-center gap-1.5 text-sm font-semibold text-zinc-100">
+                {t("Animations")}
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 opacity-60 transition-transform group-hover:opacity-100",
+                    fxOpen && "rotate-180",
+                  )}
+                />
+              </h2>
+              <p className="settings-desc mt-0.5 text-sm text-zinc-400">
+                {t(
+                  "All decorative motion: card holo, sparkle and glitch, theme shimmer, the glowing pin and SFW dot, and the floating class icons (♥, stars, …) on hover. Click here to turn single effects off. The animated background has its own toggle above.",
+                )}
+              </p>
+            </button>
+            <Toggle checked={cardFx} onChange={toggleCardFx} />
           </div>
-          <Toggle checked={cardFx} onChange={toggleCardFx} disabled={!fxLive} title={fxHint} />
+          {fxOpen && <FxGroupList mainOn={cardFx} />}
         </div>
         {/* holo frequency moved to Performance */}
         {/* class icon visibility (0% removes it) */}
@@ -2477,6 +2504,110 @@ function BetaTag() {
 }
 
 /** Simple on/off switch. */
+/** What each effect group is called and does (Settings → Animations). */
+const FX_GROUP_TEXT: Record<FxGroup, { label: string; desc: string }> = {
+  tags: {
+    label: "Class icons on hover",
+    desc: "The ♥, stars and other class icons that fly out when you hover a creator card.",
+  },
+  cards: {
+    label: "Pin, NEW badge and corners",
+    desc: "The glow around pinned cards, the shine on NEW badges and the type corner of a card.",
+  },
+  sfw: { label: "SFW dot", desc: "The glow of the dot next to the logo while SFW mode is on." },
+  logo: {
+    label: "Logo",
+    desc: "The logo's shimmer or glitch in the top bar, and the breathing mark on an empty dashboard.",
+  },
+  holo: {
+    label: "Card holo and frames",
+    desc: "The holographic sheen, sparkles and frame effects on creator and month cards.",
+  },
+  vhs: {
+    label: "VHS effect on cards",
+    desc: "The scanlines, light sweep and tape tears on cards with the cyberpunk frame.",
+  },
+  shimmer: { label: "Theme shimmer", desc: "" },
+  editor: {
+    label: "Editor loading effects",
+    desc: "The theme's animation while the editor works on a picture. The progress still shows.",
+  },
+};
+
+/** "Theme shimmer" covers different things per premium theme. */
+const SHIMMER_DESC: Record<string, string> = {
+  iridescent: "The flowing pearl foil on titles, lines, progress bars, the licence and active buttons.",
+  sakura: "The blooming switches and the shimmer on progress bars and the licence.",
+  cyberpunk: "Flickering lines, switch cells, the licence scan and the Create Card glitch.",
+};
+
+/** The premium theme's own look for its section: its font, name and colour. */
+const PREMIUM_FX_LOOK: Record<string, { name: string; font: string; title: string }> = {
+  iridescent: {
+    name: "Iridescent",
+    font: '"Iri Unbounded", "Exo 2", sans-serif',
+    title: "bg-gradient-to-r from-[#a78bfa] via-[#f0abfc] to-[#5eead4] bg-clip-text text-transparent",
+  },
+  sakura: { name: "Sakura", font: '"Zen Maru Gothic", sans-serif', title: "text-pink-300" },
+  cyberpunk: { name: "Cyberpunk", font: '"Orbitron", sans-serif', title: "text-[#fcee0a]" },
+};
+
+/**
+ * The single effects under the Animations switch. Every theme's groups first, then the
+ * active premium theme's own (in its font). With the main switch off they're greyed out
+ * but keep their state, it applies again when the main switch comes back on.
+ */
+function FxGroupList({ mainOn }: { mainOn: boolean }) {
+  const accent = useAccent();
+  const irid = accent === "iridescent";
+  const t = useT();
+  const tf = useTf();
+  // re-read after a change (the switches live in lib/fx)
+  const [, setV] = useState(0);
+  const flip = (g: FxGroup, on: boolean) => {
+    setFxGroup(g, accent, on);
+    setV((v) => v + 1);
+  };
+  const look = PREMIUM_FX_LOOK[accent];
+  const divider = irid ? "border-white/15" : "border-zinc-800";
+  const row = (g: FxGroup, font?: string) => (
+    <div key={g} className="flex items-center justify-between gap-3 py-2" style={font ? { fontFamily: font } : undefined}>
+      <div className="min-w-0">
+        <div className="text-sm text-zinc-200">{t(FX_GROUP_TEXT[g].label)}</div>
+        <p className="settings-desc mt-0.5 text-xs text-zinc-500">
+          {t(g === "shimmer" ? SHIMMER_DESC[accent] : FX_GROUP_TEXT[g].desc)}
+        </p>
+      </div>
+      <Toggle
+        checked={getFxGroup(g, accent)}
+        onChange={(on) => flip(g, on)}
+        disabled={!mainOn}
+        title={mainOn ? undefined : t("Turn on Animations first")}
+      />
+    </div>
+  );
+  return (
+    <div className={cn("mt-3 border-t pt-2", divider, !mainOn && "opacity-60")}>
+      {!mainOn && (
+        <p className="py-1 text-xs text-zinc-500">
+          {t("Animations are off. Your choices here are kept and apply again when you turn them on.")}
+        </p>
+      )}
+      {FX_COMMON_GROUPS.map((g) => row(g))}
+      {look && (
+        <div className={cn("mt-2 border-t pt-2", divider)} style={{ fontFamily: look.font }}>
+          <div className={cn("inline-block text-[11px] font-semibold uppercase tracking-[0.18em]", look.title)}>
+            {tf("Only in {theme}", { theme: look.name })}
+          </div>
+          {FX_PREMIUM_GROUPS.filter((g) => (FX_THEME_ONLY[g] ?? accent) === accent).map((g) =>
+            row(g, look.font),
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Toggle({
   checked,
   onChange,

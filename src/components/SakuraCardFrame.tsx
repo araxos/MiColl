@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useCardFx } from "@/lib/fx";
+import { useFx } from "@/lib/fx";
 
 /**
  * Sakura card frame for dashboard cards (when the sakura frame option is on).
@@ -104,7 +104,7 @@ const PETALS = [
  * crossing the art. Clipped by the petal outline.
  */
 export function SakuraCardScreen({ tone }: { tone: Tone }) {
-  const anim = useCardFx();
+  const anim = useFx("holo");
   // one pass, then a random wait, so cards never do it together
   const [sweeping, setSweeping] = useState(false);
   useEffect(() => {

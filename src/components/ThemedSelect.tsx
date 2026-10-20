@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDialogTheme } from "@/lib/dialogTheme";
+import { isOverlayScrollbar } from "@/components/OverlayScrollManager";
 
 /**
  * Our own dropdown instead of a native <select>.
@@ -16,6 +17,10 @@ export interface SelectOption {
   label: string;
   /** A grey row: placeholder ("(mixed)") or action ("+ Platform..."). */
   muted?: boolean;
+  /** Shown but can't be picked (with `title` saying why). */
+  disabled?: boolean;
+  /** Tooltip of the row. */
+  title?: string;
 }
 
 export function ThemedSelect({
@@ -71,6 +76,8 @@ export function ThemedSelect({
     const close = () => setOpen(false);
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node;
+      // dragging the floating scrollbar of the list isn't a click outside
+      if (isOverlayScrollbar(t)) return;
       if (!listRef.current?.contains(t) && !btnRef.current?.contains(t)) close();
     };
     // scrolling the list itself is fine
@@ -145,6 +152,8 @@ export function ThemedSelect({
                 <button
                   key={o.value}
                   type="button"
+                  disabled={o.disabled}
+                  title={o.title}
                   onClick={() => {
                     onChange(o.value);
                     setOpen(false);
@@ -154,6 +163,7 @@ export function ThemedSelect({
                     ink,
                     on ? cn("font-medium", dlg.menuRowOpen) : dlg.menuRow,
                     o.muted && "text-zinc-400",
+                    o.disabled && "cursor-not-allowed opacity-45 hover:bg-transparent",
                   )}
                 >
                   <Check className={cn("h-3 w-3 shrink-0", on ? dlg.accentText : "opacity-0")} />

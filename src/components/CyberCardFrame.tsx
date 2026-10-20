@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useCardFx } from "@/lib/fx";
+import { useFx } from "@/lib/fx";
 
 /**
  * Cyberpunk card frame for dashboard cards (when the theme's frame option is on).
@@ -41,7 +41,7 @@ function Frame({ color }: { color: string }) {
 const WAVE_STEP = 0.09;
 
 export function CyberCardFrame({ tone, wave = 0 }: { tone: "yellow" | "cyan"; wave?: number }) {
-  const anim = useCardFx();
+  const anim = useFx("holo");
   const delay = `${(wave * WAVE_STEP).toFixed(2)}s`;
   const main = tone === "yellow" ? "#FCEE0A" : "#00F0FF";
   // the ghosts use the two other colors

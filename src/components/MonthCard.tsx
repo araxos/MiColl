@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/Badge";
 import { useActions } from "@/actions";
 import { useAccent } from "@/lib/theme";
 import { setVerifiedMark, useVerifiedMark } from "@/lib/verifiedMark";
-import { useCardFx } from "@/lib/fx";
+import { useFx } from "@/lib/fx";
 import type { MenuItem } from "@/components/ContextMenu";
 import { useLibraryActions } from "@/store";
 import {
@@ -274,7 +274,7 @@ function MonthCardBase({
 
   // foil level: 2 (strong + sparkle) at 100%, 1 at 50-99%, none below.
   // up here because the sparkles use a hook. Off when animations are off.
-  const anim = useCardFx();
+  const anim = useFx("holo");
   // foil level for a tracked month (iridescent and sakura each draw their own)
   const holoTier = tracked ? (pctInt >= 100 ? 2 : pctInt >= 50 ? 1 : 0) : 0;
   const iriHolo = anim && irid ? holoTier : 0;
