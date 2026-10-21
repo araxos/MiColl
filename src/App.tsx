@@ -48,6 +48,8 @@ import { clearThumbMemo } from "@/hooks/useThumb";
 import { LOCK_SETTINGS_EVENT } from "@/lib/lock";
 import { getModeHotkey, eventToCombo, toggleSfwMode } from "@/lib/contentMode";
 import { dismissSplash, splashReady } from "@/lib/splash";
+import { setPhoneBridgeActive } from "@/lib/phoneBridge";
+import { PhoneUploads } from "@/components/PhoneUploads";
 
 export default function App() {
   const [locked, setLocked] = useState(false);
@@ -64,6 +66,10 @@ export default function App() {
   const [dupScope, setDupScope] = useState<DuplicateScope | null>(null);
 
   const safe = useSafeMode();
+
+  // the phone bridge only runs while MiColl is open and unlocked (when it's switched on)
+  const bridgeActive = isTauri() && booted && !locked && !safe && !firstRun && !portableOffer;
+  useEffect(() => setPhoneBridgeActive(bridgeActive), [bridgeActive]);
 
   // keep the splash up until the dashboard (or the lock screen) can show. The portable
   // question and the first-run wizard don't load the library, they replace the splash.
@@ -305,6 +311,7 @@ export default function App() {
             <DropZone />
             <CoverCropMigration active={booted && !locked && !safe} />
             <UpdatePrompt active={booted && !locked && !safe} />
+            <PhoneUploads />
             {/* the floating scrollbar of every panel, dialog and list */}
             <OverlayScrollManager />
             <LaunchActions active={booted && !locked && !safe} />

@@ -1,6 +1,7 @@
 mod ai;
 mod applog;
 mod audio;
+mod bridge;
 mod crypto;
 mod db;
 mod dup;
@@ -10079,6 +10080,7 @@ pub fn run() {
             app.manage(std::sync::Mutex::new(conn));
             app.manage(std::sync::Mutex::new(None::<crypto::Dek>));
             app.manage(ShareState::default());
+            app.manage(bridge::BridgeState::default());
             // the upkeep runs on its own thread, setup blocks the main thread and the page
             // (even the splash) can't load until it returns. The thread takes the DB lock
             // first, so the first library read still sees the result.
@@ -10314,6 +10316,9 @@ pub fn run() {
             share_to_phone,
             share_folder_to_phone,
             stop_sharing,
+            bridge::phone_bridge_start,
+            bridge::phone_bridge_stop,
+            bridge::phone_bridge_new_key,
             copy_files_to_clipboard,
             copy_image_to_clipboard,
             windows_share,

@@ -34,6 +34,7 @@ import {
   Square,
   SquareCheck,
   X,
+  Smartphone,
 } from "lucide-react";
 import { Layout } from "@/components/Layout";
 import { Button } from "@/components/ui/Button";
@@ -47,6 +48,7 @@ import { SecurityPanel } from "@/components/SecurityPanel";
 import { BackupPanel } from "@/components/BackupPanel";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { SdPanel } from "@/components/SdPanel";
+import { PhonePanel } from "@/components/PhonePanel";
 import { ContentPanel } from "@/components/ContentPanel";
 import { VersionPanel } from "@/components/VersionPanel";
 import { FeedbackPanel } from "@/components/FeedbackPanel";
@@ -215,6 +217,14 @@ const SECTIONS: NavSection[] = [
     label: "MiSD",
     Icon: HardDrive,
     keywords: "sd card external disk drive transport offline preview bring back volume storage space",
+    desktopOnly: true,
+  },
+  {
+    id: "phone",
+    label: "Phone app",
+    Icon: Smartphone,
+    keywords:
+      "phone mobile android app bridge wifi wi-fi wlan lan network qr code pair pairing key connect download companion",
     desktopOnly: true,
   },
   {
@@ -1040,6 +1050,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     { id: "security", node: <SecurityPanel backed={backed} /> },
     { id: "backup", node: <BackupPanel backed={backed} onLock={onLock} /> },
     { id: "misd", node: <SdPanel backed={backed} /> },
+    { id: "phone", node: <PhonePanel backed={backed} /> },
   ];
   const backBtnClass = !premiumAccent
     ? undefined

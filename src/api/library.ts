@@ -1286,6 +1286,29 @@ export async function shareFolderToPhone(srcs: string[], name: string): Promise<
 export async function stopSharing(): Promise<void> {
   await invoke("stop_sharing");
 }
+
+/** The phone bridge (the MiColl phone app's connection), see bridge.rs. */
+export interface PhoneBridgeInfo {
+  running: boolean;
+  /** for typing on the phone: ip:port/k/key */
+  address: string;
+  /** the other addresses of this PC */
+  others: string[];
+  qrSvg: string;
+  /** the served folder */
+  folder: string;
+}
+/** Turn the phone bridge on (or get its QR again). */
+export async function phoneBridgeStart(): Promise<PhoneBridgeInfo> {
+  return invoke<PhoneBridgeInfo>("phone_bridge_start");
+}
+export async function phoneBridgeStop(): Promise<void> {
+  await invoke("phone_bridge_stop");
+}
+/** New pairing key, every phone has to scan the new QR code. */
+export async function phoneBridgeNewKey(): Promise<PhoneBridgeInfo> {
+  return invoke<PhoneBridgeInfo>("phone_bridge_new_key");
+}
 /**
  * Put files on the clipboard like Explorer does (Ctrl+V into Discord, Telegram...).
  * Returns the count.

@@ -113,6 +113,8 @@ interface ActionsCtx {
   /** Show a toast in the bottom right. */
   /** Returns the toast's id (for updateToast / dismissToast). */
   showToast: (t: Omit<ToastData, "id">) => number;
+  /** Take a toast away early (e.g. to show a newer one in its place). */
+  dismissToast: (id: number) => void;
   /**
    * Take back the newest history row (Ctrl+Z) or a given one, with the toast and a
    * library reload. Resolves true when it worked.
@@ -1006,6 +1008,7 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
     bringBackFromSd,
     openExternally,
     showToast,
+    dismissToast,
     undoHistory,
   };
   const live = useRef(latest);
@@ -1030,9 +1033,10 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       bringBackFromSd: fwd("bringBackFromSd"),
       openExternally: fwd("openExternally"),
       showToast,
+      dismissToast,
       undoHistory: fwd("undoHistory"),
     };
-  }, [backed, showToast]);
+  }, [backed, showToast, dismissToast]);
 
   return (
     <Ctx.Provider value={value}>
