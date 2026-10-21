@@ -66,7 +66,7 @@ pub enum Files {
 
 /// A new history row.
 pub struct Entry {
-    /// "delete" | "move" | "rename" | "merge" | "trash" | "import"
+    /// "delete" | "move" | "rename" | "merge" | "trash" | "import" | "phone"
     pub action: &'static str,
     /// "reward" | "image" | "artist" | "period" | "platform" | "version" | "collection" |
     /// "library" | "source"
@@ -216,6 +216,9 @@ pub fn undoable(r: &Row) -> bool {
         ("move", "reward") => all(&|i| i.id.is_some() && i.back.is_some() && i.from.is_some() && i.to.is_some()),
         ("move", "image") => all(&|i| i.back.is_some() && i.into.is_some() && i.from.is_some() && i.to.is_some()),
         ("import", "reward") => all(&|i| i.id.is_some() && i.from.is_some()),
+        // from the phone app (bridge.rs undo_phone)
+        ("phone", "image") => all(&|i| i.to.is_some()),
+        ("phone", "version") => all(&|i| i.id.is_some()),
         _ => false,
     }
 }

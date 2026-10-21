@@ -840,6 +840,8 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
               ? tf("Restored: {names}", { names })
               : done.action === "import"
                 ? tf("Import undone: {names}", { names })
+                : done.action === "phone"
+                  ? tf("What the phone sent is gone again: {names}", { names })
                 : tf("Moved back: {names}", { names }),
       });
       return true;
@@ -863,6 +865,8 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
                     ? tf("“{path}” isn’t in the Recycle Bin anymore, so it can’t come back.", { path: arg })
                     : code === "restore"
                       ? tf("Windows couldn’t take it out of the Recycle Bin: {why}", { why: arg })
+                      : code === "trash"
+                        ? tf("Windows couldn’t move it to the Recycle Bin: {why}", { why: arg })
                       : msg;
       showToast({ tone: "warn", title: t("Can’t undo"), detail: text });
       return false;

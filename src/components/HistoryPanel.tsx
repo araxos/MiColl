@@ -12,6 +12,7 @@ import {
   MoveRight,
   Undo2,
   FolderInput,
+  Smartphone,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -25,7 +26,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 const PAGE = 100;
 
-type Filter = "all" | "import" | "delete" | "move" | "rename" | "trash";
+type Filter = "all" | "import" | "phone" | "delete" | "move" | "rename" | "trash";
 
 /** UTC "YYYY-MM-DD HH:MM:SS" from SQLite -> Date. */
 const parseAt = (at: string) => new Date(at.replace(" ", "T") + "Z");
@@ -176,6 +177,7 @@ export function HistoryPanel({ backed }: { backed: boolean }) {
           <div className="mt-4 flex flex-wrap items-center gap-2">
             {chip("all", t("All"))}
             {chip("import", t("Imported"))}
+            {chip("phone", t("From the phone"))}
             {chip("delete", t("Deleted"))}
             {chip("move", t("Moved"))}
             {chip("rename", t("Renamed"))}
@@ -276,7 +278,12 @@ export function HistoryPanel({ backed }: { backed: boolean }) {
                                   item={it}
                                   // an import's "from" is where it came from, not where it is now
                                   reveal={r.files !== "trash" && r.action !== "trash" && r.action !== "import"}
-                                  onOpen={rewardLink(r) && it.id != null ? () => openReward(it.id!, it.name) : undefined}
+                                  // a phone item's "from" is the folder the upload made, not a place it left
+                                  showFrom={r.action !== "phone"}
+                                  onOpen={(() => {
+                                    const id = rewardOf(r, it);
+                                    return id != null ? () => openReward(id, r.action === "phone" ? undefined : it.name) : undefined;
+                                  })()}
                                 />
                               ))}
                               {r.count > r.items.length && (
@@ -339,6 +346,8 @@ export function useHistoryText() {
   const verb = (r: api.HistoryRow) =>
     r.action === "delete"
       ? t("Deleted")
+      : r.action === "phone"
+        ? t("From the phone")
       : r.action === "import"
         ? t("Imported")
         : r.action === "move"
@@ -349,7 +358,9 @@ export function useHistoryText() {
             ? t("Merged")
             : t("To the Recycle Bin");
   const Icon = (r: api.HistoryRow) =>
-    r.action === "import"
+    r.action === "phone"
+      ? Smartphone
+      : r.action === "import"
       ? FolderInput
       : r.action === "delete" || r.action === "trash"
       ? Trash2
@@ -375,6 +386,13 @@ export function useHistoryText() {
         return tf("Platform “{name}”", { name: r.place ?? first?.name ?? "" });
       case "library":
         return t("The whole collection folder");
+      case "version":
+        if (r.action === "phone") {
+          return r.count > 1
+            ? tp("{n} edited versions", r.count)
+            : tf("Edited version of “{name}”", { name: first?.name ?? "" });
+        }
+        return r.count > 1 ? many(r.count) : (first?.name ?? "");
       case "collection":
         return r.action === "rename" && first?.was
           ? tf("Collection “{was}” → “{name}”", { was: first.was, name: first.name })
@@ -414,6 +432,20 @@ export function useHistoryText() {
   return { verb, Icon, what, where, filesNote, childLabel };
 }
 
+/** The reward an item links to: a reward that still exists, or (from the phone) the
+ *  reward the file landed in. */
+export function rewardOf(r: api.HistoryRow, it: api.HistoryItem): number | undefined {
+  if (r.action === "phone") return r.undone && r.kind === "image" ? undefined : it.back;
+  return rewardLink(r) ? it.id : undefined;
+}
+
+/** The one reward a whole entry is about, if it's one (the drawer's open button). */
+export function rowReward(r: api.HistoryRow): number | undefined {
+  const ids = new Set(r.items.map((it) => rewardOf(r, it)));
+  const [only] = ids;
+  return ids.size === 1 && only != null && r.items.length === r.count ? only : undefined;
+}
+
 /** Entries whose items are rewards that still exist, so their names can link to them. */
 export function rewardLink(r: api.HistoryRow): boolean {
   if (r.kind !== "reward") return false;
@@ -443,10 +475,13 @@ export function useOpenReward() {
 function HistoryItem({
   item,
   reveal,
+  showFrom = true,
   onOpen,
 }: {
   item: api.HistoryItem;
   reveal: boolean;
+  /** show the "from" path (old place → new place) */
+  showFrom?: boolean;
   /** a reward that still exists: the name opens its page */
   onOpen?: () => void;
 }) {
@@ -454,6 +489,7 @@ function HistoryItem({
   const tf = useTf();
   // the place it is now: the new path, or (files kept) where it always was
   const here = item.to ?? (reveal ? item.from : undefined);
+  const from = showFrom ? item.from : undefined;
   return (
     <li className="text-xs">
       <div className="flex items-center gap-2">
@@ -483,11 +519,11 @@ function HistoryItem({
           </button>
         )}
       </div>
-      {(item.from || item.to) && (
+      {(from || item.to) && (
         <div className="mt-0.5 flex flex-wrap items-center gap-1 break-all text-zinc-500">
-          {item.from && <span>{item.from}</span>}
-          {item.from && item.to && item.to !== item.from && <ArrowRight className="h-3 w-3 shrink-0" />}
-          {item.to && item.to !== item.from && <span className="text-zinc-400">{item.to}</span>}
+          {from && <span>{from}</span>}
+          {from && item.to && item.to !== from && <ArrowRight className="h-3 w-3 shrink-0" />}
+          {item.to && item.to !== from && <span className="text-zinc-400">{item.to}</span>}
         </div>
       )}
     </li>

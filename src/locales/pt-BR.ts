@@ -1935,4 +1935,9 @@ export const dict: Dict = {
   "Couldn't make a new key": "Não foi possível criar uma chave nova",
   "Go to reward": "Ir para o reward",
   "Go to latest reward": "Ir para o reward mais recente",
+  "From the phone": "Do celular",
+  "Edited version of “{name}”": "Versão editada de “{name}”",
+  "What the phone sent is gone again: {names}": "O que o celular enviou foi removido: {names}",
+  "Windows couldn’t move it to the Recycle Bin: {why}": "O Windows não conseguiu mover para a Lixeira: {why}",
+  "MiColl Mobile is running": "MiColl Mobile está ativo",
 };

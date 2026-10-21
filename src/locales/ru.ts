@@ -1995,4 +1995,9 @@ export const dict: Dict = {
   "Couldn't make a new key": "Не удалось создать новый ключ",
   "Go to reward": "Перейти к reward",
   "Go to latest reward": "Перейти к последнему reward",
+  "From the phone": "С телефона",
+  "Edited version of “{name}”": "Изменённая версия «{name}»",
+  "What the phone sent is gone again: {names}": "То, что прислал телефон, убрано: {names}",
+  "Windows couldn’t move it to the Recycle Bin: {why}": "Windows не смог переместить это в корзину: {why}",
+  "MiColl Mobile is running": "MiColl Mobile работает",
 };

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { listen } from "@tauri-apps/api/event";
-import { useActions } from "@/actions";
+import { HISTORY_CHANGED_EVENT, useActions } from "@/actions";
 import { useT, useTp } from "@/lib/i18n";
 import { isTauri } from "@/lib/tauri";
 import { useData } from "@/store";
@@ -47,6 +47,8 @@ export function PhoneUploads() {
     let alive = true;
     void listen<PhoneUpload>("phone-upload", (e) => {
       void refresh();
+      // it's in the history now
+      window.dispatchEvent(new CustomEvent(HISTORY_CHANGED_EVENT));
 
       const now = Date.now();
       const prev = batch.current && now - batch.current.at < SAME_BATCH_MS ? batch.current : null;

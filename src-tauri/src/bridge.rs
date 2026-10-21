@@ -14,9 +14,16 @@
 //! The phone can also send pictures back (PUT /api/upload) and edited versions of a
 //! picture (PUT /api/version). An upload never replaces a file: same content is
 //! skipped, a different file with the same name gets "name (2).jpg". A version is only
-//! added, the original stays the active one.
+//! added, the original stays the active one. POST /api/check asks first (path + SHA-256),
+//! so files that are already here don't get sent at all.
+//!
+//! The other way the phone gets the versions made here: /api/gallery counts them per
+//! picture, /api/versions lists one picture's, /api/version-file sends one.
+//!
+//! What came from the phone goes into the history (action "phone"), one row for the
+//! files and one for the versions of each batch, and can be undone from there.
 
-use crate::{app_cache, crypto, db, indexer, map_err, media_mime, parse_range, read_window, session_key, Db, DekState, RANGE_CHUNK};
+use crate::{app_cache, crypto, db, history, indexer, map_err, media_mime, parse_range, read_window, session_key, Db, DekState, RANGE_CHUNK};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -48,6 +55,9 @@ struct ImageDto {
     path: String,
     name: String,
     kind: String,
+    /// how many edited versions MiColl has of it (left out when none)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    versions: Option<usize>,
 }
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -257,6 +267,7 @@ fn make_reward(root: &Path, dir: &Path, title: &str, recursive: bool) -> Option<
             path: rel(root, p),
             name: name_of(p),
             kind: kind_for(&ext_lower(p)).unwrap_or("image").to_string(),
+            versions: None,
         })
         .collect();
     Some(RewardDto {
@@ -382,11 +393,16 @@ trait Source: Send + Sync {
     /// where MiColl keeps the edited versions
     fn versions_dir(&self) -> Result<PathBuf, String>;
     /// Files arrived (new files, and originals that got a version): re-read these
-    /// creators and tell the window.
-    fn arrived(&self, creators: &[String], files: &[PathBuf], versions: &[PathBuf]);
+    /// creators, note it in the history and tell the window.
+    fn arrived(&self, creators: &[String], files: &[FileArrival], versions: &[VersionArrival]);
 }
 
 struct AppSource(AppHandle);
+
+/// A new file, and the top folder its upload made (None = the folder was there).
+type FileArrival = (PathBuf, Option<PathBuf>);
+/// The original that got a version, and the version's id.
+type VersionArrival = (PathBuf, i64);
 
 /// One reward that got something from the phone (for the toast and its button).
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -411,35 +427,172 @@ struct PhoneUpload {
     places: Vec<ArrivedPlace>,
 }
 
+/// The reward a file is in (as MiColl indexed it).
+fn file_place(conn: &rusqlite::Connection, file: &Path) -> Option<ArrivedPlace> {
+    conn.query_row(
+        "SELECT a.id, p.id, r.id, a.name, p.label, r.title FROM images i
+         JOIN rewards r ON r.id = i.reward_id
+         JOIN periods p ON p.id = r.period_id
+         JOIN artists a ON a.id = p.artist_id
+         WHERE i.file_path = ?1 COLLATE NOCASE LIMIT 1",
+        [file.to_string_lossy()],
+        |r| {
+            Ok(ArrivedPlace {
+                artist_id: r.get(0)?,
+                period_id: r.get(1)?,
+                reward_id: r.get(2)?,
+                creator: r.get(3)?,
+                period: r.get(4)?,
+                reward: r.get(5)?,
+                files: 0,
+                versions: 0,
+            })
+        },
+    )
+    .ok()
+}
+
+/// One history row for a batch's files and one for its versions. Each item keeps what
+/// undoing needs: the file (`to`), the folder the upload made (`from`), its reward
+/// (`back`), and a creator the upload made (`into`); a version item its id.
+fn log_arrivals(conn: &rusqlite::Connection, root: &Path, files: &[FileArrival], versions: &[VersionArrival]) {
+    let name_of = |p: &Path| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    // the creator and the reward when the whole batch is one
+    let common = |places: &[Option<ArrivedPlace>]| {
+        let first = places.first().cloned().flatten();
+        let one_creator = first.as_ref().filter(|f| places.iter().all(|p| p.as_ref().is_some_and(|p| p.artist_id == f.artist_id)));
+        let one_reward = first.as_ref().filter(|f| places.iter().all(|p| p.as_ref().is_some_and(|p| p.reward_id == f.reward_id)));
+        (one_creator.map(|f| f.creator.clone()), one_reward.map(|f| format!("{} › {}", f.period, f.reward)))
+    };
+    if !files.is_empty() {
+        let places: Vec<Option<ArrivedPlace>> = files.iter().map(|(f, _)| file_place(conn, f)).collect();
+        let items = files
+            .iter()
+            .zip(&places)
+            .map(|((f, made), place)| {
+                // the upload made the creator's own folder: a new creator
+                let new_creator = made.as_ref().is_some_and(|m| m.parent() == Some(root));
+                history::Item {
+                    name: name_of(f),
+                    to: Some(f.to_string_lossy().into_owned()),
+                    from: made.as_ref().map(|m| m.to_string_lossy().into_owned()),
+                    back: place.as_ref().map(|p| p.reward_id),
+                    into: place.as_ref().filter(|_| new_creator).map(|p| p.artist_id),
+                    ..Default::default()
+                }
+            })
+            .collect();
+        let (artist, place) = common(&places);
+        history::log(conn, history::Entry { action: "phone", kind: "image", artist, place, files: history::Files::None, items });
+    }
+    if !versions.is_empty() {
+        let places: Vec<Option<ArrivedPlace>> = versions.iter().map(|(o, _)| file_place(conn, o)).collect();
+        let items = versions
+            .iter()
+            .zip(&places)
+            .map(|((orig, id), place)| history::Item {
+                name: name_of(orig),
+                to: Some(orig.to_string_lossy().into_owned()),
+                id: Some(*id),
+                back: place.as_ref().map(|p| p.reward_id),
+                ..Default::default()
+            })
+            .collect();
+        let (artist, place) = common(&places);
+        history::log(conn, history::Entry { action: "phone", kind: "version", artist, place, files: history::Files::None, items });
+    }
+}
+
+/// Take back what the phone sent (from the history). Files go to the Recycle Bin, the
+/// folders the upload made go when they're empty, the rewards are read again (a reward
+/// that was there before stays, only emptied) and creators the upload made are removed
+/// again. Versions are removed, their file goes to the Recycle Bin.
+pub(crate) fn undo_phone(
+    conn: &rusqlite::Connection,
+    row: &history::Row,
+    recycle: &dyn Fn(&Path) -> Result<(), String>,
+) -> Result<(), String> {
+    let changed = |n: &str| format!("undo:changed:{n}");
+    if row.kind == "version" {
+        let mut files = Vec::new();
+        for it in &row.items {
+            let id = it.id.unwrap_or_default();
+            let fp: Option<String> = conn
+                .query_row("SELECT file_path FROM image_versions WHERE id = ?1", [id], |r| r.get(0))
+                .ok();
+            files.push((id, fp.ok_or_else(|| changed(&it.name))?));
+        }
+        for (id, fp) in files {
+            if Path::new(&fp).exists() {
+                recycle(Path::new(&fp)).map_err(|e| format!("undo:trash:{e}"))?;
+            }
+            db::delete_image_version(conn, id).map_err(map_err)?;
+        }
+        return Ok(());
+    }
+
+    // all still there, before anything moves
+    for it in &row.items {
+        if !it.to.as_deref().is_some_and(|t| Path::new(t).is_file()) {
+            return Err(changed(&it.name));
+        }
+    }
+    for it in &row.items {
+        recycle(Path::new(it.to.as_deref().unwrap_or_default())).map_err(|e| format!("undo:trash:{e}"))?;
+    }
+    for made in row.items.iter().filter_map(|i| i.from.as_deref()) {
+        remove_empty_dirs(Path::new(made));
+    }
+    let mut rewards: Vec<i64> = row.items.iter().filter_map(|i| i.back).collect();
+    rewards.sort_unstable();
+    rewards.dedup();
+    for id in rewards {
+        let folder: Option<String> = conn.query_row("SELECT folder_path FROM rewards WHERE id = ?1", [id], |r| r.get(0)).ok();
+        match folder {
+            // its folder went with the upload's folders: the reward goes too
+            Some(f) if !Path::new(&f).exists() => db::delete_rewards(conn, &[id]).map_err(map_err)?,
+            Some(_) => crate::reindex_rewards(conn, &[id])?,
+            None => {}
+        }
+    }
+    let mut made: Vec<i64> = row.items.iter().filter_map(|i| i.into).collect();
+    made.sort_unstable();
+    made.dedup();
+    for artist_id in made {
+        let left: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM rewards r JOIN periods p ON r.period_id = p.id WHERE p.artist_id = ?1",
+                [artist_id],
+                |r| r.get(0),
+            )
+            .map_err(map_err)?;
+        if left == 0 {
+            db::delete_artist(conn, artist_id).map_err(map_err)?;
+        }
+    }
+    Ok(())
+}
+
+/// Remove a folder and the folders in it, but only when no file is left anywhere inside.
+fn remove_empty_dirs(dir: &Path) {
+    if !dir.is_dir() || walkdir::WalkDir::new(dir).into_iter().flatten().any(|e| !e.file_type().is_dir()) {
+        return;
+    }
+    let mut dirs: Vec<PathBuf> = walkdir::WalkDir::new(dir).into_iter().flatten().map(|e| e.into_path()).collect();
+    // deepest first
+    dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+    for d in dirs {
+        let _ = std::fs::remove_dir(&d);
+    }
+}
+
 /// Which rewards the files are in now (after the re-read). Files MiColl didn't pick
 /// up are only counted.
 fn arrived_places(conn: &rusqlite::Connection, files: &[PathBuf], versions: &[PathBuf]) -> Vec<ArrivedPlace> {
     let mut out: Vec<ArrivedPlace> = Vec::new();
     let all = files.iter().map(|f| (f, true)).chain(versions.iter().map(|f| (f, false)));
     for (file, is_file) in all {
-        let found = conn
-            .query_row(
-                "SELECT a.id, p.id, r.id, a.name, p.label, r.title FROM images i
-                 JOIN rewards r ON r.id = i.reward_id
-                 JOIN periods p ON p.id = r.period_id
-                 JOIN artists a ON a.id = p.artist_id
-                 WHERE i.file_path = ?1 COLLATE NOCASE LIMIT 1",
-                [file.to_string_lossy()],
-                |r| {
-                    Ok(ArrivedPlace {
-                        artist_id: r.get(0)?,
-                        period_id: r.get(1)?,
-                        reward_id: r.get(2)?,
-                        creator: r.get(3)?,
-                        period: r.get(4)?,
-                        reward: r.get(5)?,
-                        files: 0,
-                        versions: 0,
-                    })
-                },
-            )
-            .ok();
-        let Some(found) = found else { continue };
+        let Some(found) = file_place(conn, file) else { continue };
         let i = match out.iter().position(|p| p.reward_id == found.reward_id) {
             Some(i) => i,
             None => {
@@ -469,7 +622,7 @@ impl Source for AppSource {
     fn versions_dir(&self) -> Result<PathBuf, String> {
         Ok(crate::app_data(&self.0)?.join("versions"))
     }
-    fn arrived(&self, creators: &[String], files: &[PathBuf], versions: &[PathBuf]) {
+    fn arrived(&self, creators: &[String], files: &[FileArrival], versions: &[VersionArrival]) {
         let mut places = Vec::new();
         if let Ok(conn) = self.db().lock() {
             if let Ok(root) = served_root(&conn) {
@@ -478,8 +631,11 @@ impl Source for AppSource {
                     let _ = reindex_creator(&conn, &root, c);
                 }
                 let _ = db::repair_missing_previews(&conn);
+                log_arrivals(&conn, &root, files, versions);
             }
-            places = arrived_places(&conn, files, versions);
+            let paths: Vec<PathBuf> = files.iter().map(|(f, _)| f.clone()).collect();
+            let origs: Vec<PathBuf> = versions.iter().map(|(o, _)| o.clone()).collect();
+            places = arrived_places(&conn, &paths, &origs);
         }
         let _ = self.0.emit(
             "phone-upload",
@@ -507,9 +663,8 @@ fn reindex_creator(conn: &rusqlite::Connection, root: &Path, folder: &str) -> Re
 #[derive(Default)]
 struct Pending {
     creators: HashSet<String>,
-    files: Vec<PathBuf>,
-    /// originals that got a version
-    versions: Vec<PathBuf>,
+    files: Vec<FileArrival>,
+    versions: Vec<VersionArrival>,
     last: Option<std::time::Instant>,
     /// a thread waits to hand it over
     waiting: bool,
@@ -530,11 +685,11 @@ impl Shared {
 
 /// Note an arrival (a new file, or the original that got a version). Once the phone
 /// is quiet for SETTLE, MiColl re-reads the creators once (not once per file).
-fn note_arrival(sh: &Arc<Shared>, creator: Option<&str>, file: Option<PathBuf>, version_of: Option<PathBuf>) {
+fn note_arrival(sh: &Arc<Shared>, creator: Option<&str>, file: Option<FileArrival>, version: Option<VersionArrival>) {
     let Ok(mut p) = sh.pending.lock() else { return };
     p.creators.extend(creator.map(str::to_string));
     p.files.extend(file);
-    p.versions.extend(version_of);
+    p.versions.extend(version);
     p.last = Some(std::time::Instant::now());
     if p.waiting {
         return;
@@ -659,6 +814,19 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
         // scanned fresh each time, so moves and renames in MiColl show up right away
         "/api/gallery" => {
             let mut artists = scan(&root);
+            let counts = sh.src.db().lock().map_err(map_err).and_then(|c| version_counts(&c)).unwrap_or_default();
+            if !counts.is_empty() {
+                let images = artists
+                    .iter_mut()
+                    .flat_map(|a| &mut a.platforms)
+                    .flat_map(|p| &mut p.months)
+                    .flat_map(|m| &mut m.rewards)
+                    .flat_map(|r| &mut r.images);
+                for im in images {
+                    let full = im.path.split('/').fold(root.clone(), |p, part| p.join(part));
+                    im.versions = counts.get(&path_key(&full)).copied();
+                }
+            }
             let meta = meta();
             for a in &mut artists {
                 if let Some(m) = meta.get(&a.name.to_lowercase()).cloned() {
@@ -718,6 +886,44 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
         }
         "/api/upload" => upload(req, sh, &root, &url),
         "/api/version" => add_version(req, sh, &root, &url),
+        "/api/check" => check(req, sh, &root),
+        "/api/versions" => {
+            let Some(full) = query_param(&url, "p").and_then(|p| safe_path(&root, &p)) else {
+                return fail(req, 400, "bad path");
+            };
+            let Some(orig) = full.is_file().then(|| known_original(sh, &full)).flatten() else {
+                return fail(req, 404, "MiColl doesn't know this picture");
+            };
+            let found = sh.src.db().lock().map_err(map_err).and_then(|c| db::list_image_versions(&c, &orig).map_err(map_err));
+            let (versions, active) = match found {
+                Ok(v) => v,
+                Err(e) => return fail(req, 500, &e),
+            };
+            if key.is_none() && versions.iter().any(|v| crypto::file_is_encrypted(Path::new(&v.file_path))) {
+                return fail(req, 503, "MiColl is locked");
+            }
+            // checksum and size of exactly the bytes /api/version-file sends
+            let list: Vec<serde_json::Value> = versions
+                .iter()
+                .filter_map(|v| {
+                    let (sha256, size) = content_hash_size(Path::new(&v.file_path), key)?;
+                    Some(serde_json::json!({
+                        "id": v.id, "label": v.label, "createdAt": v.created_at, "sha256": sha256, "size": size,
+                    }))
+                })
+                .collect();
+            json(req, 200, &serde_json::json!({ "list": list, "active": active }));
+        }
+        "/api/version-file" => {
+            let id: Option<i64> = query_param(&url, "id").and_then(|s| s.parse().ok());
+            let file: Option<String> = id.and_then(|id| {
+                sh.src.db().lock().ok()?.query_row("SELECT file_path FROM image_versions WHERE id = ?1", [id], |r| r.get(0)).ok()
+            });
+            match file.map(PathBuf::from).filter(|f| f.is_file()) {
+                Some(f) => serve_file(req, &f, key),
+                None => fail(req, 404, "no such version"),
+            }
+        }
         _ => fail(req, 404, "not found"),
     }
 }
@@ -833,6 +1039,38 @@ fn receive(req: &mut tiny_http::Request, temp: &Path) -> Result<String, (u16, St
     Ok(hash)
 }
 
+/// A path as the database stores it, for comparing (backslashes, lower case).
+fn path_key(p: &Path) -> String {
+    p.to_string_lossy().replace('/', "\\").to_lowercase()
+}
+
+/// How many versions each original has (by path_key).
+fn version_counts(conn: &rusqlite::Connection) -> Result<HashMap<String, usize>, String> {
+    let mut stmt = conn.prepare("SELECT orig_path, COUNT(*) FROM image_versions GROUP BY orig_path").map_err(map_err)?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+        .map_err(map_err)?;
+    let mut out = HashMap::new();
+    for (p, n) in rows.flatten() {
+        *out.entry(path_key(Path::new(&p))).or_insert(0) += n as usize;
+    }
+    Ok(out)
+}
+
+/// SHA-256 and size of a file's content (decrypted when it's encrypted).
+fn content_hash_size(path: &Path, key: Option<[u8; 32]>) -> Option<(String, u64)> {
+    let mut hasher = Sha256::new();
+    let size = if crypto::file_is_encrypted(path) {
+        let plain = crypto::Dek::from_bytes(key?).decrypt_bytes(&std::fs::read(path).ok()?).ok()?;
+        hasher.update(&plain);
+        plain.len() as u64
+    } else {
+        let mut f = std::fs::File::open(path).ok()?;
+        std::io::copy(&mut f, &mut hasher).ok()?
+    };
+    Some((hasher.finalize().iter().map(|b| format!("{b:02x}")).collect(), size))
+}
+
 /// SHA-256 of a file's content (decrypted when it's encrypted).
 fn content_hash(path: &Path, key: Option<[u8; 32]>) -> Option<String> {
     let mut hasher = Sha256::new();
@@ -905,6 +1143,61 @@ fn encrypt_key(sh: &Shared) -> Result<Option<[u8; 32]>, String> {
     }
 }
 
+/// Where a file from the phone belongs: the same file is already there (at its name or
+/// a numbered one), or the first free name it would get.
+enum Spot {
+    Same(PathBuf),
+    Free(PathBuf, u32),
+    Full,
+}
+
+/// `size` = the file's size, when known: a plain file of another size can't be the same,
+/// so it isn't read.
+fn find_spot(full: &Path, hash: &str, size: Option<u64>, key: Option<[u8; 32]>) -> Spot {
+    for n in 1..1000 {
+        let cand = numbered(full, n);
+        let Ok(meta) = std::fs::metadata(&cand) else {
+            return Spot::Free(cand, n);
+        };
+        let other_size = size.is_some_and(|s| s != meta.len()) && !crypto::file_is_encrypted(&cand);
+        if !other_size && content_hash(&cand, key).as_deref() == Some(hash) {
+            return Spot::Same(cand);
+        }
+    }
+    Spot::Full
+}
+
+/// The original as MiColl knows it (the versions hang on that exact path).
+fn known_original(sh: &Shared, full: &Path) -> Option<String> {
+    sh.src.db().lock().ok().and_then(|c| {
+        c.query_row(
+            "SELECT file_path FROM images WHERE file_path = ?1 COLLATE NOCASE",
+            [full.to_string_lossy()],
+            |r| r.get(0),
+        )
+        .ok()
+    })
+}
+
+/// Is this picture already the original or one of its versions? Some(None) = the
+/// original itself, Some(Some(id)) = that version, None = it's new.
+fn same_version(
+    conn: &rusqlite::Connection,
+    full: &Path,
+    orig: &str,
+    hash: &str,
+    key: Option<[u8; 32]>,
+) -> Result<Option<Option<i64>>, String> {
+    if content_hash(full, key).as_deref() == Some(hash) {
+        return Ok(Some(None));
+    }
+    let (versions, _) = db::list_image_versions(conn, orig).map_err(map_err)?;
+    Ok(versions
+        .iter()
+        .find(|v| content_hash(Path::new(&v.file_path), key).as_deref() == Some(hash))
+        .map(|v| Some(v.id)))
+}
+
 /// PUT /api/upload?p=<path>: a picture or video from the phone into the collection.
 fn upload(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path, url: &str) {
     let rel_in = query_param(url, "p").unwrap_or_default();
@@ -921,6 +1214,8 @@ fn upload(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path, url: &str)
         Err(e) => return fail(req, 503, &e),
     };
     let dir = full.parent().unwrap_or(root).to_path_buf();
+    // the top folder this upload makes (an undo removes it again when it's empty)
+    let made = dir.ancestors().take_while(|a| *a != root && !a.exists()).last().map(Path::to_path_buf);
     if let Err(e) = std::fs::create_dir_all(&dir) {
         return fail(req, 500, &e.to_string());
     }
@@ -929,9 +1224,13 @@ fn upload(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path, url: &str)
         Ok(h) => h,
         Err((code, msg)) => {
             let _ = std::fs::remove_file(&temp);
+            if let Some(m) = &made {
+                remove_empty_dirs(m);
+            }
             return fail(req, code, &msg);
         }
     };
+    let size = std::fs::metadata(&temp).map(|m| m.len()).ok();
     if let Some(k) = enc {
         if let Err(e) = crypto::encrypt_file_in_place(&crypto::Dek::from_bytes(k), &temp) {
             let _ = std::fs::remove_file(&temp);
@@ -940,19 +1239,19 @@ fn upload(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path, url: &str)
     }
 
     // the name, or the next free number. A file with the same content is the same file
-    for n in 1..1000 {
-        let cand = numbered(&full, n);
-        if cand.exists() {
-            if content_hash(&cand, sh.src.data_key()).as_deref() == Some(hash.as_str()) {
+    for _ in 0..1000 {
+        let (cand, n) = match find_spot(&full, &hash, size, sh.src.data_key()) {
+            Spot::Same(cand) => {
                 let _ = std::fs::remove_file(&temp);
                 return json(req, 200, &serde_json::json!({ "result": "same", "path": rel(root, &cand) }));
             }
-            continue;
-        }
+            Spot::Free(cand, n) => (cand, n),
+            Spot::Full => break,
+        };
         match place_new(&temp, &cand) {
             Ok(true) => {
                 let creator = rel(root, &cand).split('/').next().map(str::to_string);
-                note_arrival(sh, creator.as_deref(), Some(cand.clone()), None);
+                note_arrival(sh, creator.as_deref(), Some((cand.clone(), made.clone())), None);
                 let result = if n == 1 { "saved" } else { "renamed" };
                 return json(req, 201, &serde_json::json!({ "result": result, "path": rel(root, &cand) }));
             }
@@ -978,16 +1277,7 @@ fn add_version(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path, url: 
     if !full.is_file() {
         return fail(req, 404, "original not found");
     }
-    // the original as MiColl knows it (the versions hang on that exact path)
-    let orig: Option<String> = sh.src.db().lock().ok().and_then(|c| {
-        c.query_row(
-            "SELECT file_path FROM images WHERE file_path = ?1 COLLATE NOCASE",
-            [full.to_string_lossy()],
-            |r| r.get(0),
-        )
-        .ok()
-    });
-    let Some(orig) = orig else {
+    let Some(orig) = known_original(sh, &full) else {
         return fail(req, 404, "MiColl doesn't know this picture yet");
     };
     let label = query_param(url, "label").map(|l| l.trim().to_string()).filter(|l| !l.is_empty());
@@ -1030,21 +1320,16 @@ fn add_version(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path, url: 
         return fail(req, 500, "database busy");
     };
     // the same picture again (the original or a version it already has) isn't new
-    let key = sh.src.data_key();
-    if content_hash(&full, key).as_deref() == Some(hash.as_str()) {
-        let _ = std::fs::remove_file(&temp);
-        return json(req, 200, &serde_json::json!({ "result": "same", "id": null }));
-    }
-    let versions = match db::list_image_versions(&conn, &orig) {
-        Ok((v, _)) => v,
+    match same_version(&conn, &full, &orig, &hash, sh.src.data_key()) {
+        Ok(None) => {}
+        Ok(Some(id)) => {
+            let _ = std::fs::remove_file(&temp);
+            return json(req, 200, &serde_json::json!({ "result": "same", "id": id }));
+        }
         Err(e) => {
             let _ = std::fs::remove_file(&temp);
-            return fail(req, 500, &e.to_string());
+            return fail(req, 500, &e);
         }
-    };
-    if let Some(v) = versions.iter().find(|v| content_hash(Path::new(&v.file_path), key).as_deref() == Some(hash.as_str())) {
-        let _ = std::fs::remove_file(&temp);
-        return json(req, 200, &serde_json::json!({ "result": "same", "id": v.id }));
     }
 
     if let Some(k) = enc {
@@ -1087,8 +1372,98 @@ fn add_version(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path, url: 
         rusqlite::params![id, dest.to_string_lossy()],
     );
     drop(conn);
-    note_arrival(sh, None, None, Some(PathBuf::from(&orig)));
+    note_arrival(sh, None, None, Some((PathBuf::from(&orig), id)));
     json(req, 201, &serde_json::json!({ "result": "added", "id": id }))
+}
+
+#[derive(serde::Deserialize)]
+struct CheckRequest {
+    #[serde(default)]
+    files: Vec<CheckItem>,
+    #[serde(default)]
+    versions: Vec<CheckItem>,
+}
+
+#[derive(serde::Deserialize)]
+struct CheckItem {
+    /// the file's path (files), or the original's (versions)
+    p: String,
+    sha256: String,
+    /// the file's size: speeds up the comparison
+    #[serde(default)]
+    size: Option<u64>,
+}
+
+/// Most entries one check takes (the phone asks in parts).
+const MAX_CHECK: usize = 5000;
+
+/// POST /api/check: which of these does MiColl already have? Nothing is written.
+/// files: "same" + where it is, or "new" + where an upload would land.
+/// versions: "same" (+ the version id, null = it's the original), "new", or "unknown"
+/// (MiColl doesn't know the original, an upload would answer 404).
+fn check(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path) {
+    if *req.method() != tiny_http::Method::Post {
+        return fail(req, 405, "use POST");
+    }
+    // encrypted files can only be compared while unlocked
+    if let Err(e) = encrypt_key(sh) {
+        return fail(req, 503, &e);
+    }
+    let mut body = Vec::new();
+    if req.as_reader().take(16 * 1024 * 1024 + 1).read_to_end(&mut body).is_err() || body.len() > 16 * 1024 * 1024 {
+        return fail(req, 413, "too much at once");
+    }
+    let ask: CheckRequest = match serde_json::from_slice(&body) {
+        Ok(a) => a,
+        Err(e) => return fail(req, 400, &e.to_string()),
+    };
+    if ask.files.len() + ask.versions.len() > MAX_CHECK {
+        return fail(req, 413, "too many at once, ask in parts");
+    }
+    let key = sh.src.data_key();
+    let hash_ok = |h: &str| h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit());
+
+    let files: Vec<serde_json::Value> = ask
+        .files
+        .iter()
+        .map(|f| {
+            let hash = f.sha256.to_ascii_lowercase();
+            let full = safe_path(root, &f.p).filter(|full| {
+                let depth = full.strip_prefix(root).map(|r| r.components().count()).unwrap_or(0);
+                depth >= 3 && matches!(kind_for(&ext_lower(full)), Some("image" | "video"))
+            });
+            match full {
+                Some(full) if hash_ok(&hash) => match find_spot(&full, &hash, f.size, key) {
+                    Spot::Same(at) => serde_json::json!({ "p": f.p, "result": "same", "path": rel(root, &at) }),
+                    Spot::Free(at, _) => serde_json::json!({ "p": f.p, "result": "new", "path": rel(root, &at) }),
+                    Spot::Full => serde_json::json!({ "p": f.p, "result": "bad" }),
+                },
+                _ => serde_json::json!({ "p": f.p, "result": "bad" }),
+            }
+        })
+        .collect();
+
+    let versions: Vec<serde_json::Value> = ask
+        .versions
+        .iter()
+        .map(|v| {
+            let hash = v.sha256.to_ascii_lowercase();
+            let Some(full) = safe_path(root, &v.p).filter(|f| f.is_file() && hash_ok(&hash)) else {
+                return serde_json::json!({ "p": v.p, "result": "bad" });
+            };
+            let Some(orig) = known_original(sh, &full) else {
+                return serde_json::json!({ "p": v.p, "result": "unknown" });
+            };
+            let found = sh.src.db().lock().map_err(map_err).and_then(|c| same_version(&c, &full, &orig, &hash, key));
+            match found {
+                Ok(Some(id)) => serde_json::json!({ "p": v.p, "result": "same", "id": id }),
+                Ok(None) => serde_json::json!({ "p": v.p, "result": "new" }),
+                Err(_) => serde_json::json!({ "p": v.p, "result": "bad" }),
+            }
+        })
+        .collect();
+
+    json(req, 200, &serde_json::json!({ "files": files, "versions": versions }))
 }
 
 /* ---- addresses + pairing ------------------------------------------------ */
@@ -1272,7 +1647,7 @@ mod tests {
         fn versions_dir(&self) -> Result<PathBuf, String> {
             Ok(self.versions.clone())
         }
-        fn arrived(&self, creators: &[String], files: &[PathBuf], versions: &[PathBuf]) {
+        fn arrived(&self, creators: &[String], files: &[FileArrival], versions: &[VersionArrival]) {
             let mut c = creators.to_vec();
             c.sort();
             self.arrivals.lock().unwrap().push((c, files.len(), versions.len()));
@@ -1499,6 +1874,28 @@ mod tests {
             assert_eq!((code, body["result"].as_str(), body["id"].as_i64()), (200, Some("same"), Some(id)));
             assert_eq!(put(&ver, &png, None).1["result"], "same");
             assert_eq!(put(&ver, b"not a picture", None).0, 415);
+
+            // the way back: counted in the gallery, listed with the checksum of exactly
+            // what version-file sends, and that's the bytes the phone sent
+            let gal = get(&format!("{k}/api/gallery"), None).1;
+            let g: serde_json::Value = serde_json::from_slice(&gal).unwrap();
+            let imgs = g.as_array().unwrap().iter().find(|a| a["name"] == "Ahri").unwrap()["platforms"][0]["months"][0]["rewards"][0]["images"].clone();
+            let a = imgs.as_array().unwrap().iter().find(|i| i["name"] == "a.png").unwrap();
+            assert_eq!(a["versions"].as_u64(), Some(1));
+            assert!(imgs.as_array().unwrap().iter().filter(|i| i["name"] != "a.png").all(|i| i.get("versions").is_none()));
+            let vl = format!("{k}/api/versions?p={}", urlencoding::encode("Ahri/Patreon/2026/03/Set/a.png"));
+            let (code, body) = get(&vl, None);
+            assert_eq!(code, 200);
+            let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(list["list"][0]["id"].as_i64(), Some(id));
+            assert_eq!(list["list"][0]["sha256"].as_str(), Some(sha_hex(&edited).as_str()));
+            assert_eq!(list["list"][0]["size"].as_u64(), Some(edited.len() as u64));
+            assert_eq!(list["list"][0]["label"].as_str(), Some("phone"));
+            // the original stays the active one
+            assert!(list["active"].is_null());
+            assert_eq!(get(&format!("{k}/api/version-file?id={id}"), None), (200, edited.clone()));
+            assert_eq!(get(&format!("{k}/api/version-file?id=999"), None).0, 404);
+            assert_eq!(get(&format!("{k}/api/versions?p={}", urlencoding::encode("Ahri/none.png")), None).0, 404);
             drop(server);
 
             // MiColl re-read both creators once, after the phone stopped
@@ -1555,8 +1952,154 @@ mod tests {
         assert_eq!((p.creator.as_str(), p.reward.as_str(), p.files, p.versions), ("Neu", "Set", 2, 1));
         let period: i64 = conn.query_row("SELECT period_id FROM rewards WHERE id = ?1", [p.reward_id], |r| r.get(0)).unwrap();
         assert_eq!(period, p.period_id);
+
+        // in the history, and undone from there: a creator the phone made goes again,
+        // the files to the "Recycle Bin" (a folder here, not the real one)
+        let bin = base.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let recycle = |p: &Path| std::fs::rename(p, bin.join(p.file_name().unwrap())).map_err(|e| e.to_string());
+        log_arrivals(&conn, &root, &[(reward.join("a.png"), Some(root.join("Neu"))), (reward.join("b.png"), Some(root.join("Neu")))], &[]);
+        let row = history::latest_open(&conn).unwrap().unwrap();
+        assert_eq!((row.action.as_str(), row.kind.as_str(), row.count), ("phone", "image", 2));
+        assert_eq!(row.artist.as_deref(), Some("Neu"));
+        assert!(history::undoable(&row));
+        assert_eq!(row.items[0].back, Some(p.reward_id));
+        undo_phone(&conn, &row, &recycle).unwrap();
+        assert!(!root.join("Neu").exists());
+        assert!(bin.join("a.png").is_file() && bin.join("b.png").is_file());
+        let artists: i64 = conn.query_row("SELECT COUNT(*) FROM artists WHERE name = 'Neu'", [], |r| r.get(0)).unwrap();
+        assert_eq!(artists, 0);
+
+        // into a reward that was there before: it stays, only what came is taken back
+        let old = root.join("Alt").join("Patreon").join("2026").join("05").join("Set");
+        std::fs::create_dir_all(&old).unwrap();
+        image::RgbImage::from_pixel(8, 8, image::Rgb([7, 7, 7])).save(old.join("mine.png")).unwrap();
+        reindex_creator(&conn, &root, "Alt").unwrap();
+        image::RgbImage::from_pixel(8, 8, image::Rgb([8, 8, 8])).save(old.join("phone.png")).unwrap();
+        reindex_creator(&conn, &root, "Alt").unwrap();
+        log_arrivals(&conn, &root, &[(old.join("phone.png"), None)], &[]);
+        let row = history::latest_open(&conn).unwrap().unwrap();
+        // something changed in between: nothing is touched
+        std::fs::rename(old.join("phone.png"), old.join("moved.png")).unwrap();
+        assert!(undo_phone(&conn, &row, &recycle).unwrap_err().starts_with("undo:changed:"));
+        assert!(old.join("mine.png").is_file() && old.join("moved.png").is_file());
+        std::fs::rename(old.join("moved.png"), old.join("phone.png")).unwrap();
+        undo_phone(&conn, &row, &recycle).unwrap();
+        assert!(old.join("mine.png").is_file() && !old.join("phone.png").exists());
+        let left: i64 = conn
+            .query_row("SELECT COUNT(*) FROM images WHERE file_path LIKE '%Alt%'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 1);
+
+        // a version from the phone: removed again, its file to the bin
+        let vfile = base.join("v1.png");
+        std::fs::write(&vfile, b"v").unwrap();
+        let mine = old.join("mine.png");
+        let vid = db::add_image_version(&conn, &mine.to_string_lossy(), &vfile.to_string_lossy(), Some("Phone")).unwrap();
+        log_arrivals(&conn, &root, &[], &[(mine.clone(), vid)]);
+        let row = history::latest_open(&conn).unwrap().unwrap();
+        assert_eq!((row.action.as_str(), row.kind.as_str()), ("phone", "version"));
+        assert!(history::undoable(&row));
+        undo_phone(&conn, &row, &recycle).unwrap();
+        assert!(bin.join("v1.png").is_file());
+        assert!(db::list_image_versions(&conn, &mine.to_string_lossy()).unwrap().0.is_empty());
         drop(conn);
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    fn post(url: &str, body: &serde_json::Value) -> (u16, serde_json::Value) {
+        match ureq::post(url).set("Content-Type", "application/json").send_string(&body.to_string()) {
+            Ok(resp) => (resp.status(), serde_json::from_str(&resp.into_string().unwrap_or_default()).unwrap_or_default()),
+            Err(ureq::Error::Status(code, resp)) => (code, serde_json::json!(resp.into_string().unwrap_or_default())),
+            Err(e) => panic!("{e}"),
+        }
+    }
+
+    /// The check answers what an upload would do, without anything sent or written.
+    #[test]
+    fn check_says_what_is_there() {
+        for encrypted in [false, true] {
+            let base = std::env::temp_dir().join(format!("micoll_bridge_chk_{}_{encrypted}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&base);
+            let root = base.join("MiColl");
+            let reward = root.join("Ahri").join("Patreon").join("2026").join("03").join("Set");
+            std::fs::create_dir_all(&reward).unwrap();
+            let dek = crypto::generate_dek();
+            let mut png = Vec::new();
+            image::RgbImage::from_pixel(8, 8, image::Rgb([1, 2, 3]))
+                .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                .unwrap();
+            let orig = reward.join("a.png");
+            let store = |p: &Path, b: &[u8]| std::fs::write(p, if encrypted { dek.encrypt_bytes(b) } else { b.to_vec() }).unwrap();
+            store(&orig, &png);
+            store(&reward.join("b (2).jpg"), b"second b");
+            store(&reward.join("b.jpg"), b"first b");
+
+            let db = test_db(&base, encrypted);
+            db.lock().unwrap().execute("INSERT INTO images VALUES (?1)", [orig.to_string_lossy()]).unwrap();
+            let src = TestSource { db, cache: base.join("cache"), versions: base.join("versions"), key: Some(dek.raw()), arrivals: Arc::default() };
+            let server = serve(0, Arc::new(Shared::new(Box::new(src), "testkey1234".into()))).unwrap();
+            let k = format!("http://127.0.0.1:{}/k/testkey1234", server.server_addr().to_ip().unwrap().port());
+
+            let before: Vec<_> = walkdir::WalkDir::new(&base).into_iter().flatten().map(|e| e.path().to_path_buf()).collect();
+            let ask = serde_json::json!({
+                "files": [
+                    { "p": "Ahri/Patreon/2026/03/Set/a.png", "sha256": sha_hex(&png), "size": png.len() },
+                    // the same name, different content (no size given)
+                    { "p": "Ahri/Patreon/2026/03/Set/A.PNG", "sha256": sha_hex(b"other") },
+                    // already there under its numbered name
+                    { "p": "Ahri/Patreon/2026/03/Set/b.jpg", "sha256": sha_hex(b"second b"), "size": 8 },
+                    { "p": "Neu/Patreon/2026/04/R/c.jpg", "sha256": sha_hex(b"c") },
+                    { "p": "../x.jpg", "sha256": sha_hex(b"c") },
+                    { "p": "Ahri/Patreon/notes.txt", "sha256": sha_hex(b"c") },
+                    { "p": "Ahri/Patreon/2026/03/Set/d.jpg", "sha256": "nothex" }
+                ],
+                "versions": [
+                    { "p": "Ahri/Patreon/2026/03/Set/a.png", "sha256": sha_hex(&png) },
+                    { "p": "Ahri/Patreon/2026/03/Set/a.png", "sha256": sha_hex(b"edit") },
+                    { "p": "Ahri/Patreon/2026/03/Set/b.jpg", "sha256": sha_hex(b"edit") },
+                    { "p": "Ahri/none.png", "sha256": sha_hex(b"edit") }
+                ]
+            });
+            let (code, got) = post(&format!("{k}/api/check"), &ask);
+            assert_eq!(code, 200);
+            let res = |list: &str, i: usize, field: &str| got[list][i][field].as_str().map(str::to_string);
+            assert_eq!(res("files", 0, "result").as_deref(), Some("same"));
+            assert_eq!(res("files", 0, "path").as_deref(), Some("Ahri/Patreon/2026/03/Set/a.png"));
+            assert_eq!(res("files", 1, "result").as_deref(), Some("new"));
+            assert_eq!(res("files", 1, "path").as_deref(), Some("Ahri/Patreon/2026/03/Set/A (2).PNG"));
+            assert_eq!(res("files", 2, "result").as_deref(), Some("same"));
+            assert_eq!(res("files", 2, "path").as_deref(), Some("Ahri/Patreon/2026/03/Set/b (2).jpg"));
+            assert_eq!(res("files", 3, "result").as_deref(), Some("new"));
+            assert_eq!(res("files", 3, "path").as_deref(), Some("Neu/Patreon/2026/04/R/c.jpg"));
+            for i in 4..7 {
+                assert_eq!(res("files", i, "result").as_deref(), Some("bad"), "file {i}");
+            }
+            assert_eq!(res("versions", 0, "result").as_deref(), Some("same"));
+            assert!(got["versions"][0]["id"].is_null());
+            assert_eq!(res("versions", 1, "result").as_deref(), Some("new"));
+            assert_eq!(res("versions", 2, "result").as_deref(), Some("unknown"));
+            assert_eq!(res("versions", 3, "result").as_deref(), Some("bad"));
+
+            // a version that was added is "same" with its id afterwards
+            let ver = format!("{k}/api/version?p={}", urlencoding::encode("Ahri/Patreon/2026/03/Set/a.png"));
+            let mut edited = Vec::new();
+            image::RgbImage::from_pixel(8, 8, image::Rgb([9, 9, 9]))
+                .write_to(&mut std::io::Cursor::new(&mut edited), image::ImageFormat::Png)
+                .unwrap();
+            let id = put(&ver, &edited, None).1["id"].as_i64().unwrap();
+            let again = serde_json::json!({ "versions": [{ "p": "Ahri/Patreon/2026/03/Set/a.png", "sha256": sha_hex(&edited) }] });
+            let (_, got2) = post(&format!("{k}/api/check"), &again);
+            assert_eq!((got2["versions"][0]["result"].as_str(), got2["versions"][0]["id"].as_i64()), (Some("same"), Some(id)));
+
+            // nothing written by the check itself (only the version file above)
+            let after: Vec<_> = walkdir::WalkDir::new(&root).into_iter().flatten().map(|e| e.path().to_path_buf()).collect();
+            assert_eq!(after, before.into_iter().filter(|p| p.starts_with(&root)).collect::<Vec<_>>());
+            assert_eq!(get(&format!("{k}/api/check"), None).0, 405);
+            assert_eq!(post(&format!("{k}/api/check"), &serde_json::json!("nonsense")).0, 400);
+            drop(server);
+            let _ = std::fs::remove_dir_all(&base);
+        }
     }
 
     #[test]

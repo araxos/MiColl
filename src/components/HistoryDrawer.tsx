@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { resolveLanguage, useLanguage, useT } from "@/lib/i18n";
 import * as api from "@/api/library";
 import { HISTORY_CHANGED_EVENT, useActions } from "@/actions";
-import { rewardLink, useHistoryText, useOpenReward } from "@/components/HistoryPanel";
+import { rowReward, useHistoryText, useOpenReward } from "@/components/HistoryPanel";
 
 /** How many entries the drawer shows, the rest is in Settings → History. */
 const LAST = 15;
@@ -157,11 +157,11 @@ export function HistoryDrawer({
                   </span>
                 </button>
                 {/* one reward that still exists: straight to its page */}
-                {rewardLink(r) && r.items.length === 1 && r.items[0].id != null && (
+                {rowReward(r) != null && (
                   <button
                     onClick={() => {
                       onClose();
-                      void openReward(r.items[0].id!, r.items[0].name);
+                      void openReward(rowReward(r)!, r.action === "phone" ? undefined : r.items[0].name);
                     }}
                     title={t("Open reward")}
                     className={cn("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center", dlg.control)}

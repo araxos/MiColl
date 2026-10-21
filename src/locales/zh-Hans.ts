@@ -1909,4 +1909,9 @@ export const dict: Dict = {
   "Couldn't make a new key": "无法创建新密钥",
   "Go to reward": "前往 Reward",
   "Go to latest reward": "前往最新的 Reward",
+  "From the phone": "来自手机",
+  "Edited version of “{name}”": "“{name}”的编辑版本",
+  "What the phone sent is gone again: {names}": "手机发送的内容已移除：{names}",
+  "Windows couldn’t move it to the Recycle Bin: {why}": "Windows 无法将其移到回收站：{why}",
+  "MiColl Mobile is running": "MiColl Mobile 正在运行",
 };

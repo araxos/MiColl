@@ -1198,8 +1198,10 @@ export interface HistoryItem {
   was?: string;
   from?: string;
   to?: string;
-  /** The reward / image / creator id (renames, moves, imports). */
+  /** The reward / image / creator id (renames, moves, imports), a version's id. */
   id?: number;
+  /** From the phone: the reward the file landed in. */
+  back?: number;
 }
 
 /** One row of the activity history (history.rs Row). */
@@ -1207,7 +1209,7 @@ export interface HistoryRow {
   id: number;
   /** UTC "YYYY-MM-DD HH:MM:SS" */
   at: string;
-  action: "delete" | "move" | "rename" | "merge" | "trash" | "import";
+  action: "delete" | "move" | "rename" | "merge" | "trash" | "import" | "phone";
   kind: string;
   artist: string | null;
   place: string | null;

@@ -36,6 +36,7 @@ import { GraveyardIcon } from "@/lib/graveyardIcon";
 import { useTopbarHintSeen } from "@/lib/topbarHint";
 import { TopbarHint } from "@/components/TopbarHint";
 import { recordHistoryEntry } from "@/lib/nav";
+import { usePhoneBridge } from "@/lib/phoneBridge";
 
 /**
  * Scroll position per history entry (by location.key). Back restores the scroll,
@@ -125,6 +126,8 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
   const historyButton = useHistoryButton();
   // the log lives in the backend, so only with a desktop library
   const showHistory = !safe && backed && historyButton;
+  // the phone app can connect: a dot on the gear
+  const phoneOn = !!usePhoneBridge().info;
   const [historyOpen, setHistoryOpen] = useState(false);
   // a page change closes the drawer
   useEffect(() => setHistoryOpen(false), [location.pathname]);
@@ -485,13 +488,21 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
               }
               title={t("Settings (right-click for hidden creators)")}
               data-lit={showHidden || undefined}
-              className={
+              className={cn(
+                "relative",
                 showHidden
                   ? "bg-brand-500/20 text-brand-200 hover:bg-brand-500/30 hover:text-brand-100"
-                  : "hover:bg-brand-500/15 hover:text-brand-200"
-              }
+                  : "hover:bg-brand-500/15 hover:text-brand-200",
+              )}
             >
               <Settings className="h-4 w-4" />
+              {/* MiColl Mobile is on: the dot has its own tooltip (a bit of room around it
+                  so it can be hovered) */}
+              {phoneOn && (
+                <span title={t("MiColl Mobile is running")} className="phone-dot-hit">
+                  <span className="phone-dot" />
+                </span>
+              )}
             </Button>
           )}
           {/* minimize/close on every page (also on the lock screen) */}

@@ -1909,4 +1909,9 @@ export const dict: Dict = {
   "Couldn't make a new key": "新しいキーを作れませんでした",
   "Go to reward": "Reward へ移動",
   "Go to latest reward": "最新の Reward へ移動",
+  "From the phone": "スマホから",
+  "Edited version of “{name}”": "「{name}」の編集版",
+  "What the phone sent is gone again: {names}": "スマホから送られたものを取り消しました: {names}",
+  "Windows couldn’t move it to the Recycle Bin: {why}": "Windows がごみ箱に移動できませんでした: {why}",
+  "MiColl Mobile is running": "MiColl Mobile が動作中",
 };

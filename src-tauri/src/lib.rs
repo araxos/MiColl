@@ -5620,6 +5620,9 @@ fn undo_history(
         ("import", "reward") => {
             undo_import(&app, &conn, &row, key)?;
         }
+        ("phone", _) => {
+            bridge::undo_phone(&conn, &row, &|p| recycle(p).map_err(map_err))?;
+        }
         _ => return Err(format!("undo:not-yet:{}", row.action)),
     }
     history::mark_undone(&conn, row.id);
