@@ -6449,3 +6449,32 @@ html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-acc
     animation: none !important;
   }
 }
+
+/* Keyboard focus on a grid card (arrow keys or Tab, GridKeys.tsx): a clear ring a few
+   px outside the card in the theme's colour, instead of the thin ring at its edge that
+   reads like the card's own border. Only :focus-visible, a click shows nothing. */
+[data-kbd-tile]:focus-visible {
+  --tw-ring-color: transparent;
+  outline: 2px solid var(--color-brand-400);
+  outline-offset: 3px;
+}
+/* cyberpunk: neon yellow. The cut-corner cards (clip-path) clip their own outline, so
+   the edge and the glow go on the card's holder as drop-shadows, which follow the cut
+   (they replace its aura while the card has the focus) */
+[data-accent="cyberpunk"] [data-kbd-tile]:focus-visible {
+  outline-color: #fcee0a;
+}
+[data-accent="cyberpunk"] :has(> [data-kbd-tile]:focus-visible) {
+  filter: drop-shadow(0 0 1px #fcee0a) drop-shadow(0 0 1px #fcee0a) drop-shadow(0 0 10px rgba(252, 238, 10, 0.55));
+}
+/* sakura: petal pink with a soft bloom */
+[data-accent="sakura"] [data-kbd-tile]:focus-visible {
+  outline-color: #f9a8d4;
+  box-shadow: 0 0 16px rgba(244, 114, 182, 0.45);
+}
+/* iridescent: the pale pearl background swallows white, so a deep violet with a
+   lilac halo */
+[data-accent="iridescent"] [data-kbd-tile]:focus-visible {
+  outline-color: #7c3aed;
+  box-shadow: 0 0 18px rgba(167, 139, 250, 0.7);
+}

@@ -18,6 +18,7 @@ mod template;
 mod thumbs;
 mod transfer;
 mod history;
+mod winstate;
 mod wshare;
 
 use db::{Artist, Db, Root};
@@ -6540,6 +6541,100 @@ fn restore_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
     }
 }
 
+/* ---- start with Windows --------------------------------------------- */
+/* An entry under HKCU\...\Run, off by default. Started that way (--autostart) MiColl
+   stays in the tray when "keep running in the tray" is on, else it starts minimized.
+   The portable copy has its own entry, so it and an installed MiColl don't overwrite
+   each other's. */
+const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+const AUTOSTART_ARG: &str = "--autostart";
+
+fn autostart_name() -> &'static str {
+    if portable_root().is_some() {
+        "MiColl Portable"
+    } else {
+        "MiColl"
+    }
+}
+
+/// What the entry runs: this exe, with --autostart.
+fn autostart_command() -> Result<String, String> {
+    let exe = std::env::current_exe().map_err(map_err)?;
+    Ok(format!("\"{}\" {AUTOSTART_ARG}", exe.display()))
+}
+
+#[cfg(windows)]
+fn read_run_value(name: &str) -> Option<String> {
+    use windows::core::HSTRING;
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ};
+    let mut buf = vec![0u16; 2048];
+    let mut size = (buf.len() * 2) as u32;
+    let r = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            &HSTRING::from(RUN_KEY),
+            &HSTRING::from(name),
+            RRF_RT_REG_SZ,
+            None,
+            Some(buf.as_mut_ptr().cast()),
+            Some(&mut size),
+        )
+    };
+    if r.is_err() {
+        return None;
+    }
+    let len = (size as usize / 2).saturating_sub(1);
+    Some(String::from_utf16_lossy(&buf[..len.min(buf.len())]))
+}
+
+/// Is MiColl started with Windows (this copy)?
+#[tauri::command]
+fn get_autostart() -> Result<bool, String> {
+    #[cfg(windows)]
+    {
+        Ok(read_run_value(autostart_name()).is_some_and(|v| v == autostart_command().unwrap_or_default()))
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(false)
+    }
+}
+
+/// Write an entry under Run, or remove it (None). Removing a missing one is fine.
+#[cfg(windows)]
+fn write_run_value(name: &str, command: Option<&str>) -> Result<(), String> {
+    use windows::core::HSTRING;
+    use windows::Win32::System::Registry::{RegDeleteKeyValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ};
+    let (key, value) = (HSTRING::from(RUN_KEY), HSTRING::from(name));
+    match command {
+        Some(cmd) => {
+            let wide: Vec<u16> = cmd.encode_utf16().chain(Some(0)).collect();
+            let size = (wide.len() * 2) as u32;
+            unsafe { RegSetKeyValueW(HKEY_CURRENT_USER, &key, &value, REG_SZ.0, Some(wide.as_ptr().cast()), size) }
+                .ok()
+                .map_err(map_err)
+        }
+        None if read_run_value(name).is_some() => {
+            unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, &key, &value) }.ok().map_err(map_err)
+        }
+        None => Ok(()),
+    }
+}
+
+#[tauri::command]
+fn set_autostart(on: bool) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let cmd = if on { Some(autostart_command()?) } else { None };
+        write_run_value(autostart_name(), cmd.as_deref())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = on;
+        Err("Only on Windows.".into())
+    }
+}
+
 /* ---- taskbar tasks -------------------------------------------------- */
 /* "Add rewards" from the taskbar's jump list (or a start with --add-rewards): Rust keeps
    it here until the frontend takes it (components/LaunchActions.tsx), so it also works
@@ -6553,7 +6648,7 @@ fn set_launch_action(action: &str) {
     }
 }
 
-/// The waiting taskbar action ("add-rewards"), once.
+/// The waiting action ("add-rewards", "creator:<id>"), once.
 #[tauri::command]
 fn take_launch_action() -> Option<String> {
     LAUNCH_ACTION.lock().ok()?.take()
@@ -6568,8 +6663,11 @@ fn open_new_window(app: &AppHandle) {
     let app = app.clone();
     // off the calling thread: building a window from a blocked thread can deadlock
     std::thread::spawn(move || {
-        match tauri::WebviewWindowBuilder::from_config(&app, &config).and_then(|b| b.build()) {
+        match tauri::WebviewWindowBuilder::from_config(&app, &config).and_then(|b| b.visible(false).build()) {
             Ok(w) => {
+                // the size of the last window, the place is up to Windows
+                winstate::restore(&w, false);
+                let _ = w.show();
                 let _ = w.set_focus();
             }
             Err(e) => crate::elog!("micoll: new window failed: {e}"),
@@ -6577,16 +6675,155 @@ fn open_new_window(app: &AppHandle) {
     });
 }
 
+/* The tray menu: Open, Add rewards, Lock, the recently opened creators, Quit. The
+   window sends the labels in its language and whether the creators may show (not while
+   locked, in safe mode or SFW mode: the menu is outside the lock), see TraySync.tsx.
+   Until it does: English labels and no creators. */
+#[derive(serde::Deserialize, Clone)]
+struct TrayLabels {
+    open: String,
+    add: String,
+    lock: String,
+    recent: String,
+    quit: String,
+}
+
+struct TrayInfo {
+    labels: Option<TrayLabels>,
+    locked: bool,
+    show_recent: bool,
+}
+
+static TRAY_INFO: std::sync::Mutex<TrayInfo> =
+    std::sync::Mutex::new(TrayInfo { labels: None, locked: true, show_recent: false });
+/// Setting with the recently opened creators (ids, newest first).
+const RECENT_CREATORS_KEY: &str = "tray_recent_creators";
+const RECENT_CREATORS: usize = 5;
+
+fn recent_creators(conn: &rusqlite::Connection) -> Vec<i64> {
+    db::get_setting(conn, RECENT_CREATORS_KEY)
+        .ok()
+        .flatten()
+        .map(|s| s.split(',').filter_map(|id| id.trim().parse().ok()).collect())
+        .unwrap_or_default()
+}
+
+fn tray_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+
+    let (labels, locked, show_recent) = match TRAY_INFO.lock() {
+        Ok(info) => (info.labels.clone(), info.locked, info.show_recent),
+        Err(_) => (None, true, false),
+    };
+    let l = labels.unwrap_or_else(|| TrayLabels {
+        open: "Open MiColl".into(),
+        add: "Add rewards…".into(),
+        lock: "Lock MiColl".into(),
+        recent: "Recently opened".into(),
+        quit: "Quit MiColl".into(),
+    });
+    // whether there's a password, and the recent creators' names (deleted ones drop out)
+    let db = app.try_state::<Db>();
+    let (has_password, recent) = match db.as_ref().map(|db| db.lock()) {
+        Some(Ok(conn)) => {
+            let pw = db::get_setting(&conn, "lock_pw_hash").ok().flatten().is_some_and(|s| !s.is_empty());
+            let names: Vec<(i64, String)> = if show_recent {
+                recent_creators(&conn)
+                    .into_iter()
+                    .filter_map(|id| {
+                        conn.query_row("SELECT name FROM artists WHERE id = ?1", [id], |r| r.get::<_, String>(0))
+                            .ok()
+                            .map(|name| (id, name))
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            (pw, names)
+        }
+        _ => (false, Vec::new()),
+    };
+
+    let menu = Menu::new(app)?;
+    menu.append(&MenuItem::with_id(app, "show", &l.open, true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(app, "add", &l.add, true, None::<&str>)?)?;
+    // only with a password, and not when it's locked already
+    menu.append(&MenuItem::with_id(app, "lock", &l.lock, has_password && !locked, None::<&str>)?)?;
+    if !recent.is_empty() {
+        let sub = Submenu::with_id(app, "recent", &l.recent, true)?;
+        for (id, name) in recent {
+            // a single "&" would underline the next letter in a Windows menu
+            let item = MenuItem::with_id(app, format!("creator:{id}"), name.replace('&', "&&"), true, None::<&str>)?;
+            sub.append(&item)?;
+        }
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+        menu.append(&sub)?;
+    }
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&MenuItem::with_id(app, "quit", &l.quit, true, None::<&str>)?)?;
+    Ok(menu)
+}
+
+/// Build the tray menu again (labels, lock or recent creators changed).
+fn refresh_tray(app: &AppHandle) {
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        match tray_menu(app) {
+            Ok(menu) => {
+                let _ = tray.set_menu(Some(menu));
+            }
+            Err(e) => crate::elog!("micoll: tray menu not updated: {e}"),
+        }
+    }
+}
+
+/// The window's language and lock state, for the tray menu (TraySync.tsx).
+#[tauri::command]
+fn sync_tray(app: AppHandle, labels: TrayLabels, locked: bool, show_recent: bool) {
+    if let Ok(mut info) = TRAY_INFO.lock() {
+        info.labels = Some(labels);
+        info.locked = locked;
+        info.show_recent = show_recent;
+    }
+    refresh_tray(&app);
+}
+
+/// A creator page was opened: first in the tray's "Recently opened".
+#[tauri::command]
+fn note_recent_creator(app: AppHandle, db: State<Db>, id: String) -> Result<(), String> {
+    let Ok(id) = id.parse::<i64>() else { return Ok(()) };
+    {
+        let conn = db.lock().map_err(map_err)?;
+        let mut list = recent_creators(&conn);
+        if list.first() == Some(&id) {
+            return Ok(());
+        }
+        list.retain(|x| *x != id);
+        list.insert(0, id);
+        list.truncate(RECENT_CREATORS);
+        let joined: Vec<String> = list.iter().map(i64::to_string).collect();
+        db::set_setting(&conn, RECENT_CREATORS_KEY, &joined.join(",")).map_err(map_err)?;
+    }
+    refresh_tray(&app);
+    Ok(())
+}
+
+/// Show MiColl and have it do `action` (LaunchActions.tsx takes it, after unlocking when
+/// it's locked).
+fn launch(app: &AppHandle, action: &str) {
+    set_launch_action(action);
+    // a new window takes it when it starts, a shown one gets told
+    if let Some(w) = restore_window(app) {
+        let _ = app.emit_to(w.label(), "micoll://launch-action", ());
+    }
+}
+
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    use tauri::menu::{Menu, MenuItem};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
     if app.tray_by_id(TRAY_ID).is_some() {
         return Ok(()); // already there — turning the option on twice is a no-op
     }
-    let show = MenuItem::with_id(app, "show", "Open MiColl", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit MiColl", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let menu = tray_menu(app)?;
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("MiColl")
         .menu(&menu)
@@ -6596,6 +6833,14 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "show" => {
                 restore_window(app);
             }
+            "add" => launch(app, "add-rewards"),
+            // every app window locks (TraySync.tsx), a hidden one stays hidden
+            "lock" => {
+                for label in app.webview_windows().into_keys().filter(|l| is_app_window(l)) {
+                    let _ = app.emit_to(label.as_str(), "micoll://lock", ());
+                }
+            }
+            id if id.starts_with("creator:") => launch(app, id),
             // the normal way to quit now, so fold the WAL first (app.exit skips the
             // teardown,
             // an unflushed WAL once lost a month of data, see db::open). Off the
@@ -9955,6 +10200,12 @@ pub fn run() {
         // Only the window that stands for the app hides: "main", or the last app window
         // if main was closed. Extra windows and pop-outs really close.
         .on_window_event(|window, event| {
+            // remember where the app windows are (winstate.rs), not the pop-outs
+            if matches!(event, tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_))
+                && is_app_window(window.label())
+            {
+                winstate::track(window);
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let app = window.app_handle();
                 let tray = app
@@ -10000,6 +10251,21 @@ pub fn run() {
             // portable)
             let dir = app_data(app)?;
             std::fs::create_dir_all(&dir)?;
+            // the main window is made here and not by Tauri from the config ("create":
+            // false), so it opens where it was last time without visibly jumping there
+            app.manage(winstate::WinState::new(&dir));
+            let autostarted = std::env::args().skip(1).any(|a| a == AUTOSTART_ARG);
+            let mut main_window = None;
+            if let Some(config) = app.config().app.windows.first().cloned() {
+                let main = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.visible(false).build()?;
+                winstate::restore(&main, true);
+                // started with Windows it waits for the tray (below)
+                if autostarted {
+                    main_window = Some(main);
+                } else {
+                    main.show()?;
+                }
+            }
             // the error log (off unless turned on in Settings), first so startup errors
             // land in it too
             applog::init(&dir, setting_is_true(&dir.join("micoll.db"), applog::SETTING_KEY));
@@ -10030,10 +10296,17 @@ pub fn run() {
             let tray_on =
                 db::get_setting(&conn, CLOSE_TO_TRAY_KEY).ok().flatten().as_deref() == Some("true");
             app.manage(CloseToTray(std::sync::atomic::AtomicBool::new(tray_on)));
+            let mut in_tray = false;
             if tray_on {
-                if let Err(e) = build_tray(app.handle()) {
-                    crate::elog!("micoll: tray icon unavailable: {e}");
+                match build_tray(app.handle()) {
+                    Ok(()) => in_tray = true,
+                    Err(e) => crate::elog!("micoll: tray icon unavailable: {e}"),
                 }
+            }
+            // started with Windows: quietly in the tray, or minimized without it
+            if let Some(main) = main_window.filter(|_| !in_tray) {
+                main.show()?;
+                main.minimize()?;
             }
             // a second start (pinned icon while in the tray, Start menu) shows this one,
             // the taskbar's "New window" task opens another window, "Add rewards" shows
@@ -10047,14 +10320,10 @@ pub fn run() {
                         open_new_window(&handle);
                         return;
                     }
-                    let shown = restore_window(&handle);
                     if has(ADD_REWARDS_ARG) {
-                        set_launch_action("add-rewards");
-                        // a new window takes it when it starts, a shown one gets told
-                        if let Some(w) = shown {
-                            use tauri::Emitter;
-                            let _ = handle.emit_to(w.label(), "micoll://launch-action", ());
-                        }
+                        launch(&handle, "add-rewards");
+                    } else {
+                        restore_window(&handle);
                     }
                 });
                 single_instance::register_jump_list(&[
@@ -10322,6 +10591,7 @@ pub fn run() {
             bridge::phone_bridge_start,
             bridge::phone_bridge_stop,
             bridge::phone_bridge_new_key,
+            bridge::phone_bridge_trust_network,
             copy_files_to_clipboard,
             copy_image_to_clipboard,
             windows_share,
@@ -10349,6 +10619,10 @@ pub fn run() {
             undo_history,
             locate_reward,
             set_close_to_tray,
+            sync_tray,
+            note_recent_creator,
+            get_autostart,
+            set_autostart,
             take_launch_action,
             is_portable,
             portable_update,
@@ -11198,6 +11472,27 @@ mod tests {
         assert!(extras.contains(&"Lumi - Starfall"), "got {:?}", extras);
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod autostart_tests {
+    use super::*;
+
+    /// The Run entry round trip, under a name of its own (removed again right away).
+    #[cfg(windows)]
+    #[test]
+    fn run_entry_round_trip() {
+        let name = format!("MiColl test {}", std::process::id());
+        let cmd = "\"C:\\Program Files\\MiColl\\micoll.exe\" --autostart";
+        assert_eq!(read_run_value(&name), None);
+        write_run_value(&name, Some(cmd)).unwrap();
+        assert_eq!(read_run_value(&name).as_deref(), Some(cmd));
+        write_run_value(&name, None).unwrap();
+        assert_eq!(read_run_value(&name), None);
+        // removing what isn't there
+        write_run_value(&name, None).unwrap();
+        assert!(autostart_command().unwrap().ends_with(" --autostart"));
     }
 }
 

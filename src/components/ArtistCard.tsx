@@ -960,6 +960,8 @@ function ArtistCardBase({
       transition={{ type: "spring", stiffness: 400, damping: 28 }}
       onClick={() => navigate(`/artist/${artist.id}`)}
       onContextMenu={onContextMenu}
+      // arrow keys move between the cards (GridKeys.tsx)
+      data-kbd-tile
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       // drop target: files dropped here go to this artist

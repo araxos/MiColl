@@ -1,6 +1,7 @@
 //! Activity history: what was deleted, moved, renamed or sent to the Recycle Bin, and
 //! when. Answers "where did my files go?" without digging through the Recycle Bin.
-//! (Stage 1 of history + undo: only the log.)
+//! Rows that can be taken back (see `undoable`) are undone by `undo_history` in lib.rs
+//! (Ctrl+Z, or the History panel).
 //!
 //! One row per action: action + kind, the creator, a short place ("Patreon › 2025-08"),
 //! what happened to the files, and the items with their old and new paths. Logging never

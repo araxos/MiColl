@@ -116,6 +116,7 @@ import { openInNewWindow } from "@/lib/popout";
 import { DASHBOARD_SHAPE, useTileShapeFor, type TileScope } from "@/lib/tileShape";
 import { useCardSize } from "@/lib/useCardSize";
 import { getViewerStartsInGrid } from "@/lib/viewerStart";
+import { eventToCombo, getModeHotkey } from "@/lib/contentMode";
 
 /** What the current image can be set as cover of. */
 export interface CoverTargets {
@@ -845,6 +846,17 @@ export function ImageViewer({
     });
   }, [items.length]);
 
+  /** Home / End: the first or the last file. */
+  const goEdge = useCallback(
+    (last: boolean) => {
+      placedRef.current = true;
+      setDir(last ? 1 : -1);
+      setView(RESET);
+      setIndex(last ? items.length - 1 : 0);
+    },
+    [items.length],
+  );
+
   /** Zoom by factor, keeping the point (cx, cy) in place. */
   const zoomAt = useCallback((factor: number, cx: number, cy: number) => {
     setView((v) => {
@@ -922,11 +934,34 @@ export function ImageViewer({
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         e.preventDefault();
         toggleGrid();
+      } else {
+        // F, Ctrl+C, Delete, Home, End: not while typing, not under a dialog (delete
+        // confirm, rename, move …), not when it's the user's SFW hotkey
+        const el = e.target instanceof Element ? e.target : null;
+        if (el?.closest('input, textarea, select, [contenteditable="true"]')) return;
+        if (showHelpRef.current || dialogOverViewer() || eventToCombo(e) === getModeHotkey()) return;
+        const mod = e.ctrlKey || e.metaKey;
+        const act = keyActRef.current;
+        if ((e.key === "Home" || e.key === "End") && !mod && !e.altKey) {
+          e.preventDefault();
+          goEdge(e.key === "End");
+        } else if (e.key.toLowerCase() === "f" && !mod && !e.altKey && !e.shiftKey) {
+          e.preventDefault();
+          act.favorite();
+        } else if (e.key.toLowerCase() === "c" && mod && !e.altKey && !e.shiftKey) {
+          // a marked text (file name, details) copies as usual
+          if (window.getSelection()?.toString()) return;
+          e.preventDefault();
+          act.copy();
+        } else if (e.key === "Delete" && !mod && !e.altKey) {
+          e.preventDefault();
+          act.remove();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go, requestClose, zoomCenter, bump, toggleGrid]);
+  }, [go, goEdge, requestClose, zoomCenter, bump, toggleGrid]);
 
   // Ctrl+A selects all, only in selection mode
   useEffect(() => {
@@ -1172,6 +1207,27 @@ export function ImageViewer({
   const isVideo = current.kind === "video";
   // archives show a zip placeholder + "show in Explorer"
   const isArchive = current.kind === "archive";
+
+  // what F, Ctrl+C and Delete do (the key handler above reads it, this changes every render)
+  const keyActRef = useRef({ favorite: () => {}, copy: () => {}, remove: () => {} });
+  keyActRef.current = {
+    favorite: () => {
+      const p = current.path;
+      if (!p || !isTauri()) return;
+      const on = !favRef.current.has(p);
+      void toggleFavorite(p);
+      showToast({ tone: "success", title: on ? t("Added to favourites") : t("Removed from favourites"), duration: 2500 });
+    },
+    // the picture as it's shown (its active version), like the menu's "Copy to clipboard"
+    copy: () => {
+      if (!isVideo && !isArchive && curDisplayPath && isTauri()) void copyPicture(curDisplayPath);
+    },
+    // with a selection the selection, like the delete button in the selection bar
+    remove: () => {
+      const sel = selectMode && selected.size > 0 ? items.filter((it) => selected.has(it.id)) : [current];
+      deleteMedia(sel);
+    },
+  };
 
   // remember the viewed id so a re-sort keeps it
   useEffect(() => {
@@ -2937,11 +2993,20 @@ function PropField({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
+/** A dialog over the viewer (delete confirm, rename, move, share …): they all sit
+ *  above its z-50, the viewer's own keys leave them alone. */
+function dialogOverViewer(): boolean {
+  return [...document.querySelectorAll<HTMLElement>(".fixed.inset-0")].some(
+    (el) => !el.classList.contains("micoll-viewer") && Number(getComputedStyle(el).zIndex) > 50,
+  );
+}
+
 /** Shortcut overlay ("?"). */
 function ShortcutHelp({ isVideo, onClose }: { isVideo: boolean; onClose: () => void }) {
   const t = useT();
   const rows: [string, string][] = [
     ["← / →", t("Previous / next")],
+    [t("Home / End"), t("First / last file")],
     [
       t("Space"),
       isVideo ? t("Slideshow (videos play inline)") : t("Start / pause slideshow"),
@@ -2950,6 +3015,9 @@ function ShortcutHelp({ isVideo, onClose }: { isVideo: boolean; onClose: () => v
     [t("Ctrl + wheel"), t("Zoom to cursor")],
     ["+ / −", t("Zoom in / out")],
     [t("Drag"), t("Pan (while zoomed in)")],
+    ["F", t("Favourite on / off")],
+    [t("Ctrl + C"), t("Copy the picture")],
+    [t("Del"), t("Delete (with a selection: the selection)")],
     [t("Ctrl + A"), t("Select all (while Select photos is on)")],
     ["G", t("Overview — all files as tiles")],
     ["?", t("Toggle this help")],

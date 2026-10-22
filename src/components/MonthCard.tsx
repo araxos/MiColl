@@ -589,6 +589,7 @@ function MonthCardBase({
         whileTap={{ scale: 0.98 }}
         transition={{ type: "spring", stiffness: 400, damping: 28 }}
         onClick={onOpen}
+        data-kbd-tile
         onContextMenu={onContextMenu}
         data-drop-year={month.year ?? undefined}
         data-drop-month={month.month ?? undefined}
@@ -632,6 +633,7 @@ function MonthCardBase({
           whileTap={{ scale: 0.98 }}
           transition={{ type: "spring", stiffness: 400, damping: 28 }}
           onClick={onOpen}
+          data-kbd-tile
           onContextMenu={onContextMenu}
           data-drop-year={month.year ?? undefined}
           data-drop-month={month.month ?? undefined}
@@ -717,6 +719,7 @@ function MonthCardBase({
           whileTap={{ scale: 0.98 }}
           transition={{ type: "spring", stiffness: 400, damping: 28 }}
           onClick={onOpen}
+          data-kbd-tile
           onContextMenu={onContextMenu}
           onPointerMove={iriHolo ? onHoloMove : undefined}
           onPointerLeave={iriHolo ? onHoloLeave : undefined}
@@ -803,6 +806,7 @@ function MonthCardBase({
         whileTap={{ scale: 0.98 }}
         transition={{ type: "spring", stiffness: 400, damping: 28 }}
         onClick={onOpen}
+        data-kbd-tile
         onContextMenu={onContextMenu}
         onPointerMove={sakHolo ? onHoloMove : undefined}
         onPointerLeave={sakHolo ? onHoloLeave : undefined}
@@ -892,6 +896,7 @@ function MonthCardBase({
         whileTap={{ scale: 0.98 }}
         transition={{ type: "spring", stiffness: 400, damping: 28 }}
         onClick={onOpen}
+        data-kbd-tile
         onContextMenu={onContextMenu}
         data-drop-year={month.year ?? undefined}
         data-drop-month={month.month ?? undefined}
@@ -943,6 +948,7 @@ function MonthCardBase({
         whileTap={{ scale: 0.98 }}
         transition={{ type: "spring", stiffness: 400, damping: 28 }}
         onClick={onOpen}
+        data-kbd-tile
         onContextMenu={onContextMenu}
         data-drop-year={month.year ?? undefined}
         data-drop-month={month.month ?? undefined}
@@ -990,6 +996,7 @@ function MonthCardBase({
       whileTap={{ scale: 0.98 }}
       transition={{ type: "spring", stiffness: 400, damping: 28 }}
       onClick={onOpen}
+      data-kbd-tile
       onContextMenu={onContextMenu}
       data-drop-year={month.year ?? undefined}
       data-drop-month={month.month ?? undefined}

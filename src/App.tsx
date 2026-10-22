@@ -50,6 +50,8 @@ import { getModeHotkey, eventToCombo, toggleSfwMode } from "@/lib/contentMode";
 import { dismissSplash, splashReady } from "@/lib/splash";
 import { setPhoneBridgeActive } from "@/lib/phoneBridge";
 import { PhoneUploads } from "@/components/PhoneUploads";
+import { TraySync } from "@/components/TraySync";
+import { GridKeys } from "@/components/GridKeys";
 
 export default function App() {
   const [locked, setLocked] = useState(false);
@@ -315,6 +317,8 @@ export default function App() {
             {/* the floating scrollbar of every panel, dialog and list */}
             <OverlayScrollManager />
             <LaunchActions active={booted && !locked && !safe} />
+            <TraySync locked={!booted || locked} safe={safe} onLock={lockNow} />
+            <GridKeys />
             <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
             {dupScope && (
               <DuplicatesPanel scope={dupScope} onClose={() => setDupScope(null)} />

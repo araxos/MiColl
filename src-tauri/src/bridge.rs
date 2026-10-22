@@ -11,6 +11,10 @@
 //! nothing. A new key unpairs every phone. Encrypted files are decrypted on the fly,
 //! and the app turns the bridge off while MiColl is locked.
 //!
+//! A device that tries many different wrong keys is shut out for a while, and the
+//! bridge doesn't answer devices on a network Windows calls public (café, hotel …),
+//! unless the user allowed that network in Settings.
+//!
 //! The phone can also send pictures back (PUT /api/upload) and edited versions of a
 //! picture (PUT /api/version). An upload never replaces a file: same content is
 //! skipped, a different file with the same name gets "name (2).jpg". A version is only
@@ -28,8 +32,10 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 /// The phone app uses this port when none is typed.
@@ -40,6 +46,16 @@ const KEY_SETTING: &str = "phone_bridge_key";
 const WORKERS: usize = 6;
 /// Biggest file the phone may send.
 const MAX_UPLOAD: usize = 4 * 1024 * 1024 * 1024;
+/// Room the drive keeps after an upload.
+const KEEP_FREE: u64 = 256 * 1024 * 1024;
+/// A device that tries this many different wrong keys within MISS_WINDOW is shut
+/// out for BLOCK_FOR. A phone with an old key repeats the same one, that counts once.
+const MISS_LIMIT: usize = 10;
+const MISS_WINDOW: Duration = Duration::from_secs(60);
+const BLOCK_FOR: Duration = Duration::from_secs(5 * 60);
+/// Setting with the public networks the bridge answers on anyway (network ids,
+/// comma separated).
+const TRUSTED_SETTING: &str = "phone_bridge_trusted_networks";
 /// MiColl re-reads a creator once the phone stopped sending for this long (the
 /// phone sends one file after the other, a big one takes a moment).
 const SETTLE: std::time::Duration = std::time::Duration::from_millis(3000);
@@ -395,6 +411,8 @@ trait Source: Send + Sync {
     /// Files arrived (new files, and originals that got a version): re-read these
     /// creators, note it in the history and tell the window.
     fn arrived(&self, creators: &[String], files: &[FileArrival], versions: &[VersionArrival]);
+    /// A device was just shut out for too many wrong keys: tell the window.
+    fn shut_out(&self, _ip: IpAddr) {}
 }
 
 struct AppSource(AppHandle);
@@ -642,6 +660,9 @@ impl Source for AppSource {
             PhoneUpload { files: files.len(), versions: versions.len(), places },
         );
     }
+    fn shut_out(&self, ip: IpAddr) {
+        let _ = self.0.emit("phone-bridge-blocked", serde_json::json!({ "ip": ip.to_string(), "minutes": BLOCK_FOR.as_secs() / 60 }));
+    }
 }
 
 /// Re-read one creator's folder, like F5 on the creator page. Their name in the
@@ -670,16 +691,80 @@ struct Pending {
     waiting: bool,
 }
 
+/// The different wrong keys one device tried (see MISS_LIMIT).
+#[derive(Default)]
+struct Misses {
+    keys: HashSet<String>,
+    since: Option<Instant>,
+    /// shut out until then
+    until: Option<Instant>,
+}
+
 /// What the server threads share.
 struct Shared {
     src: Box<dyn Source>,
     key: RwLock<String>,
     pending: Mutex<Pending>,
+    misses: Mutex<HashMap<IpAddr, Misses>>,
+    /// public networks the user allowed (TRUSTED_SETTING)
+    trusted: RwLock<HashSet<String>>,
 }
 
 impl Shared {
-    fn new(src: Box<dyn Source>, key: String) -> Self {
-        Shared { src, key: RwLock::new(key), pending: Mutex::new(Pending::default()) }
+    fn new(src: Box<dyn Source>, key: String, trusted: HashSet<String>) -> Self {
+        Shared {
+            src,
+            key: RwLock::new(key),
+            pending: Mutex::new(Pending::default()),
+            misses: Mutex::new(HashMap::new()),
+            trusted: RwLock::new(trusted),
+        }
+    }
+
+    /// Is this device shut out right now?
+    fn shut_out(&self, ip: IpAddr) -> bool {
+        let Ok(mut m) = self.misses.lock() else { return false };
+        match m.get(&ip).and_then(|x| x.until) {
+            Some(t) if t > Instant::now() => true,
+            Some(_) => {
+                m.remove(&ip);
+                false
+            }
+            None => false,
+        }
+    }
+
+    /// A wrong key from this device. true = that was one too many, it's shut out now.
+    fn wrong_key(&self, ip: IpAddr, key: &str) -> bool {
+        let Ok(mut m) = self.misses.lock() else { return false };
+        let now = Instant::now();
+        let fresh = |s: Option<Instant>| s.is_some_and(|s| now.duration_since(s) < MISS_WINDOW);
+        if m.len() > 1000 {
+            m.retain(|_, x| x.until.is_some_and(|t| t > now) || fresh(x.since));
+        }
+        let e = m.entry(ip).or_default();
+        if !fresh(e.since) {
+            e.keys.clear();
+            e.since = Some(now);
+        }
+        e.keys.insert(key.chars().take(32).collect());
+        if e.keys.len() < MISS_LIMIT {
+            return false;
+        }
+        *e = Misses { until: Some(now + BLOCK_FOR), ..Misses::default() };
+        true
+    }
+
+    /// Is this device on a public network the user didn't allow?
+    fn on_closed_network(&self, ip: IpAddr) -> bool {
+        let IpAddr::V4(ip) = ip else { return false };
+        if ip.is_loopback() {
+            return false;
+        }
+        let Ok(trusted) = self.trusted.read() else { return false };
+        let addrs = net_addrs(false);
+        let shut = closed(&addrs, &trusted).any(|a| same_subnet(a.ip, ip, a.prefix));
+        shut
     }
 }
 
@@ -792,13 +877,26 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
     let url = req.url().to_string();
     let path = url.split('?').next().unwrap_or("/");
 
+    let ip = req.remote_addr().map(|a| a.ip());
+    if let Some(ip) = ip {
+        if sh.shut_out(ip) {
+            return fail(req, 429, "too many wrong pairing keys, try again in a few minutes");
+        }
+        if sh.on_closed_network(ip) {
+            return fail(req, 403, "MiColl doesn't answer on public networks, see Settings > Phone app on the PC");
+        }
+    }
+
     // /k/<key>/api/... , anything else gets nothing
-    let route = path.strip_prefix("/k/").and_then(|rest| {
-        let (key, route) = rest.split_once('/').unwrap_or((rest, ""));
+    let given = path.strip_prefix("/k/").map(|rest| rest.split_once('/').unwrap_or((rest, "")));
+    let route = given.and_then(|(key, route)| {
         let ok = sh.key.read().map(|k| same_key(key, &k)).unwrap_or(false);
         ok.then(|| format!("/{route}"))
     });
     let Some(route) = route else {
+        if let Some(ip) = ip.filter(|ip| sh.wrong_key(*ip, given.map_or("", |g| g.0))) {
+            sh.src.shut_out(ip);
+        }
         return fail(req, 401, "pairing key missing or wrong, scan the QR code in MiColl again");
     };
 
@@ -995,15 +1093,34 @@ fn serve_file(req: tiny_http::Request, full: &Path, key: Option<[u8; 32]>) {
 
 /* ---- phone -> PC -------------------------------------------------------- */
 
+/// Free bytes on the drive of `dir` (None when Windows doesn't say).
+#[cfg(windows)]
+fn free_space(dir: &Path) -> Option<u64> {
+    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let mut free = 0u64;
+    unsafe { GetDiskFreeSpaceExW(&windows::core::HSTRING::from(dir.as_os_str()), Some(&mut free), None, None) }.ok()?;
+    Some(free)
+}
+#[cfg(not(windows))]
+fn free_space(_dir: &Path) -> Option<u64> {
+    None
+}
+
 /// The body of a PUT, checked and written to `temp`. Returns its SHA-256 (hex) or the
-/// answer to send.
-fn receive(req: &mut tiny_http::Request, temp: &Path) -> Result<String, (u16, String)> {
+/// answer to send. `encrypt`: the file gets encrypted after, that needs it once more.
+fn receive(req: &mut tiny_http::Request, temp: &Path, encrypt: bool) -> Result<String, (u16, String)> {
     if *req.method() != tiny_http::Method::Put {
         return Err((405, "use PUT".into()));
     }
     let len = req.body_length().ok_or((411, "Content-Length is missing".to_string()))?;
     if len > MAX_UPLOAD {
         return Err((413, "file too big".into()));
+    }
+    // asked before, so a full drive doesn't end in half a file
+    let need = len as u64 * if encrypt { 2 } else { 1 } + KEEP_FREE;
+    if let Some(free) = temp.parent().and_then(free_space).filter(|f| *f < need) {
+        const MB: u64 = 1024 * 1024;
+        return Err((507, format!("not enough space on the PC: {} MB free, {} MB needed", free / MB, need / MB)));
     }
     let want = req
         .headers()
@@ -1220,7 +1337,7 @@ fn upload(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path, url: &str)
         return fail(req, 500, &e.to_string());
     }
     let temp = temp_in(&dir);
-    let hash = match receive(&mut req, &temp) {
+    let hash = match receive(&mut req, &temp, enc.is_some()) {
         Ok(h) => h,
         Err((code, msg)) => {
             let _ = std::fs::remove_file(&temp);
@@ -1293,7 +1410,7 @@ fn add_version(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path, url: 
         return fail(req, 500, &e.to_string());
     }
     let temp = temp_in(&dir);
-    let hash = match receive(&mut req, &temp) {
+    let hash = match receive(&mut req, &temp, enc.is_some()) {
         Ok(h) => h,
         Err((code, msg)) => {
             let _ = std::fs::remove_file(&temp);
@@ -1481,10 +1598,7 @@ fn lan_addresses() -> Vec<String> {
         .collect();
     let rank = |name: &str, ip: &str| {
         let n = name.to_lowercase();
-        let virt = ["virtualbox", "vmware", "vethernet", "hyper-v", "wsl", "vpn", "tap", "tun", "loopback", "bluetooth"]
-            .iter()
-            .any(|v| n.contains(v))
-            || ip.starts_with("192.168.56.");
+        let virt = virtual_adapter(name, ip);
         let real = ["wi-fi", "wifi", "wlan", "wireless", "ethernet"].iter().any(|v| n.contains(v));
         let lan = if ip.starts_with("192.168.") {
             0
@@ -1497,6 +1611,170 @@ fn lan_addresses() -> Vec<String> {
     };
     ips.sort_by_key(|(name, ip)| rank(name, ip));
     ips.into_iter().map(|(_, ip)| ip).collect()
+}
+
+/// A VPN, a virtual machine's network and the like (by the adapter's name).
+fn virtual_adapter(name: &str, ip: &str) -> bool {
+    let n = name.to_lowercase();
+    ["virtualbox", "vmware", "vethernet", "hyper-v", "wsl", "vpn", "tap", "tun", "loopback", "bluetooth"]
+        .iter()
+        .any(|v| n.contains(v))
+        || ip.starts_with("192.168.56.")
+}
+
+/* ---- public networks ---------------------------------------------------- */
+
+/// One IPv4 address of this PC and the network Windows says it's on.
+#[derive(Clone, Debug)]
+struct NetAddr {
+    ip: Ipv4Addr,
+    prefix: u8,
+    /// the adapter's name ("Wi-Fi", "Ethernet", a VPN …)
+    adapter: String,
+    /// Windows calls the network public
+    public: bool,
+    /// the network's id and name, None when Windows has none for it
+    network: Option<(String, String)>,
+}
+
+/// This PC's addresses with their networks. Asked again at most every 10 s (a laptop
+/// changes Wi-Fi), `fresh` asks right away (Settings opened).
+fn net_addrs(fresh: bool) -> Vec<NetAddr> {
+    static CACHE: Mutex<Option<(Instant, Vec<NetAddr>)>> = Mutex::new(None);
+    let Ok(mut cache) = CACHE.lock() else { return read_net_addrs() };
+    match cache.as_ref() {
+        Some((at, addrs)) if !fresh && at.elapsed() < Duration::from_secs(10) => addrs.clone(),
+        _ => {
+            let addrs = read_net_addrs();
+            *cache = Some((Instant::now(), addrs.clone()));
+            addrs
+        }
+    }
+}
+
+/// The adapters' IPv4 addresses (GetAdaptersAddresses) and what the Network List
+/// Manager says about their networks. COM runs on a thread of its own, the caller can
+/// be the UI thread.
+#[cfg(windows)]
+fn read_net_addrs() -> Vec<NetAddr> {
+    use windows::Win32::NetworkManagement::IpHelper::{
+        GetAdaptersAddresses, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER, GAA_FLAG_SKIP_MULTICAST, IP_ADAPTER_ADDRESSES_LH,
+    };
+    use windows::Win32::Networking::NetworkListManager::{INetworkListManager, NetworkListManager, NLM_NETWORK_CATEGORY_PUBLIC};
+    use windows::Win32::Networking::WinSock::{AF_INET, SOCKADDR_IN};
+    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED};
+
+    std::thread::spawn(|| unsafe {
+        let guid = |g: windows::core::GUID| format!("{g:?}").to_uppercase();
+        // adapter id -> (public, network id, network name)
+        let mut nets: HashMap<String, (bool, String, String)> = HashMap::new();
+        let com = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
+        if let Ok(nlm) = CoCreateInstance::<_, INetworkListManager>(&NetworkListManager, None, CLSCTX_ALL) {
+            if let Ok(conns) = nlm.GetNetworkConnections() {
+                loop {
+                    let mut one = [None];
+                    let mut got = 0u32;
+                    if conns.Next(&mut one, Some(&mut got)).is_err() || got == 0 {
+                        break;
+                    }
+                    let Some(c) = one[0].take() else { break };
+                    let (Ok(adapter), Ok(net)) = (c.GetAdapterId(), c.GetNetwork()) else { continue };
+                    let public = net.GetCategory().is_ok_and(|k| k == NLM_NETWORK_CATEGORY_PUBLIC);
+                    let id = net.GetNetworkId().map(guid).unwrap_or_default();
+                    let name = net.GetName().map(|n| n.to_string()).unwrap_or_default();
+                    nets.insert(guid(adapter), (public, id, name));
+                }
+            }
+        }
+        if com {
+            CoUninitialize();
+        }
+
+        let mut out = Vec::new();
+        // u64s: the list wants 8-byte alignment
+        let mut buf = vec![0u64; 2048];
+        for _ in 0..3 {
+            let mut size = (buf.len() * 8) as u32;
+            let flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+            let first = buf.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
+            match GetAdaptersAddresses(AF_INET.0 as u32, flags, None, Some(first), &mut size) {
+                0 => {}
+                // ERROR_BUFFER_OVERFLOW: `size` says how much it needs
+                111 => {
+                    buf = vec![0u64; size as usize / 8 + 1];
+                    continue;
+                }
+                _ => break,
+            }
+            let mut a = first as *const IP_ADAPTER_ADDRESSES_LH;
+            while let Some(ad) = a.as_ref() {
+                let id = ad.AdapterName.to_string().unwrap_or_default().trim_matches(|c| c == '{' || c == '}').to_uppercase();
+                let adapter = ad.FriendlyName.to_string().unwrap_or_default();
+                let net = nets.get(&id);
+                let mut u = ad.FirstUnicastAddress;
+                while let Some(ua) = u.as_ref() {
+                    let sa = ua.Address.lpSockaddr;
+                    if !sa.is_null() && (*sa).sa_family == AF_INET {
+                        let b = (*(sa as *const SOCKADDR_IN)).sin_addr.S_un.S_un_b;
+                        out.push(NetAddr {
+                            ip: Ipv4Addr::new(b.s_b1, b.s_b2, b.s_b3, b.s_b4),
+                            prefix: ua.OnLinkPrefixLength,
+                            adapter: adapter.clone(),
+                            public: net.is_some_and(|n| n.0),
+                            network: net.map(|n| (n.1.clone(), n.2.clone())),
+                        });
+                    }
+                    u = ua.Next;
+                }
+                a = ad.Next;
+            }
+            break;
+        }
+        out
+    })
+    .join()
+    .unwrap_or_default()
+}
+#[cfg(not(windows))]
+fn read_net_addrs() -> Vec<NetAddr> {
+    Vec::new()
+}
+
+/// The addresses on a public network the user didn't allow: nobody there gets an
+/// answer. VPNs and virtual adapters don't count, they aren't the café's Wi-Fi.
+fn closed<'a>(addrs: &'a [NetAddr], trusted: &'a HashSet<String>) -> impl Iterator<Item = &'a NetAddr> + 'a {
+    addrs.iter().filter(move |a| {
+        a.public
+            && !virtual_adapter(&a.adapter, &a.ip.to_string())
+            && !a.network.as_ref().is_some_and(|(id, _)| trusted.contains(id))
+    })
+}
+
+/// Same network (the first `prefix` bits). A strange prefix only matches itself.
+fn same_subnet(a: Ipv4Addr, b: Ipv4Addr, prefix: u8) -> bool {
+    if !(8..=32).contains(&prefix) {
+        return a == b;
+    }
+    let mask = u32::MAX << (32 - prefix as u32);
+    u32::from(a) & mask == u32::from(b) & mask
+}
+
+fn trusted_networks(conn: &rusqlite::Connection) -> HashSet<String> {
+    db::get_setting(conn, TRUSTED_SETTING)
+        .ok()
+        .flatten()
+        .map(|s| s.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
+/// A public network the PC is on, for Settings.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicNetwork {
+    id: String,
+    name: String,
+    /// the user allowed the bridge there
+    allowed: bool,
 }
 
 /// 12 letters and digits, no look-alikes (0/o, 1/l), so it can also be typed.
@@ -1528,11 +1806,35 @@ pub struct BridgeInfo {
     qr_svg: String,
     /// the served folder
     folder: String,
+    /// public networks the PC is on, the bridge only answers there when allowed
+    public_networks: Vec<PublicNetwork>,
 }
 
-fn info(key: &str, folder: &Path) -> Result<BridgeInfo, String> {
-    let ips = lan_addresses();
-    let first = ips.first().cloned().ok_or("No network found — is the PC on Wi-Fi or LAN?")?;
+/// The addresses and the QR. Addresses on a closed public network are left out;
+/// when nothing is left, `address` and `qr_svg` are empty and Settings says why.
+fn info(key: &str, folder: &Path, trusted: &HashSet<String>) -> Result<BridgeInfo, String> {
+    let addrs = net_addrs(true);
+    let shut: HashSet<String> = closed(&addrs, trusted).map(|a| a.ip.to_string()).collect();
+    let mut public_networks: Vec<PublicNetwork> = Vec::new();
+    for a in addrs.iter().filter(|a| a.public && !virtual_adapter(&a.adapter, &a.ip.to_string())) {
+        if let Some((id, name)) = a.network.as_ref().filter(|(id, _)| public_networks.iter().all(|p| &p.id != id)) {
+            public_networks.push(PublicNetwork { id: id.clone(), name: name.clone(), allowed: trusted.contains(id) });
+        }
+    }
+    let ips: Vec<String> = lan_addresses().into_iter().filter(|ip| !shut.contains(ip)).collect();
+    let Some(first) = ips.first().cloned() else {
+        if shut.is_empty() {
+            return Err("No network found — is the PC on Wi-Fi or LAN?".into());
+        }
+        return Ok(BridgeInfo {
+            running: true,
+            address: String::new(),
+            others: Vec::new(),
+            qr_svg: String::new(),
+            folder: folder.to_string_lossy().into_owned(),
+            public_networks,
+        });
+    };
     let address = format!("{first}:{PORT}/k/{key}");
     // the qr also carries the other addresses, the phone tries them when the first fails
     let alt: Vec<String> = ips.iter().skip(1).map(|ip| format!("{ip}:{PORT}")).collect();
@@ -1553,26 +1855,27 @@ fn info(key: &str, folder: &Path) -> Result<BridgeInfo, String> {
         others: alt.iter().map(|a| format!("{a}/k/{key}")).collect(),
         qr_svg,
         folder: folder.to_string_lossy().into_owned(),
+        public_networks,
     })
 }
 
 /// Turn the bridge on (again) and get the pairing QR.
 #[tauri::command]
 pub fn phone_bridge_start(app: AppHandle, db: State<Db>, state: State<BridgeState>) -> Result<BridgeInfo, String> {
-    let (key, folder) = {
+    let (key, folder, trusted) = {
         let conn = db.lock().map_err(map_err)?;
-        (stored_key(&conn)?, served_root(&conn)?)
+        (stored_key(&conn)?, served_root(&conn)?, trusted_networks(&conn))
     };
     let mut inner = state.lock().map_err(map_err)?;
     if inner.server.is_none() {
-        let shared = Arc::new(Shared::new(Box::new(AppSource(app.clone())), key.clone()));
+        let shared = Arc::new(Shared::new(Box::new(AppSource(app.clone())), key.clone(), trusted.clone()));
         let server = serve(PORT, shared.clone()).map_err(|_| {
             format!("Port {PORT} is taken. Is the old MiColl Bridge program still running? Close it and try again.")
         })?;
         inner.server = Some(server);
         inner.shared = Some(shared);
     }
-    info(&key, &folder)
+    info(&key, &folder, &trusted)
 }
 
 /// Listen on all networks and start the workers.
@@ -1607,17 +1910,46 @@ pub fn phone_bridge_stop(state: State<BridgeState>) -> Result<(), String> {
 /// A new pairing key: every paired phone has to scan the new QR code.
 #[tauri::command]
 pub fn phone_bridge_new_key(db: State<Db>, state: State<BridgeState>) -> Result<BridgeInfo, String> {
-    let (key, folder) = {
+    let (key, folder, trusted) = {
         let conn = db.lock().map_err(map_err)?;
         let key = new_key();
         db::set_setting(&conn, KEY_SETTING, &key).map_err(map_err)?;
-        (key, served_root(&conn)?)
+        (key, served_root(&conn)?, trusted_networks(&conn))
     };
     let inner = state.lock().map_err(map_err)?;
     if let Some(sh) = &inner.shared {
         *sh.key.write().map_err(map_err)? = key.clone();
+        // re-pairing: whoever was shut out gets another go
+        if let Ok(mut m) = sh.misses.lock() {
+            m.clear();
+        }
     }
-    let mut out = info(&key, &folder)?;
+    let mut out = info(&key, &folder, &trusted)?;
+    out.running = inner.server.is_some();
+    Ok(out)
+}
+
+/// Let the bridge answer on a public network after all (`allow` false takes it back).
+#[tauri::command]
+pub fn phone_bridge_trust_network(id: String, allow: bool, db: State<Db>, state: State<BridgeState>) -> Result<BridgeInfo, String> {
+    let (key, folder, trusted) = {
+        let conn = db.lock().map_err(map_err)?;
+        let mut trusted = trusted_networks(&conn);
+        if allow {
+            trusted.insert(id);
+        } else {
+            trusted.remove(&id);
+        }
+        let mut list: Vec<&str> = trusted.iter().map(String::as_str).collect();
+        list.sort();
+        db::set_setting(&conn, TRUSTED_SETTING, &list.join(",")).map_err(map_err)?;
+        (stored_key(&conn)?, served_root(&conn)?, trusted)
+    };
+    let inner = state.lock().map_err(map_err)?;
+    if let Some(sh) = &inner.shared {
+        *sh.trusted.write().map_err(map_err)? = trusted.clone();
+    }
+    let mut out = info(&key, &folder, &trusted)?;
     out.running = inner.server.is_some();
     Ok(out)
 }
@@ -1731,7 +2063,7 @@ mod tests {
                 key,
                 arrivals: Arc::default(),
             };
-            let shared = Arc::new(Shared::new(Box::new(src), "testkey1234".into()));
+            let shared = Arc::new(Shared::new(Box::new(src), "testkey1234".into(), HashSet::new()));
             let server = serve(0, shared).unwrap();
             let port = server.server_addr().to_ip().unwrap().port();
             (server, format!("http://127.0.0.1:{port}"))
@@ -1820,7 +2152,7 @@ mod tests {
                 key: Some(dek.raw()),
                 arrivals: arrivals.clone(),
             };
-            let shared = Arc::new(Shared::new(Box::new(src), "testkey1234".into()));
+            let shared = Arc::new(Shared::new(Box::new(src), "testkey1234".into(), HashSet::new()));
             let server = serve(0, shared).unwrap();
             let k = format!("http://127.0.0.1:{}/k/testkey1234", server.server_addr().to_ip().unwrap().port());
             let up = |p: &str| format!("{k}/api/upload?p={}", urlencoding::encode(p));
@@ -2038,7 +2370,7 @@ mod tests {
             let db = test_db(&base, encrypted);
             db.lock().unwrap().execute("INSERT INTO images VALUES (?1)", [orig.to_string_lossy()]).unwrap();
             let src = TestSource { db, cache: base.join("cache"), versions: base.join("versions"), key: Some(dek.raw()), arrivals: Arc::default() };
-            let server = serve(0, Arc::new(Shared::new(Box::new(src), "testkey1234".into()))).unwrap();
+            let server = serve(0, Arc::new(Shared::new(Box::new(src), "testkey1234".into(), HashSet::new()))).unwrap();
             let k = format!("http://127.0.0.1:{}/k/testkey1234", server.server_addr().to_ip().unwrap().port());
 
             let before: Vec<_> = walkdir::WalkDir::new(&base).into_iter().flatten().map(|e| e.path().to_path_buf()).collect();
@@ -2108,5 +2440,81 @@ mod tests {
         assert_eq!(k.len(), 12);
         assert!(k.chars().all(|c| "abcdefghijkmnpqrstuvwxyz23456789".contains(c)));
         assert!(same_key("abc", "abc") && !same_key("abc", "abd") && !same_key("abc", "abcd"));
+    }
+
+    /// Many different wrong keys shut the device out (even with the right key then),
+    /// an old key repeated doesn't, and a new key lets everybody try again.
+    #[test]
+    fn key_guessers_get_shut_out() {
+        let base = std::env::temp_dir().join(format!("micoll_bridge_guess_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("MiColl").join("Ahri")).unwrap();
+        let src = TestSource {
+            db: test_db(&base, false),
+            cache: base.join("cache"),
+            versions: base.join("versions"),
+            key: None,
+            arrivals: Arc::default(),
+        };
+        let shared = Arc::new(Shared::new(Box::new(src), "testkey1234".into(), HashSet::new()));
+
+        let phone: IpAddr = "192.168.1.20".parse().unwrap();
+        for _ in 0..50 {
+            assert!(!shared.wrong_key(phone, "oldkey123456"));
+        }
+        assert!(!shared.shut_out(phone));
+
+        let server = serve(0, shared.clone()).unwrap();
+        let url = format!("http://127.0.0.1:{}", server.server_addr().to_ip().unwrap().port());
+        assert_eq!(get(&format!("{url}/k/testkey1234/api/ping"), None).0, 200);
+        for i in 0..MISS_LIMIT {
+            assert_eq!(get(&format!("{url}/k/guess{i:07}/api/ping"), None).0, 401);
+        }
+        assert_eq!(get(&format!("{url}/k/testkey1234/api/ping"), None).0, 429);
+        assert!(!shared.shut_out(phone), "only the guesser is out");
+
+        shared.misses.lock().unwrap().clear();
+        assert_eq!(get(&format!("{url}/k/testkey1234/api/ping"), None).0, 200);
+        for _ in 0..WORKERS {
+            server.unblock();
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Public networks are closed unless allowed, VPNs never count as public.
+    #[test]
+    fn public_networks_stay_closed() {
+        let addr = |ip: &str, adapter: &str, public: bool, id: &str| NetAddr {
+            ip: ip.parse().unwrap(),
+            prefix: 24,
+            adapter: adapter.into(),
+            public,
+            network: Some((id.into(), "Network".into())),
+        };
+        let addrs = vec![
+            addr("192.168.1.5", "Wi-Fi", true, "CAFE"),
+            addr("10.0.0.5", "Ethernet", false, "HOME"),
+            addr("10.8.0.2", "WireGuard VPN", true, "VPN"),
+        ];
+        let none = HashSet::new();
+        let shut: Vec<_> = closed(&addrs, &none).map(|a| a.ip.to_string()).collect();
+        assert_eq!(shut, ["192.168.1.5"]);
+        let allowed: HashSet<String> = ["CAFE".to_string()].into();
+        assert_eq!(closed(&addrs, &allowed).count(), 0);
+
+        let ip = |s: &str| s.parse::<Ipv4Addr>().unwrap();
+        assert!(same_subnet(ip("192.168.1.5"), ip("192.168.1.77"), 24));
+        assert!(!same_subnet(ip("192.168.1.5"), ip("192.168.2.77"), 24));
+        assert!(same_subnet(ip("10.0.0.5"), ip("10.200.3.4"), 8));
+        // a broken prefix doesn't close the whole world
+        assert!(!same_subnet(ip("192.168.1.5"), ip("8.8.8.8"), 0));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn knows_the_free_space() {
+        assert!(free_space(&std::env::temp_dir()).is_some_and(|f| f > 0));
+        // the real adapters: at least loopback-free addresses, without panicking
+        let _ = read_net_addrs();
     }
 }

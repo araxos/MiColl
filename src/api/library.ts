@@ -821,6 +821,27 @@ export async function setCloseToTray(on: boolean): Promise<void> {
   await invoke("set_close_to_tray", { on });
 }
 
+/** The tray menu's labels and what it may show (TraySync.tsx). */
+export async function syncTray(
+  labels: { open: string; add: string; lock: string; recent: string; quit: string },
+  locked: boolean,
+  showRecent: boolean,
+): Promise<void> {
+  await invoke("sync_tray", { labels, locked, showRecent });
+}
+/** A creator page was opened (the tray's "Recently opened"). */
+export async function noteRecentCreator(id: string): Promise<void> {
+  await invoke("note_recent_creator", { id });
+}
+
+/** "Start with Windows" (an entry under HKCU\…\Run, this copy of MiColl). */
+export async function getAutostart(): Promise<boolean> {
+  return invoke<boolean>("get_autostart");
+}
+export async function setAutostart(on: boolean): Promise<void> {
+  await invoke("set_autostart", { on });
+}
+
 /** Where this copy of MiColl keeps its own files. */
 export interface DataLocations {
   /** True when a `micoll-portable.txt` marker put the data beside the executable. */
@@ -1299,6 +1320,8 @@ export interface PhoneBridgeInfo {
   qrSvg: string;
   /** the served folder */
   folder: string;
+  /** public networks the PC is on: the bridge only answers there when allowed */
+  publicNetworks: { id: string; name: string; allowed: boolean }[];
 }
 /** Turn the phone bridge on (or get its QR again). */
 export async function phoneBridgeStart(): Promise<PhoneBridgeInfo> {
@@ -1310,6 +1333,10 @@ export async function phoneBridgeStop(): Promise<void> {
 /** New pairing key, every phone has to scan the new QR code. */
 export async function phoneBridgeNewKey(): Promise<PhoneBridgeInfo> {
   return invoke<PhoneBridgeInfo>("phone_bridge_new_key");
+}
+/** Let the bridge answer on a public network after all (or take that back). */
+export async function phoneBridgeTrustNetwork(id: string, allow: boolean): Promise<PhoneBridgeInfo> {
+  return invoke<PhoneBridgeInfo>("phone_bridge_trust_network", { id, allow });
 }
 /**
  * Put files on the clipboard like Explorer does (Ctrl+V into Discord, Telegram...).

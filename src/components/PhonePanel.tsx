@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Copy, KeyRound, Loader2, Smartphone, Wifi } from "lucide-react";
+import { Copy, KeyRound, Loader2, ShieldAlert, Smartphone, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useActions } from "@/actions";
 import { useT } from "@/lib/i18n";
-import { newPhoneBridgeKey, refreshPhoneBridge, setPhoneBridge, usePhoneBridge } from "@/lib/phoneBridge";
+import { newPhoneBridgeKey, refreshPhoneBridge, setPhoneBridge, trustPhoneNetwork, usePhoneBridge } from "@/lib/phoneBridge";
 import { toggleOnClass, useAccent } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
@@ -15,7 +15,9 @@ import { cn } from "@/lib/utils";
 export function PhonePanel({ backed }: { backed: boolean }) {
   const t = useT();
   const { showToast } = useActions();
-  const irid = useAccent() === "iridescent";
+  const accent = useAccent();
+  const irid = accent === "iridescent";
+  const cyber = accent === "cyberpunk";
   const { on, info, error } = usePhoneBridge();
   const [confirmKey, setConfirmKey] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -40,6 +42,19 @@ export function PhonePanel({ backed }: { backed: boolean }) {
       /* ignore */
     }
   };
+
+  const trust = async (id: string, allow: boolean) => {
+    setBusy(true);
+    try {
+      await trustPhoneNetwork(id, allow);
+    } catch (e) {
+      showToast({ tone: "error", title: t("Couldn't change that"), detail: `${e}` });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const closedNets = info?.publicNetworks.filter((n) => !n.allowed) ?? [];
+  const allowedNets = info?.publicNetworks.filter((n) => n.allowed) ?? [];
 
   const doNewKey = async () => {
     setBusy(true);
@@ -94,7 +109,31 @@ export function PhonePanel({ backed }: { backed: boolean }) {
             </div>
           )}
 
-          {on && info && (
+          {on && closedNets.map((n) => (
+            <div
+              key={n.id}
+              className={cn(
+                "mt-3 flex items-start gap-3 border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200",
+                cyber ? "rounded-none" : "rounded-xl",
+              )}
+            >
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="min-w-0 space-y-2">
+                <p className="font-semibold">{t("“{name}” is a public network").replace("{name}", n.name)}</p>
+                <p className="leading-relaxed">
+                  {t(
+                    "Windows calls this network public, like in a café or hotel, so MiColl Mobile doesn't answer there. If it's your own network, set it to Private in Windows (Settings → Network & internet), or allow it here.",
+                  )}
+                </p>
+                <Button variant="outline" size="sm" onClick={() => void trust(n.id, true)} disabled={busy}>
+                  <Wifi className="h-4 w-4" />
+                  {t("Allow on this network")}
+                </Button>
+              </div>
+            </div>
+          ))}
+
+          {on && info && info.address && (
             <div className={cn("mt-3 flex flex-wrap items-center gap-5 rounded-xl border p-4", box)}>
               {/* on a white card so cameras read it well */}
               <div
@@ -139,6 +178,23 @@ export function PhonePanel({ backed }: { backed: boolean }) {
                   {t("New pairing key…")}
                 </Button>
               </div>
+            </div>
+          )}
+
+          {on && allowedNets.length > 0 && (
+            <div className="mt-3 space-y-1 text-xs text-zinc-400">
+              {allowedNets.map((n) => (
+                <div key={n.id} className="flex flex-wrap items-center gap-x-2">
+                  <span>{t("Also answers on “{name}”, although Windows calls it public.").replace("{name}", n.name)}</span>
+                  <button
+                    onClick={() => void trust(n.id, false)}
+                    disabled={busy}
+                    className="text-zinc-300 underline underline-offset-2 hover:text-zinc-100"
+                  >
+                    {t("Take back")}
+                  </button>
+                </div>
+              ))}
             </div>
           )}
 

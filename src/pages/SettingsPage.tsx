@@ -162,7 +162,7 @@ const SECTIONS: NavSection[] = [
     label: "Performance",
     Icon: Activity,
     keywords:
-      "performance cpu processor fan noise battery power idle background minimized minimised inactive unfocused animations pause holo frequency glint shimmer webview webview2 usage load lag stutter slow gif gifs play animated optimize optimise large images downscale preview huge resolution graphics gpu renderer driver hardware acceleration software swiftshader webgl frosted buttons blur backdrop glass line seam edge black stripe artifact tray taskbar notification area system close quit hide minimize background running resident",
+      "performance cpu processor fan noise battery power idle background minimized minimised inactive unfocused animations pause holo frequency glint shimmer webview webview2 usage load lag stutter slow gif gifs play animated optimize optimise large images downscale preview huge resolution graphics gpu renderer driver hardware acceleration software swiftshader webgl frosted buttons blur backdrop glass line seam edge black stripe artifact tray taskbar notification area system close quit hide minimize background running resident autostart startup start with windows boot sign in login",
   },
   {
     id: "content",
@@ -550,6 +550,25 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     api.setCloseToTray(on).catch((e) => {
       setCloseToTrayOn(!on); // the tray couldn't be built — don't claim it worked
       setStatus(tf("Couldn’t change the tray option: {error}", { error: String(e) }));
+    });
+  };
+  // "Start with Windows": an entry in the registry, not a setting (Windows reads it)
+  const [autostart, setAutostartOn] = useState(false);
+  useEffect(() => {
+    if (!backed) return;
+    let alive = true;
+    api.getAutostart()
+      .then((v) => alive && setAutostartOn(v))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [backed]);
+  const toggleAutostart = (on: boolean) => {
+    setAutostartOn(on);
+    api.setAutostart(on).catch((e) => {
+      setAutostartOn(!on);
+      setStatus(tf("Couldn’t change the start with Windows: {error}", { error: String(e) }));
     });
   };
   // which file MEGA uploads by default (saved in the DB)
@@ -1873,6 +1892,19 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                   </p>
                 </div>
                 <Toggle checked={closeToTray} onChange={toggleCloseToTray} />
+              </div>
+            )}
+            {backed && (
+              <div className={cn("mt-3 flex items-center justify-between gap-3", cardInner)}>
+                <div className="min-w-0">
+                  <h2 className="text-sm font-semibold text-zinc-100">{t("Start with Windows")}</h2>
+                  <p className="settings-desc mt-0.5 text-sm text-zinc-400">
+                    {t(
+                      "MiColl starts when you sign in to Windows: quietly in the tray when “Keep running in the tray” is on, otherwise minimized to the taskbar. Off by default.",
+                    )}
+                  </p>
+                </div>
+                <Toggle checked={autostart} onChange={toggleAutostart} />
               </div>
             )}
 

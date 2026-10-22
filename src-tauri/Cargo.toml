@@ -108,6 +108,14 @@ windows = { version = "0.61", features = [
     "Win32_System_LibraryLoader",
     # Dragging a file out of the viewer: MK_LBUTTON for IDropSource (see wshare::drag_file).
     "Win32_System_SystemServices",
+    # The phone bridge stays closed on public networks: the PC's addresses and what
+    # Windows calls their network (see bridge::read_net_addrs).
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+    "Win32_Networking_NetworkListManager",
+    # "Start with Windows": the entry under HKCU\...\Run (see set_autostart).
+    "Win32_System_Registry",
 ] }
 # WinRT collections. `DataPackage::SetStorageItemsReadOnly` wants an `IIterable`, and
 # the `windows` crate re-exports only `windows_core` — so this one is named directly.

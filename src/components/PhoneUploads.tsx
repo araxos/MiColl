@@ -31,6 +31,7 @@ const SAME_BATCH_MS = 60_000;
  * Pictures and versions the phone app sent (bridge.rs): the bridge has already read
  * the creators in, here the library reloads and ONE toast says what came and where,
  * with a button to that reward. More arrivals replace it with the new totals.
+ * Also warns when the bridge shut a device out for guessing pairing keys.
  */
 export function PhoneUploads() {
   const t = useT();
@@ -96,6 +97,30 @@ export function PhoneUploads() {
       off?.();
     };
   }, [refresh, showToast, dismissToast, navigate, t, tp]);
+
+  // a device on the network tried too many wrong pairing keys
+  useEffect(() => {
+    if (!isTauri()) return;
+    let off: (() => void) | undefined;
+    let alive = true;
+    void listen<{ ip: string; minutes: number }>("phone-bridge-blocked", (e) => {
+      showToast({
+        tone: "warn",
+        title: t("A device was shut out of MiColl Mobile"),
+        detail: t("{ip} tried many wrong pairing keys and can't connect for {n} minutes. If that wasn't your phone, make a new pairing key in Settings.")
+          .replace("{ip}", e.payload.ip)
+          .replace("{n}", String(e.payload.minutes)),
+        duration: 20_000,
+      });
+    }).then((u) => {
+      if (alive) off = u;
+      else u();
+    });
+    return () => {
+      alive = false;
+      off?.();
+    };
+  }, [showToast, t]);
 
   return null;
 }

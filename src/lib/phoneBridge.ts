@@ -7,7 +7,13 @@
  */
 
 import { useEffect, useState } from "react";
-import { phoneBridgeNewKey, phoneBridgeStart, phoneBridgeStop, type PhoneBridgeInfo } from "@/api/library";
+import {
+  phoneBridgeNewKey,
+  phoneBridgeStart,
+  phoneBridgeStop,
+  phoneBridgeTrustNetwork,
+  type PhoneBridgeInfo,
+} from "@/api/library";
 
 const STORAGE_KEY = "micoll.phoneBridge";
 
@@ -76,6 +82,13 @@ export function refreshPhoneBridge(): void {
 /** A new pairing key, the phones have to scan the new code. */
 export async function newPhoneBridgeKey(): Promise<void> {
   const info = await phoneBridgeNewKey();
+  if (status.info) status = { info, error: null };
+  notify();
+}
+
+/** Answer on this public network after all (or not anymore). */
+export async function trustPhoneNetwork(id: string, allow: boolean): Promise<void> {
+  const info = await phoneBridgeTrustNetwork(id, allow);
   if (status.info) status = { info, error: null };
   notify();
 }
