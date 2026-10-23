@@ -86,6 +86,8 @@ export interface Reward {
   isExtra?: boolean;
   /** Only part of the release is in the folder (the user's mark, a badge on the tile). */
   isPartial?: boolean;
+  /** The creator's tier it came with ("2", "Gold" …), the user's mark. */
+  tier?: string | null;
   /** Added but never opened -> shows the "new" badge. Cleared when the viewer opens it. */
   fresh?: boolean;
   /** The user put this on the wishlist (template "missing" rewards don't count). */

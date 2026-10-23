@@ -9,6 +9,9 @@
  * some people never restart the app). Can be turned off in Settings -> Version.
  * A found update never pops up on its own: it lights the update button in the top
  * bar, and the popup opens when that (or "Update now" in Settings) is clicked.
+ *
+ * latest.json also has the notes of every release ("changelog", scripts/release.mjs):
+ * someone a few versions behind sees all the versions they skip, not only the newest.
  */
 
 import { useEffect, useState } from "react";
@@ -18,11 +21,20 @@ import type { Update } from "@tauri-apps/plugin-updater";
 import { queuePrefsSync } from "@/lib/prefs";
 import { isTauri } from "@/lib/tauri";
 
+/** One version between the installed and the new one. */
+export interface ChangeEntry {
+  version: string;
+  notes: string;
+  date?: string;
+  /** x.y.0: a bigger update, shown first */
+  big: boolean;
+}
+
 export type UpdateState =
   | { kind: "idle" }
   | { kind: "checking" }
   | { kind: "current" }
-  | { kind: "available"; version: string; notes?: string; date?: string }
+  | { kind: "available"; version: string; notes?: string; date?: string; changes?: ChangeEntry[] }
   | { kind: "downloading"; version: string; done: number; total: number | null }
   | { kind: "installing"; version: string }
   | { kind: "error"; detail: string; during: "check" | "install" }
@@ -37,6 +49,38 @@ interface Store {
 
 let store: Store = { state: { kind: "idle" }, prompt: false };
 let pending: Update | null = null;
+/** what `pending` skips over (see changesBetween) */
+let pendingChanges: ChangeEntry[] | undefined;
+
+/** -1 / 0 / 1, so 0.4.10 comes after 0.4.9. */
+export function compareVersions(a: string, b: string): number {
+  const x = a.split(".").map(Number);
+  const y = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d) return Math.sign(d);
+  }
+  return 0;
+}
+
+/**
+ * The versions after `from` up to `to` from latest.json's changelog, newest first.
+ * Undefined when there's no changelog (older latest.json) or it's only the one version.
+ */
+export function changesBetween(raw: unknown, from: string, to: string): ChangeEntry[] | undefined {
+  const list = (raw as { changelog?: unknown } | null)?.changelog;
+  if (!Array.isArray(list)) return undefined;
+  const out: ChangeEntry[] = [];
+  for (const c of list) {
+    const v = typeof c?.version === "string" ? c.version : "";
+    const notes = typeof c?.notes === "string" ? c.notes.trim() : "";
+    if (!/^\d+\.\d+\.\d+$/.test(v) || !notes) continue;
+    if (compareVersions(v, from) <= 0 || compareVersions(v, to) > 0) continue;
+    out.push({ version: v, notes, date: typeof c.date === "string" ? c.date : undefined, big: v.endsWith(".0") });
+  }
+  out.sort((a, b) => compareVersions(b.version, a.version));
+  return out.length > 1 ? out : undefined;
+}
 const subs = new Set<() => void>();
 
 function set(next: Partial<Store>): void {
@@ -79,9 +123,11 @@ export async function checkForUpdates({ manual }: { manual: boolean }): Promise<
     if (pending && pending !== found) void pending.close().catch(() => {});
     pending = found;
     if (!found) {
+      pendingChanges = undefined;
       set({ state: { kind: "current" } });
       return;
     }
+    pendingChanges = changesBetween(found.rawJson, found.currentVersion, found.version);
     // the popup stays as it is: it only opens from a click
     set({
       state: {
@@ -89,6 +135,7 @@ export async function checkForUpdates({ manual }: { manual: boolean }): Promise<
         version: found.version,
         notes: found.body?.trim() || undefined,
         date: found.date,
+        changes: pendingChanges,
       },
     });
   } catch (e) {
@@ -170,7 +217,12 @@ export function dismissUpdatePrompt(): void {
     // after a failed install go back to "update available"
     state:
       store.state.kind === "error" && store.state.during === "install" && pending
-        ? { kind: "available", version: pending.version, notes: pending.body?.trim() || undefined }
+        ? {
+            kind: "available",
+            version: pending.version,
+            notes: pending.body?.trim() || undefined,
+            changes: pendingChanges,
+          }
         : store.state,
   });
 }

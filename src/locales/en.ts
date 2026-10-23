@@ -69,4 +69,8 @@ export const dict: Dict = {
   "{n} subfolder rewards#other": "{n} subfolder rewards",
   "{n} favourites#one": "{n} favourite",
   "{n} favourites#other": "{n} favourites",
+  "{n} updates since your version#one": "{n} update since your version",
+  "{n} updates since your version#other": "{n} updates since your version",
+  "Tier for {n} rewards#one": "Tier for {n} reward",
+  "Tier for {n} rewards#other": "Tier for {n} rewards",
 };

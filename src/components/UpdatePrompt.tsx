@@ -11,6 +11,7 @@ import { isTauri } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { useActions } from "@/actions";
 import { openUrl } from "@/api/library";
+import { ReleaseNotes, UpdateChanges } from "@/components/UpdateChanges";
 import {
   dismissUpdatePrompt,
   installUpdate,
@@ -21,51 +22,9 @@ import {
 
 const mb = (n: number) => (n / (1024 * 1024)).toFixed(1);
 
-/** **bold** spans of one line as React nodes (the notes are plain text, no HTML). */
-function inlineBold(line: string) {
-  return line.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-    part.startsWith("**") && part.endsWith("**") && part.length > 4 ? (
-      <strong key={i} className="font-semibold text-zinc-100">
-        {part.slice(2, -2)}
-      </strong>
-    ) : (
-      part
-    ),
-  );
-}
-
 /**
- * The release notes as written on GitHub: "- " lines become a list, **bold** is bold,
- * other lines stay paragraphs.
- */
-function ReleaseNotes({ text }: { text: string }) {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const blocks: Array<{ list: boolean; lines: string[] }> = [];
-  for (const line of lines) {
-    const item = /^[-*]\s+/.test(line);
-    const last = blocks[blocks.length - 1];
-    if (last && last.list === item) last.lines.push(item ? line.replace(/^[-*]\s+/, "") : line);
-    else blocks.push({ list: item, lines: [item ? line.replace(/^[-*]\s+/, "") : line] });
-  }
-  return (
-    <div className="space-y-2">
-      {blocks.map((b, i) =>
-        b.list ? (
-          <ul key={i} className="list-disc space-y-1.5 pl-4 marker:text-zinc-500">
-            {b.lines.map((l, j) => (
-              <li key={j}>{inlineBold(l)}</li>
-            ))}
-          </ul>
-        ) : (
-          b.lines.map((l, j) => <p key={`${i}-${j}`}>{inlineBold(l)}</p>)
-        ),
-      )}
-    </div>
-  );
-}
-
-/**
- * Popup that shows a new version with its notes and "Later" / "Update now".
+ * Popup that shows a new version with its notes and "Later" / "Update now". When the
+ * update skips versions, the notes of all of them (UpdateChanges).
  * Mounted once for the whole app and also starts the auto checks.
  * Hidden while locked or in safe mode.
  */
@@ -124,6 +83,7 @@ export function UpdatePrompt({ active }: { active: boolean }) {
       ? state.version
       : null;
   const notes = state.kind === "available" ? state.notes : undefined;
+  const changes = state.kind === "available" ? state.changes : undefined;
   const pct =
     state.kind === "downloading" && state.total
       ? Math.min(100, Math.round((state.done / state.total) * 100))
@@ -148,7 +108,7 @@ export function UpdatePrompt({ active }: { active: boolean }) {
             exit={{ opacity: 0, y: 8, scale: 0.98 }}
             role="dialog"
             aria-label={t("Update available")}
-            className={cn("w-[30rem] max-w-full p-5", dlg.panel)}
+            className={cn(changes ? "w-[34rem]" : "w-[30rem]", "max-w-full p-5", dlg.panel)}
           >
             <div className="mb-4 flex items-start gap-3">
               <div
@@ -173,15 +133,26 @@ export function UpdatePrompt({ active }: { active: boolean }) {
               </div>
             </div>
 
-            {notes && (
+            {changes ? (
               <div
                 className={cn(
-                  "max-h-56 overflow-y-auto px-3 py-2.5 text-sm leading-relaxed text-zinc-300",
+                  "max-h-[min(26rem,60vh)] overflow-y-auto px-3 py-2.5 text-sm leading-relaxed text-zinc-300",
                   dlg.box,
                 )}
               >
-                <ReleaseNotes text={notes} />
+                <UpdateChanges changes={changes} />
               </div>
+            ) : (
+              notes && (
+                <div
+                  className={cn(
+                    "max-h-56 overflow-y-auto px-3 py-2.5 text-sm leading-relaxed text-zinc-300",
+                    dlg.box,
+                  )}
+                >
+                  <ReleaseNotes text={notes} />
+                </div>
+              )
             )}
 
             {state.kind === "downloading" && (

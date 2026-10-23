@@ -5,6 +5,9 @@
 // Uploads: the installer, a signed portable zip (MiColl.exe + portable marker) and latest.json.
 // Multi-line notes: use --notes-file, cmd cuts --notes at the first line break.
 //
+// latest.json also carries the notes of every earlier release ("changelog", read from
+// the GitHub releases), so someone updating over several versions sees all of them.
+//
 // --version   sets the version in tauri.conf.json, package.json and Cargo.toml.
 //             Must be higher than the last one or the updater ignores it.
 //             Leave it out to build the current version.
@@ -41,15 +44,17 @@ const die = (msg) => {
 
 /* ---- version ------------------------------------------------------------ */
 
+/** Sorts versions like 0.4.10 after 0.4.9. */
+const cmpVersions = (a, b) => {
+  const [x, y] = [a, b].map((v) => v.split(".").map(Number));
+  return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
+};
+
 const conf = JSON.parse(readFileSync(confPath, "utf8"));
 const wanted = opt("--version");
 if (wanted !== undefined) {
   if (!/^\d+\.\d+\.\d+$/.test(wanted)) die(`"${wanted}" isn't a version like 0.1.1`);
-  const cmp = (a, b) => {
-    const [x, y] = [a, b].map((v) => v.split(".").map(Number));
-    return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
-  };
-  if (cmp(wanted, conf.version) <= 0)
+  if (cmpVersions(wanted, conf.version) <= 0)
     die(`${wanted} isn't higher than the current ${conf.version} — the updater would ignore it`);
   // only replace the version line so the files keep their formatting
   const bump = (path, re) => {
@@ -137,6 +142,38 @@ const signed = npx(["tauri", "signer", "sign", "--app-version", version, portabl
 const portableSig = `${portablePath}.sig`;
 if (signed.status !== 0 || !existsSync(portableSig)) die("couldn't sign the portable zip");
 
+/* ---- changelog ---------------------------------------------------------- */
+
+/**
+ * The notes of the releases on GitHub (published ones, not this version). An update
+ * prompt shows the ones between the installed and the new version (lib/updater.ts).
+ * Without gh (or offline) only this version's notes go in, the app then shows just those.
+ */
+function pastReleases() {
+  try {
+    const jq =
+      '.[] | select(.draft == false) | {version: (.tag_name | ltrimstr("v")), notes: (.body // ""), date: .published_at}';
+    const out = execFileSync(
+      "gh",
+      ["api", `repos/${RELEASES_REPO}/releases?per_page=100`, "--paginate", "--jq", jq],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
+    );
+    return out
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter((r) => /^\d+\.\d+\.\d+$/.test(r.version) && r.version !== version)
+      .map((r) => ({ version: r.version, notes: r.notes.trim(), date: r.date }));
+  } catch (e) {
+    console.warn(`release: couldn't read the earlier releases (${e.message}), the changelog only has ${version}`);
+    return [];
+  }
+}
+const changelog = [{ version, notes, date: new Date().toISOString() }, ...pastReleases()]
+  .filter((c) => c.notes)
+  .sort((a, b) => cmpVersions(b.version, a.version));
+console.log(`release: changelog with ${changelog.length} version(s)`);
+
 /* ---- latest.json -------------------------------------------------------- */
 
 const tag = `v${version}`;
@@ -150,6 +187,8 @@ const manifest = {
     "windows-x86_64": platform,
     "windows-x86_64-nsis": platform,
   },
+  // newest first, see pastReleases
+  changelog,
 };
 const manifestPath = join(outDir, "latest.json");
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");

@@ -4412,6 +4412,12 @@ fn commit_import(
     let extras: Vec<String> =
         rewards.iter().filter(|r| r.extra).map(|r| r.folder.clone()).collect();
     db::mark_rewards_extra(&conn, &extras).map_err(map_err)?;
+    // and its tiers
+    let tiers: Vec<(String, String)> = rewards
+        .iter()
+        .filter_map(|r| r.tier.as_ref().map(|t| (r.folder.clone(), t.clone())))
+        .collect();
+    db::set_rewards_tier_by_folder(&conn, &tiers).map_err(map_err)?;
     // update "last edited" of every touched artist
     {
         let mut seen = std::collections::HashSet::new();
@@ -9648,6 +9654,15 @@ fn set_rewards_partial(db: State<Db>, reward_ids: Vec<i64>, partial: bool) -> Re
     Ok(n)
 }
 
+/// Set or remove (None / empty) the tier of rewards.
+#[tauri::command]
+fn set_rewards_tier(db: State<Db>, reward_ids: Vec<i64>, tier: Option<String>) -> Result<u32, String> {
+    let conn = db.lock().map_err(map_err)?;
+    let n = db::set_rewards_tier(&conn, &reward_ids, tier.as_deref()).map_err(map_err)?;
+    db::checkpoint(&conn);
+    Ok(n)
+}
+
 /// Stop the running MiSD job (the current reward finishes, the rest stays queued).
 /// No State<Db> on purpose: the job holds the lock, so we couldn't get it until it's done.
 #[tauri::command]
@@ -10547,6 +10562,7 @@ pub fn run() {
             prepare_for_update,
             set_rewards_extra,
             set_rewards_partial,
+            set_rewards_tier,
             migrate_cover_crops,
             discard_staging,
             open_with_default,

@@ -6,6 +6,7 @@ import { useAccent } from "@/lib/theme";
 import { Cover } from "@/components/Cover";
 import { SdBadge, rewardSdState, rewardSdTitle } from "@/components/SdBadge";
 import { FileCountChip } from "@/components/FileCountChip";
+import { tierLabel } from "@/lib/tier";
 import type { Reward } from "@/types";
 
 export function RewardSlot({
@@ -280,6 +281,16 @@ export function RewardSlot({
           </>
         )}
       </button>
+      {reward.tier && (
+        // outside the button, so it can hang over the right edge (the button clips);
+        // it sits where the title shade starts. Look per theme: .reward-tier in index.css
+        <span
+          title={tf("Tier: {tier}", { tier: reward.tier })}
+          className="reward-tier pointer-events-none absolute -right-1.5 bottom-11 z-10 max-w-[75%] truncate px-1.5 py-0.5 text-[11px] font-semibold leading-tight"
+        >
+          {tierLabel(reward.tier, tf)}
+        </span>
+      )}
     </motion.div>
   );
 }

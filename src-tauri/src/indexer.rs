@@ -888,6 +888,9 @@ pub struct ResolvedReward {
     /// Marked as an extra in the import review (doesn't stand in for its month).
     #[serde(default)]
     pub extra: bool,
+    /// The tier typed in the import review (optional).
+    #[serde(default)]
+    pub tier: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -1463,6 +1466,7 @@ fn auto_resolve(plan: ImportPlan, default_platform: Option<&str>) -> Vec<Resolve
             folder: d.folder,
             root: d.root,
             extra: false,
+            tier: None,
         })
         .collect()
 }
@@ -1683,6 +1687,7 @@ pub(crate) mod tests {
             folder: folder.clone(),
             root: false,
             extra: false,
+            tier: None,
         }];
         let fresh_of = |f: &str| -> i64 {
             conn.query_row("SELECT fresh FROM rewards WHERE folder_path = ?1", params![f], |r| {
@@ -2041,6 +2046,7 @@ pub(crate) mod tests {
             folder: folder.clone(),
             root: false,
             extra: false,
+            tier: None,
         }];
         commit(&conn, &bundled_import, None).unwrap();
 
@@ -2521,6 +2527,27 @@ pub(crate) mod tests {
         assert!(rewards.iter().find(|r| r.id == id).unwrap().is_partial);
         assert!(rewards.iter().filter(|r| r.id != id).all(|r| !r.is_partial));
 
+        // the tier too: trimmed, kept by a rescan, removed by an empty one
+        assert_eq!(db::set_rewards_tier(&conn, &[id], Some("  Gold  ")).unwrap(), 1);
+        scan_root(&conn, &root).unwrap();
+        let tier_of = |id: i64| -> Option<String> {
+            db::get_library(&conn)
+                .unwrap()
+                .iter()
+                .flat_map(|a| &a.periods)
+                .flat_map(|p| &p.rewards)
+                .find(|r| r.id == id)
+                .unwrap()
+                .tier
+                .clone()
+        };
+        assert_eq!(tier_of(id).as_deref(), Some("Gold"));
+        db::set_rewards_tier(&conn, &[id], Some("   ")).unwrap();
+        assert_eq!(tier_of(id), None);
+        let folder: String = conn.query_row("SELECT folder_path FROM rewards WHERE id = ?1", [id], |r| r.get(0)).unwrap();
+        assert_eq!(db::set_rewards_tier_by_folder(&conn, &[(folder, "2".into())]).unwrap(), 1);
+        assert_eq!(tier_of(id).as_deref(), Some("2"));
+
         let _ = std::fs::remove_dir_all(&base);
     }
 
@@ -2630,6 +2657,7 @@ pub(crate) mod tests {
                 folder: month.join(c).to_string_lossy().to_string(),
                 root: false,
                 extra: false,
+                tier: None,
             })
             .collect();
         commit(&conn, &folded, None).unwrap();
@@ -2651,6 +2679,7 @@ pub(crate) mod tests {
             folder: folder.to_string_lossy().to_string(),
             root: false,
             extra: false,
+            tier: None,
         };
         let split = vec![
             mk(month.join("CharY"), "CharY"),

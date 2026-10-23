@@ -171,6 +171,8 @@ type DraftRow = {
   root: boolean;
   /** Import as an extra: stays in its period but doesn't stand in for it (month card). */
   extra: boolean;
+  /** The creator's tier it came with, optional free text ("2", "Gold"). */
+  tier?: string;
   imageCount: number;
   /** What the analyzer saw (used again when the style flips back). */
   det: { year: number | null; month: number | null; number: number | null };
@@ -743,6 +745,7 @@ export function ImportReviewTree({
       folder: r.folder,
       root: r.root,
       extra: r.extra,
+      tier: r.tier?.trim() || null,
     };
   };
 
@@ -763,6 +766,11 @@ export function ImportReviewTree({
           folder: root,
           root: rows.every((r) => r.root) && rows.length > 0 ? true : false,
           extra: activeRows.length > 0 && activeRows.every((r) => r.extra),
+          // one reward from many folders: their tier if they all agree
+          tier: (() => {
+            const tiers = new Set(activeRows.map((r) => r.tier?.trim() || ""));
+            return tiers.size === 1 ? [...tiers][0] || null : null;
+          })(),
         },
       ];
     }
@@ -1508,6 +1516,15 @@ export function ImportReviewTree({
                                     >
                                       <Sparkles className="h-3.5 w-3.5" />
                                     </button>
+                                    <CommitInput
+                                      value={r.tier ?? ""}
+                                      fieldId={`${r.folder}::tier`}
+                                      onCommit={(v) => patchRow(r.folder, { tier: v.trim() })}
+                                      sanitize={(v) => v.slice(0, 40)}
+                                      placeholder={t("Tier")}
+                                      title={t("Tier (optional) — which of the creator’s tiers this came with, e.g. 2 or Gold")}
+                                      className={cn("h-7 w-16", inputCls)}
+                                    />
                                     {!isLocked &&
                                       (r.promotedFrom ? (
                                         <button

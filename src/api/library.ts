@@ -40,6 +40,7 @@ interface BReward {
   isRoot: boolean;
   isExtra: boolean;
   isPartial: boolean;
+  tier: string | null;
   imageCount: number;
   sdMarked: boolean;
   sdVolume: string | null;
@@ -173,6 +174,8 @@ export interface ResolvedReward {
   root?: boolean;
   /** Import it as an extra (doesn't stand in for its month). */
   extra?: boolean;
+  /** The tier typed in the review (optional). */
+  tier?: string | null;
 }
 
 /** A release style choice from the import review (whole artist, or one platform if set). */
@@ -237,6 +240,7 @@ function mapReward(r: BReward): Reward {
     isRoot: !!r.isRoot,
     isExtra: !!r.isExtra,
     isPartial: !!r.isPartial,
+    tier: r.tier ?? null,
     sdMarked: !!r.sdMarked,
     sdVolume: r.sdVolume ?? null,
     sdBackupMarked: !!r.sdBackupMarked,
@@ -1494,6 +1498,11 @@ export async function setRewardsExtra(rewardIds: string[], extra: boolean): Prom
 /** Mark rewards as partial (only part of the release is there) or complete. */
 export async function setRewardsPartial(rewardIds: string[], partial: boolean): Promise<number> {
   return invoke<number>("set_rewards_partial", { rewardIds: rewardIds.map(Number), partial });
+}
+
+/** Set the tier of rewards, null or "" removes it. Returns how many changed. */
+export async function setRewardsTier(rewardIds: string[], tier: string | null): Promise<number> {
+  return invoke<number>("set_rewards_tier", { rewardIds: rewardIds.map(Number), tier });
 }
 
 export async function setWished(rewardId: string, wished: 0 | 1 | 2): Promise<void> {

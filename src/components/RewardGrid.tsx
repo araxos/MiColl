@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
-import { CheckSquare, Pencil, Trash2, X, FolderOpen, RotateCcw, RefreshCw, CopyCheck, MousePointerSquareDashed, Share2, FolderInput, FolderPlus, MonitorPlay, FileQuestion, HardDrive, DatabaseBackup, Users, Unlink, ExternalLink, Info } from "lucide-react";
+import { CheckSquare, Pencil, Trash2, X, FolderOpen, RotateCcw, RefreshCw, CopyCheck, MousePointerSquareDashed, Share2, FolderInput, FolderPlus, MonitorPlay, FileQuestion, HardDrive, DatabaseBackup, Users, Unlink, ExternalLink, Info, Layers } from "lucide-react";
 import { openDuplicates } from "@/lib/duplicates";
 import { RewardSlot } from "@/components/RewardSlot";
 import { ImageViewer, type CoverTargets, type ViewerItem } from "@/components/ImageViewer";
@@ -17,7 +17,7 @@ import { SdNoticeDialog } from "@/components/SdNoticeDialog";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useData } from "@/store";
 import { useActions } from "@/actions";
-import { KEEP_FOLDERS_KEY, setRewardCover, exportFiles, createReward, createMissingReward, ensurePeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, type SdMode } from "@/api/library";
+import { KEEP_FOLDERS_KEY, setRewardCover, exportFiles, createReward, createMissingReward, ensurePeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, setRewardsTier, type SdMode } from "@/api/library";
 import { isTauri } from "@/lib/tauri";
 import { useCardSize } from "@/lib/useCardSize";
 import { useTileShapeFor, type TileScope } from "@/lib/tileShape";
@@ -28,6 +28,8 @@ import { cn } from "@/lib/utils";
 import { useT, useTf, useTp } from "@/lib/i18n";
 import { isVirtualMonthId, type Reward } from "@/types";
 import { CollabPicker } from "@/components/CollabPicker";
+import { TierDialog } from "@/components/TierDialog";
+import { creatorTiers, sortByTier } from "@/lib/tier";
 import { TileGate } from "@/components/TileGate";
 
 const MEDIA_EXTS = [
@@ -103,8 +105,9 @@ export function RewardGrid({
   const t = useT();
   const tf = useTf();
   const tp = useTp();
-  // everything below (selection ranges, the viewer, menus) uses this order
-  const items = useMemo(() => extrasLast(itemsIn), [itemsIn]);
+  // everything below (selection ranges, the viewer, menus) uses this order: numbered
+  // tiers up from Tier 1 (when there are any), extras at the end
+  const items = useMemo(() => extrasLast(sortByTier(itemsIn, (it) => it.reward.tier)), [itemsIn]);
   const { artists, refresh, backed, markRewardSeen } = useData();
   const { openMenu, reveal, requestDelete, reload, showToast, bringBackFromSd, fillRewardInteractive } =
     useActions();
@@ -619,6 +622,37 @@ export function RewardGrid({
     }
   };
 
+  // the tier dialog (right-click "Tier…" or the selection bar)
+  const [tierPick, setTierPick] = useState<{ ids: string[]; current: string | null } | null>(null);
+  const [tierBusy, setTierBusy] = useState(false);
+  const openTier = (ids: string[]) => {
+    if (!ids.length) return;
+    const tiers = new Set(ids.map((id) => items.find((it) => it.reward.id === id)?.reward.tier?.trim() || ""));
+    setTierPick({ ids, current: tiers.size === 1 ? [...tiers][0] || null : null });
+  };
+  /** The creator the rewards belong to (for its tiers so far). */
+  const tierArtist = (ids: string[]) =>
+    artists.find((a) =>
+      a.platforms.some((p) => p.months.some((m) => m.rewards.some((r) => ids.includes(r.id)))),
+    );
+  const saveTier = async (tier: string | null) => {
+    if (!tierPick) return;
+    setTierBusy(true);
+    try {
+      const n = await setRewardsTier(tierPick.ids, tier);
+      await refresh();
+      showToast({
+        tone: "success",
+        title: tier ? tf("Tier set for {n}", { n }) : tf("Tier removed from {n}", { n }),
+      });
+      setTierPick(null);
+    } catch (e) {
+      showToast({ tone: "error", title: t("Couldn\u2019t change that"), detail: `${e}` });
+    } finally {
+      setTierBusy(false);
+    }
+  };
+
   /** "Patreon · 05.25" for the Details panel (looked up in the store). */
   const whereOf = (monthId: string): string | undefined => {
     for (const a of artists) {
@@ -741,6 +775,17 @@ export function RewardGrid({
               icon: <Pencil className="h-4 w-4" />,
               quick: 1,
               onClick: () => setRename([{ id: r.id, name: r.title }]),
+            },
+          ]
+        : []),
+      // a selection that includes it: the tier for all of them
+      ...(backed
+        ? [
+            {
+              label: r.tier ? t("Change tier…") : t("Set tier…"),
+              icon: <Layers className="h-4 w-4" />,
+              onClick: () =>
+                openTier(selectMode && selected.has(r.id) && selected.size > 1 ? [...selected] : [r.id]),
             },
           ]
         : []),
@@ -990,6 +1035,18 @@ export function RewardGrid({
           {t("Back up")}
         </button>
         <button
+          onClick={() => openTier([...selected])}
+          disabled={selected.size === 0}
+          className={cn(
+            "inline-flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors disabled:opacity-40",
+            control,
+          )}
+          title={t("Set the tier of the selected rewards")}
+        >
+          <Layers className="h-4 w-4" />
+          {t("Tier")}
+        </button>
+        <button
           onClick={renameSelection}
           disabled={selected.size === 0}
           className={cn(
@@ -1223,6 +1280,17 @@ export function RewardGrid({
           />
         )}
       </AnimatePresence>
+
+      {tierPick && (
+        <TierDialog
+          count={tierPick.ids.length}
+          current={tierPick.current}
+          suggestions={creatorTiers(tierArtist(tierPick.ids))}
+          busy={tierBusy}
+          onSave={(tier) => void saveTier(tier)}
+          onCancel={() => setTierPick(null)}
+        />
+      )}
 
       <AnimatePresence>
         {movePick && (

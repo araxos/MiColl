@@ -75,6 +75,9 @@ pub struct Reward {
     pub is_extra: bool,
     /// Only part of the release is in the folder (marked by the user, a badge on the tile).
     pub is_partial: bool,
+    /// The creator's tier it came with ("2", "Gold" …), the user's mark. None = not set.
+    /// Like is_partial a rescan keeps it.
+    pub tier: Option<String>,
     /// Number of media files (from a column, so the dashboard doesn't need image rows).
     pub image_count: i64,
     /// MiSD: queued for the next move.
@@ -508,6 +511,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN is_root INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN is_extra INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN is_partial INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE rewards ADD COLUMN tier TEXT", []);
     let _ = conn.execute(
         "ALTER TABLE artists ADD COLUMN wallpaper_fav INTEGER NOT NULL DEFAULT 0",
         [],
@@ -1390,6 +1394,35 @@ pub fn set_rewards_partial(conn: &Connection, ids: &[i64], partial: bool) -> rus
     Ok(n)
 }
 
+/// A tier as it's stored: trimmed, at most 40 characters, None when empty.
+pub fn clean_tier(tier: Option<&str>) -> Option<String> {
+    let t: String = tier?.trim().chars().take(40).collect();
+    let t = t.trim().to_string();
+    (!t.is_empty()).then_some(t)
+}
+
+/// Set the tier of rewards (None removes it). Returns how many changed.
+pub fn set_rewards_tier(conn: &Connection, ids: &[i64], tier: Option<&str>) -> rusqlite::Result<u32> {
+    let tier = clean_tier(tier);
+    let mut n = 0u32;
+    for id in ids {
+        n += conn.execute("UPDATE rewards SET tier = ?2 WHERE id = ?1", params![id, tier])? as u32;
+    }
+    Ok(n)
+}
+
+/// The tiers typed in the import review, by reward folder (after the commit).
+pub fn set_rewards_tier_by_folder(conn: &Connection, items: &[(String, String)]) -> rusqlite::Result<u32> {
+    let mut n = 0u32;
+    for (folder, tier) in items {
+        n += conn.execute(
+            "UPDATE rewards SET tier = ?2 WHERE folder_path = ?1",
+            params![folder, clean_tier(Some(tier))],
+        )? as u32;
+    }
+    Ok(n)
+}
+
 /// Remove the "new" badge (when the viewer opens it).
 pub fn mark_reward_seen(conn: &Connection, reward_id: i64) -> rusqlite::Result<()> {
     conn.execute("UPDATE rewards SET fresh = 0 WHERE id = ?1", params![reward_id])?;
@@ -2158,7 +2191,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                     r.is_root, r.image_count, r.sd_marked, r.sd_volume,
                     p.id, p.platform, p.year, p.month, p.number, p.span, p.label, p.folder_path,
                     oa.id, oa.name, r.cover_custom, r.sd_backup, r.sd_backup_at, r.fresh, r.wished,
-                    r.is_extra, r.is_partial
+                    r.is_extra, r.is_partial, r.tier
              FROM reward_collabs c
              JOIN rewards r  ON r.id = c.reward_id
              JOIN periods p  ON p.id = r.period_id
@@ -2185,6 +2218,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                         is_root: r.get::<_, i64>(7)? != 0,
                         is_extra: r.get::<_, i64>(26)? != 0,
                         is_partial: r.get::<_, i64>(27)? != 0,
+                        tier: r.get(28)?,
                         image_count: r.get(8)?,
                         sd_marked: r.get::<_, i64>(9)? == 1,
                         sd_volume: r.get(10)?,
@@ -2332,7 +2366,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                 let mut stmt = conn.prepare_cached(
                     "SELECT id, title, category, folder_path, cover_image, status, is_root, image_count,
                             sd_marked, sd_volume, cover_custom, sd_backup, sd_backup_at, fresh, wished,
-                            is_extra, is_partial
+                            is_extra, is_partial, tier
                      FROM rewards WHERE period_id = ?1
                      ORDER BY category IS NULL DESC, title COLLATE NOCASE",
                 )?;
@@ -2348,6 +2382,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                         is_root: r.get::<_, i64>(6)? != 0,
                         is_extra: r.get::<_, i64>(15)? != 0,
                         is_partial: r.get::<_, i64>(16)? != 0,
+                        tier: r.get(17)?,
                         image_count: r.get(7)?,
                         sd_marked: r.get::<_, i64>(8)? == 1,
                         sd_volume: r.get(9)?,
