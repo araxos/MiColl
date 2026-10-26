@@ -94,6 +94,7 @@ interface BArtist {
   tag: string | null;
   tags: string | null;
   aliases: string | null;
+  tierList: string | null;
   links: string | null;
   notes: string | null;
   kind: string | null;
@@ -119,6 +120,8 @@ export interface ScanSummary {
   rewards: number;
   images: number;
   needsReview: number;
+  /** Stopped by the user: what was read until then is saved. */
+  cancelled?: boolean;
 }
 
 export interface OrganizeSummary {
@@ -369,6 +372,16 @@ function mapArtist(a: BArtist): Artist {
     }
   }
 
+  let tierList: string[] = [];
+  if (a.tierList) {
+    try {
+      const parsed = JSON.parse(a.tierList);
+      if (Array.isArray(parsed)) tierList = parsed.filter((t): t is string => typeof t === "string");
+    } catch {
+      tierList = [];
+    }
+  }
+
   return {
     id: String(a.id),
     name: a.name,
@@ -379,6 +392,7 @@ function mapArtist(a: BArtist): Artist {
     tag: a.tag,
     tags,
     aliases,
+    tierList,
     links,
     notes: a.notes ?? undefined,
     kind: a.kind,
@@ -444,9 +458,33 @@ export async function rescanCollection(): Promise<ScanSummary> {
   return invoke<ScanSummary>("rescan_collection");
 }
 
-/** Re-index ONE creator — what F5 does from inside a creator page. */
-export async function rescanArtist(artistId: string): Promise<ScanSummary> {
-  return invoke<ScanSummary>("rescan_artist", { artistId: Number(artistId) });
+/** Re-index ONE creator — what F5 does from inside a creator page — or with periodId
+ *  only that month (F5 on a month page). */
+export async function rescanArtist(artistId: string, periodId?: string): Promise<ScanSummary> {
+  return invoke<ScanSummary>("rescan_artist", {
+    artistId: Number(artistId),
+    periodId: periodId ? Number(periodId) : null,
+  });
+}
+
+/** Re-read one reward's folder (its "Reload"). */
+export async function rescanReward(rewardId: string): Promise<void> {
+  await invoke("rescan_reward", { rewardId: Number(rewardId) });
+}
+
+/** Stop the running rescan after the current reward. */
+export async function scanCancel(): Promise<void> {
+  await invoke("scan_cancel");
+}
+
+/** How many files a rescan of this reward / month / creator reads (last known counts). */
+export async function scanFileCount(scope: { artistId?: string; periodId?: string; rewardId?: string }): Promise<number> {
+  const n = (v?: string) => (v ? Number(v) : null);
+  return invoke<number>("scan_file_count", {
+    artistId: n(scope.artistId),
+    periodId: n(scope.periodId),
+    rewardId: n(scope.rewardId),
+  });
 }
 
 export async function setRewardStatus(rewardId: string, status: string): Promise<void> {
@@ -639,6 +677,15 @@ export async function markRewardSeen(rewardId: string): Promise<void> {
 /** Clear every "new" badge at once. Returns how many were cleared. */
 export async function markAllRewardsSeen(): Promise<number> {
   return invoke<number>("mark_all_rewards_seen");
+}
+
+/** A creator's tier list (Details → Tiers). */
+export async function setArtistTiers(artistId: string, tiers: string[]): Promise<void> {
+  await invoke("set_artist_tiers", { artistId: Number(artistId), tiers });
+}
+/** Delete a tier: from the creator's list and from all their rewards. Returns how many had it. */
+export async function removeArtistTier(artistId: string, tier: string): Promise<number> {
+  return invoke<number>("remove_artist_tier", { artistId: Number(artistId), tier });
 }
 
 export async function setArtistAliases(artistId: string, aliases: string[]): Promise<void> {

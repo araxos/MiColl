@@ -73,4 +73,10 @@ export const dict: Dict = {
   "{n} updates since your version#other": "{n} updates since your version",
   "Tier for {n} rewards#one": "Tier for {n} reward",
   "Tier for {n} rewards#other": "Tier for {n} rewards",
+  "Used by {n} rewards#one": "Used by {n} reward",
+  "Used by {n} rewards#other": "Used by {n} rewards",
+  "{n} rewards have this tier. They keep their files, only the tier is taken off them.#one": "{n} reward has this tier. It keeps its files, only the tier is taken off it.",
+  "{n} rewards have this tier. They keep their files, only the tier is taken off them.#other": "{n} rewards have this tier. They keep their files, only the tier is taken off them.",
+  "Tier removed from {n} rewards#one": "Tier removed from {n} reward",
+  "Tier removed from {n} rewards#other": "Tier removed from {n} rewards",
 };

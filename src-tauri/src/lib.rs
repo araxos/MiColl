@@ -906,6 +906,7 @@ fn progress_events<'a>(app: &'a AppHandle, event: &'static str) -> impl Fn(u32, 
 /// and froze the window)
 #[tauri::command]
 async fn rescan(app: AppHandle, db: State<'_, Db>) -> Result<ScanSummary, String> {
+    indexer::reset_scan_cancel();
     let conn = db.lock().map_err(map_err)?;
     let roots = db::list_roots(&conn).map_err(map_err)?;
     let progress = scan_progress(&app);
@@ -922,16 +923,18 @@ async fn rescan(app: AppHandle, db: State<'_, Db>) -> Result<ScanSummary, String
     let mut done = 0u32;
     for plan in &plans {
         let base = done;
-        let s = indexer::commit_with_progress(&conn, plan, None, &|d, _t, item| {
-            progress(base + d, planned, item)
-        })
-        .map_err(map_err)?;
+        let s = indexer::commit_cancellable(&conn, plan, &|d, _t, item| progress(base + d, planned, item))
+            .map_err(map_err)?;
         done += plan.len() as u32;
         total.artists += s.artists;
         total.periods += s.periods;
         total.rewards += s.rewards;
         total.images += s.images;
         total.needs_review += s.needs_review;
+        if s.cancelled {
+            total.cancelled = true;
+            break;
+        }
     }
     progress(planned, planned, "");
     // fix user thumbnails whose file was moved/renamed
@@ -943,6 +946,7 @@ async fn rescan(app: AppHandle, db: State<'_, Db>) -> Result<ScanSummary, String
 /// Useful after changing folders on disk. Keeps ownership/covers/templates.
 #[tauri::command]
 async fn rescan_collection(app: AppHandle, db: State<'_, Db>) -> Result<ScanSummary, String> {
+    indexer::reset_scan_cancel();
     let conn = db.lock().map_err(map_err)?;
     let root = db::get_setting(&conn, "collection_root")
         .map_err(map_err)?
@@ -966,12 +970,14 @@ async fn rescan_collection(app: AppHandle, db: State<'_, Db>) -> Result<ScanSumm
     let progress = scan_progress(&app);
     progress(0, 0, "");
     let plan = indexer::plan_root(&conn, &root_obj).map_err(map_err)?;
-    let summary =
-        indexer::commit_with_progress(&conn, &plan, None, &progress).map_err(map_err)?;
+    let summary = indexer::commit_cancellable(&conn, &plan, &progress).map_err(map_err)?;
     // fix user thumbnails whose file was moved/renamed
     let _ = db::repair_missing_previews(&conn);
     // a creator dragged into/out of the graveyard folder in Explorer: follow the disk
-    let _ = sync_graveyard_from_disk(&conn, &base);
+    // (not after a stop: the creators that weren't read yet would look empty)
+    if !summary.cancelled {
+        let _ = sync_graveyard_from_disk(&conn, &base);
+    }
     Ok(summary)
 }
 
@@ -1003,18 +1009,29 @@ fn sync_graveyard_from_disk(
     Ok(())
 }
 
-/// Re-index ONE creator (what F5 does on a creator page). Their own folder if we
-/// can find it, otherwise the root that holds them.
+/// Re-index ONE creator (what F5 does on a creator page), or with `period_id` only that
+/// month (F5 on a month page). Their own folder if we can find it, otherwise the root
+/// that holds them.
 #[tauri::command]
 async fn rescan_artist(
     app: AppHandle,
     db: State<'_, Db>,
     artist_id: i64,
+    period_id: Option<i64>,
 ) -> Result<ScanSummary, String> {
+    indexer::reset_scan_cancel();
     let conn = db.lock().map_err(map_err)?;
     let name: String = conn
         .query_row("SELECT name FROM artists WHERE id = ?1", [artist_id], |r| r.get(0))
         .map_err(map_err)?;
+    // the month's key (periods.folder_path is the indexer's period_key)
+    let period_key: Option<String> = match period_id {
+        Some(pid) => Some(
+            conn.query_row("SELECT folder_path FROM periods WHERE id = ?1 AND artist_id = ?2", [pid, artist_id], |r| r.get(0))
+                .map_err(map_err)?,
+        ),
+        None => None,
+    };
     let found = indexer::artist_scan_dir(&conn, artist_id).map_err(map_err)?;
     let Some((dir, platform, own_folder)) = found else {
         return Err(format!(
@@ -1024,17 +1041,55 @@ async fn rescan_artist(
     allow_asset_dir(&app, &dir);
     let progress = scan_progress(&app);
     progress(0, 0, "");
-    let plan = if own_folder {
+    let mut plan = if own_folder {
         indexer::plan_artist_dir(&conn, &dir, platform.as_deref(), &name).map_err(map_err)?
     } else {
         // a shared root: plan it normally so the other creators keep their names
         let root_obj = Root { id: 0, path: dir, label: None, default_platform: platform };
         indexer::plan_root(&conn, &root_obj).map_err(map_err)?
     };
-    let summary =
-        indexer::commit_with_progress(&conn, &plan, None, &progress).map_err(map_err)?;
+    // one month: finding the folders is quick, reading their files is what takes long
+    if let Some(key) = &period_key {
+        plan.retain(|r| &indexer::period_key(&r.artist, r.platform.as_deref(), r.year, r.month, r.number) == key);
+    }
+    if indexer::scan_cancelled() {
+        return Ok(ScanSummary { cancelled: true, ..ScanSummary::default() });
+    }
+    let summary = indexer::commit_cancellable(&conn, &plan, &progress).map_err(map_err)?;
     let _ = db::repair_missing_previews(&conn);
     Ok(summary)
+}
+
+/// Re-read one reward's folder (its "Reload"): files, cover and count.
+#[tauri::command]
+fn rescan_reward(db: State<Db>, reward_id: i64) -> Result<(), String> {
+    let conn = db.lock().map_err(map_err)?;
+    reindex_rewards(&conn, &[reward_id])?;
+    let _ = db::repair_missing_previews(&conn);
+    Ok(())
+}
+
+/// How many files a rescan reads (from the counts saved last time): one reward, one
+/// month or one creator. The window warns above a few hundred.
+#[tauri::command]
+fn scan_file_count(db: State<Db>, artist_id: Option<i64>, period_id: Option<i64>, reward_id: Option<i64>) -> Result<i64, String> {
+    let conn = db.lock().map_err(map_err)?;
+    let (sql, id) = match (reward_id, period_id, artist_id) {
+        (Some(r), _, _) => ("SELECT COALESCE(SUM(image_count), 0) FROM rewards WHERE id = ?1", r),
+        (_, Some(p), _) => ("SELECT COALESCE(SUM(image_count), 0) FROM rewards WHERE period_id = ?1", p),
+        (_, _, Some(a)) => (
+            "SELECT COALESCE(SUM(r.image_count), 0) FROM rewards r JOIN periods p ON p.id = r.period_id WHERE p.artist_id = ?1",
+            a,
+        ),
+        _ => return Ok(0),
+    };
+    conn.query_row(sql, [id], |r| r.get(0)).map_err(map_err)
+}
+
+/// "Stop" on a running rescan. No State<Db>: the scan holds the lock.
+#[tauri::command]
+fn scan_cancel() {
+    indexer::request_scan_cancel();
 }
 
 #[tauri::command]
@@ -3180,6 +3235,22 @@ fn mark_all_rewards_seen(db: State<Db>) -> Result<usize, String> {
 fn set_artist_aliases(db: State<Db>, artist_id: i64, aliases: String) -> Result<(), String> {
     let conn = db.lock().map_err(map_err)?;
     db::set_artist_aliases(&conn, artist_id, &aliases).map_err(map_err)
+}
+
+/// A creator's tier list (Details), as a JSON array.
+#[tauri::command]
+fn set_artist_tiers(db: State<Db>, artist_id: i64, tiers: Vec<String>) -> Result<(), String> {
+    let conn = db.lock().map_err(map_err)?;
+    db::set_artist_tier_list(&conn, artist_id, &tiers).map_err(map_err)
+}
+
+/// Delete a tier from a creator: from the list and from every reward that has it.
+#[tauri::command]
+fn remove_artist_tier(db: State<Db>, artist_id: i64, tier: String) -> Result<u32, String> {
+    let conn = db.lock().map_err(map_err)?;
+    let n = db::remove_artist_tier(&conn, artist_id, &tier).map_err(map_err)?;
+    db::checkpoint(&conn);
+    Ok(n)
 }
 
 #[tauri::command]
@@ -10563,6 +10634,11 @@ pub fn run() {
             set_rewards_extra,
             set_rewards_partial,
             set_rewards_tier,
+            set_artist_tiers,
+            remove_artist_tier,
+            rescan_reward,
+            scan_file_count,
+            scan_cancel,
             migrate_cover_crops,
             discard_staging,
             open_with_default,

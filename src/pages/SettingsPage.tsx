@@ -1887,7 +1887,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                   <h2 className="text-sm font-semibold text-zinc-100">{t("Keep running in the tray")}</h2>
                   <p className="settings-desc mt-0.5 text-sm text-zinc-400">
                     {t(
-                      "The window button at the top right hides MiColl instead of quitting it, and the app keeps running behind a small icon in the notification area — Windows tucks that under the chevron next to the clock unless you drag it out. Click the icon to come back, or right-click it to quit for real. Off by default: with it off, closing the window ends the program and nothing sits in the tray.",
+                      "The window button at the top right hides MiColl instead of quitting it, and the app keeps running behind a small icon in the notification area — Windows tucks that under the chevron next to the clock unless you drag it out. Click the icon to come back. Right-click it for a menu: add rewards, lock MiColl, jump to a recently opened creator, or quit for real. Off by default: with it off, closing the window ends the program and nothing sits in the tray.",
                     )}
                   </p>
                 </div>

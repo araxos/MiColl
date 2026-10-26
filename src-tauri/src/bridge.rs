@@ -23,6 +23,7 @@
 //!
 //! The other way the phone gets the versions made here: /api/gallery counts them per
 //! picture, /api/versions lists one picture's, /api/version-file sends one.
+//! The gallery also carries each reward's tier and each creator's tier list.
 //!
 //! What came from the phone goes into the history (action "phone"), one row for the
 //! files and one for the versions of each batch, and can be undone from there.
@@ -85,6 +86,9 @@ struct RewardDto {
     cover: String,
     images: Vec<ImageDto>,
     status: String,
+    /// the creator's tier it came with ("2", "Gold"; left out when none is set)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tier: Option<String>,
 }
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -128,6 +132,8 @@ struct ArtistDto {
     aliases: Vec<String>,
     verified: bool,
     no_dates: bool,
+    /// the creator's tiers (Details → Tiers)
+    tiers: Vec<String>,
 }
 #[derive(Serialize, serde::Deserialize, Clone)]
 struct LinkDto {
@@ -146,12 +152,14 @@ struct Meta {
     aliases: Vec<String>,
     verified: bool,
     no_dates: bool,
+    /// the creator's tiers (Details → Tiers)
+    tiers: Vec<String>,
 }
 
 /// Creator details by lowercased name (= the creator's folder name).
 fn load_meta(conn: &rusqlite::Connection) -> Result<HashMap<String, Meta>, String> {
     let mut stmt = conn
-        .prepare("SELECT name, kind, tag, tags, links, notes, aliases, template_verified, no_dates FROM artists")
+        .prepare("SELECT name, kind, tag, tags, links, notes, aliases, template_verified, no_dates, tier_list FROM artists")
         .map_err(map_err)?;
     let list = |s: Option<String>| -> Vec<String> {
         s.and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok()).unwrap_or_default()
@@ -169,11 +177,12 @@ fn load_meta(conn: &rusqlite::Connection) -> Result<HashMap<String, Meta>, Strin
                 r.get::<_, Option<String>>(6)?,
                 r.get::<_, Option<i64>>(7)?,
                 r.get::<_, Option<i64>>(8)?,
+                r.get::<_, Option<String>>(9)?,
             ))
         })
         .map_err(map_err)?;
     let mut out = HashMap::new();
-    for (name, kind, tag, tags, links, notes, aliases, verified, no_dates) in rows.flatten() {
+    for (name, kind, tag, tags, links, notes, aliases, verified, no_dates, tiers) in rows.flatten() {
         out.insert(
             name.to_lowercase(),
             Meta {
@@ -185,6 +194,7 @@ fn load_meta(conn: &rusqlite::Connection) -> Result<HashMap<String, Meta>, Strin
                 aliases: list(aliases),
                 verified: verified.unwrap_or(0) != 0,
                 no_dates: no_dates.unwrap_or(0) != 0,
+                tiers: list(tiers),
             },
         );
     }
@@ -294,6 +304,7 @@ fn make_reward(root: &Path, dir: &Path, title: &str, recursive: bool) -> Option<
         cover: rel(root, &media[0]),
         images,
         status: "owned".to_string(),
+        tier: None,
     })
 }
 
@@ -391,6 +402,7 @@ fn scan(root: &Path) -> Vec<ArtistDto> {
             aliases: Vec::new(),
             verified: false,
             no_dates: false,
+            tiers: Vec::new(),
         });
     }
     artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -936,6 +948,20 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
                     a.aliases = m.aliases;
                     a.verified = m.verified;
                     a.no_dates = m.no_dates;
+                    a.tiers = m.tiers;
+                }
+            }
+            // each reward's tier, by its folder
+            let tiers = sh.src.db().lock().map_err(map_err).and_then(|c| reward_tiers(&c)).unwrap_or_default();
+            if !tiers.is_empty() {
+                let rewards = artists
+                    .iter_mut()
+                    .flat_map(|a| &mut a.platforms)
+                    .flat_map(|p| &mut p.months)
+                    .flat_map(|m| &mut m.rewards);
+                for r in rewards {
+                    let full = r.folder_path.split('/').fold(root.clone(), |p, part| p.join(part));
+                    r.tier = tiers.get(&path_key(&full)).cloned();
                 }
             }
             json(req, 200, &serde_json::to_value(&artists).unwrap_or_default());
@@ -1159,6 +1185,17 @@ fn receive(req: &mut tiny_http::Request, temp: &Path, encrypt: bool) -> Result<S
 /// A path as the database stores it, for comparing (backslashes, lower case).
 fn path_key(p: &Path) -> String {
     p.to_string_lossy().replace('/', "\\").to_lowercase()
+}
+
+/// The tier of every reward that has one (by path_key of its folder).
+fn reward_tiers(conn: &rusqlite::Connection) -> Result<HashMap<String, String>, String> {
+    let mut stmt = conn
+        .prepare("SELECT folder_path, tier FROM rewards WHERE tier IS NOT NULL AND trim(tier) <> ''")
+        .map_err(map_err)?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .map_err(map_err)?;
+    Ok(rows.flatten().map(|(f, t)| (path_key(Path::new(&f)), t)).collect())
 }
 
 /// How many versions each original has (by path_key).
@@ -1992,7 +2029,8 @@ mod tests {
         conn.execute_batch(
             "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
              CREATE TABLE artists (name TEXT, kind TEXT, tag TEXT, tags TEXT, links TEXT, notes TEXT,
-                                   aliases TEXT, template_verified INTEGER, no_dates INTEGER);
+                                   aliases TEXT, template_verified INTEGER, no_dates INTEGER, tier_list TEXT);
+             CREATE TABLE rewards (folder_path TEXT, tier TEXT);
              CREATE TABLE images (file_path TEXT);
              CREATE TABLE image_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, orig_path TEXT,
                                           file_path TEXT, label TEXT, created_at TEXT);
@@ -2063,6 +2101,12 @@ mod tests {
                 key,
                 arrivals: Arc::default(),
             };
+            // a tier on the reward and the creator's tier list
+            {
+                let c = src.db.lock().unwrap();
+                c.execute("INSERT INTO rewards (folder_path, tier) VALUES (?1, '2')", [reward.to_string_lossy()]).unwrap();
+                c.execute("UPDATE artists SET tier_list = '[\"1\",\"2\"]'", []).unwrap();
+            }
             let shared = Arc::new(Shared::new(Box::new(src), "testkey1234".into(), HashSet::new()));
             let server = serve(0, shared).unwrap();
             let port = server.server_addr().to_ip().unwrap().port();
@@ -2089,6 +2133,9 @@ mod tests {
         assert_eq!(month["label"], "03.26");
         assert_eq!(month["rewards"][0]["images"].as_array().unwrap().len(), 3);
         assert_eq!(month["rewards"][0]["cover"], "Ahri/Patreon/2026/03/Set/a.png");
+        // the tier goes along, and the creator's list
+        assert_eq!(month["rewards"][0]["tier"], "2");
+        assert_eq!(artists[0]["tiers"], serde_json::json!(["1", "2"]));
 
         let (code, body) = get(&format!("{k}/api/thumb?p=Ahri%2FPatreon%2F2026%2F03%2FSet%2Fa.png&s=300"), None);
         assert_eq!(code, 200);

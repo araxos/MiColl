@@ -8,11 +8,13 @@ import { useData } from "@/store";
 import { useActions } from "@/actions";
 import { useAccent, toggleOnClass } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-import { useT, useTp } from "@/lib/i18n";
+import { useT, useTf, useTp } from "@/lib/i18n";
+import { tierLabel, tierUsage } from "@/lib/tier";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import * as api from "@/api/library";
 import type { Artist, ArtistLink } from "@/types";
 
-/** Right side panel for an artist: class, types, aliases, tags, notes and links. */
+/** Right side panel for an artist: class, types, aliases, tiers, tags, notes and links. */
 export function ArtistSidebar({
   artist,
   onClose,
@@ -24,10 +26,37 @@ export function ArtistSidebar({
   focusName?: boolean;
 }) {
   const t = useT();
+  const tf = useTf();
   const tp = useTp();
   const { backed, refresh } = useData();
   const { showToast } = useActions();
   const [name, setName] = useState(artist.name);
+  // tiers: the creator's list with how many rewards use each
+  const tiers = tierUsage(artist);
+  const [tierInput, setTierInput] = useState("");
+  const [tierDelete, setTierDelete] = useState<{ tier: string; count: number } | null>(null);
+  const addTier = async (raw: string) => {
+    const tier = raw.trim().slice(0, 40);
+    setTierInput("");
+    if (!tier || !backed || tiers.some((e) => e.tier.toLowerCase() === tier.toLowerCase())) return;
+    try {
+      await api.setArtistTiers(artist.id, [...tiers.map((e) => e.tier), tier]);
+      await refresh();
+    } catch (e) {
+      showToast({ tone: "error", title: t("Couldn’t change that"), detail: `${e}` });
+    }
+  };
+  const removeTier = async (tier: string) => {
+    setTierDelete(null);
+    if (!backed) return;
+    try {
+      const n = await api.removeArtistTier(artist.id, tier);
+      await refresh();
+      if (n > 0) showToast({ tone: "success", title: tp("Tier removed from {n} rewards", n) });
+    } catch (e) {
+      showToast({ tone: "error", title: t("Couldn’t change that"), detail: `${e}` });
+    }
+  };
   const nameRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
     if (!focusName) return;
@@ -537,6 +566,65 @@ export function ArtistSidebar({
             className={cn("mt-2 h-7 w-full min-w-0 rounded-md border px-2 text-xs outline-none", fieldCls)}
           />
         </div>
+
+        {/* tiers: the creator's list, how many rewards use each; deleting a used one asks */}
+        <div className="mt-5">
+          <div className={cn("mb-2", labelCls)}>{t("Tiers")}</div>
+          <div className="flex flex-wrap gap-1.5">
+            {tiers.length === 0 ? (
+              <span className={cn("text-[11px]", hintCls)}>
+                {t("No tiers yet — add the tiers this creator sells (e.g. 1, 2, 3 or Gold).")}
+              </span>
+            ) : (
+              tiers.map((e) => (
+                <span
+                  key={e.tier}
+                  title={tp("Used by {n} rewards", e.count)}
+                  className={cn("inline-flex items-center gap-1 rounded-full border py-1 pl-2.5 pr-1 text-xs", skin.chip)}
+                >
+                  <span>
+                    {tierLabel(e.tier, tf)} <span className={hintCls}>({e.count})</span>
+                  </span>
+                  <button
+                    onClick={() => (e.count > 0 ? setTierDelete(e) : void removeTier(e.tier))}
+                    disabled={!backed}
+                    title={t("Delete tier")}
+                    className={cn("rounded-full p-0.5 transition-colors", skin.chipX)}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))
+            )}
+          </div>
+          <input
+            value={tierInput}
+            maxLength={40}
+            onChange={(e) => setTierInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void addTier(tierInput);
+              }
+            }}
+            onBlur={() => void addTier(tierInput)}
+            placeholder={t("Add a tier…")}
+            disabled={!backed}
+            className={cn("mt-2 h-7 w-full min-w-0 rounded-md border px-2 text-xs outline-none", fieldCls)}
+          />
+        </div>
+        {tierDelete && (
+          <ConfirmDialog
+            title={tf("Delete “{tier}”?", { tier: tierLabel(tierDelete.tier, tf) })}
+            body={tp(
+              "{n} rewards have this tier. They keep their files, only the tier is taken off them.",
+              tierDelete.count,
+            )}
+            confirmLabel={t("Delete tier")}
+            onConfirm={() => void removeTier(tierDelete.tier)}
+            onCancel={() => setTierDelete(null)}
+          />
+        )}
 
         {/* tags */}
         <div className="mt-5">

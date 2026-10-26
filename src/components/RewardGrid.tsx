@@ -109,7 +109,7 @@ export function RewardGrid({
   // tiers up from Tier 1 (when there are any), extras at the end
   const items = useMemo(() => extrasLast(sortByTier(itemsIn, (it) => it.reward.tier)), [itemsIn]);
   const { artists, refresh, backed, markRewardSeen } = useData();
-  const { openMenu, reveal, requestDelete, reload, showToast, bringBackFromSd, fillRewardInteractive } =
+  const { openMenu, reveal, requestDelete, rescanReward, showToast, bringBackFromSd, fillRewardInteractive } =
     useActions();
   const navigate = useNavigate();
   // small buttons use the theme's control style (not grey zinc)
@@ -716,8 +716,8 @@ export function RewardGrid({
           label: t("Reload"),
           icon: <RefreshCw className="h-4 w-4" />,
           quick: 2,
-          keepOpen: true,
-          onClick: () => void reload(),
+          // only this reward's folder (was the whole library)
+          onClick: () => rescanReward(r.id),
         },
         ...(backed && artistId
           ? [
@@ -885,8 +885,8 @@ export function RewardGrid({
         label: t("Reload"),
         icon: <RefreshCw className="h-4 w-4" />,
         quick: 2,
-        keepOpen: true,
-        onClick: () => void reload(),
+        // only this reward's folder (was the whole library)
+        onClick: () => rescanReward(r.id),
       },
       ...(!r.sdVolume
         ? [

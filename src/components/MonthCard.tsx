@@ -46,7 +46,7 @@ function MonthCardBase({
   const t = useT();
   const tf = useTf();
   const tp = useTp();
-  const { openMenu, requestDelete, backed, rescanArtist, bringBackFromSd, showToast } =
+  const { openMenu, requestDelete, backed, rescanMonth, bringBackFromSd, showToast } =
     useActions();
   const { refresh } = useLibraryActions();
   const onOpen = () => onOpenMonth(month.id);
@@ -537,10 +537,10 @@ function MonthCardBase({
       items.push({ label: "MiSD", icon: <HardDrive className="h-4 w-4" />, children: sdItems });
     }
     items.push({
-      // only this creator (see rescanArtist)
+      // only this month (see rescanMonth)
       label: t("Reload"),
       icon: <RefreshCw className="h-4 w-4" />,
-      onClick: () => artistId && rescanArtist(artistId),
+      onClick: () => artistId && rescanMonth(artistId, month.id),
     });
     // collab-only months have nothing to delete, remove the link on the reward instead
     if (!month.collabOnly) {

@@ -182,6 +182,9 @@ pub struct Artist {
     pub tags: Option<String>,
     /// JSON array of other names (search finds them too).
     pub aliases: Option<String>,
+    /// JSON array of the creator's tiers (the list in Details; tiers set on rewards are
+    /// added to it).
+    pub tier_list: Option<String>,
     /// JSON array of {label, url} links.
     pub links: Option<String>,
     /// User notes.
@@ -492,6 +495,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let _ = conn.execute("ALTER TABLE artists ADD COLUMN tag TEXT", []);
     let _ = conn.execute("ALTER TABLE artists ADD COLUMN tags TEXT", []);
     let _ = conn.execute("ALTER TABLE artists ADD COLUMN aliases TEXT", []);
+    let _ = conn.execute("ALTER TABLE artists ADD COLUMN tier_list TEXT", []);
     let _ = conn.execute("ALTER TABLE artists ADD COLUMN links TEXT", []);
     let _ = conn.execute("ALTER TABLE artists ADD COLUMN notes TEXT", []);
     let _ = conn.execute("ALTER TABLE artists ADD COLUMN kind TEXT", []);
@@ -1401,12 +1405,16 @@ pub fn clean_tier(tier: Option<&str>) -> Option<String> {
     (!t.is_empty()).then_some(t)
 }
 
-/// Set the tier of rewards (None removes it). Returns how many changed.
+/// Set the tier of rewards (None removes it). Returns how many changed. The tier also
+/// goes into the creator's tier list.
 pub fn set_rewards_tier(conn: &Connection, ids: &[i64], tier: Option<&str>) -> rusqlite::Result<u32> {
     let tier = clean_tier(tier);
     let mut n = 0u32;
     for id in ids {
         n += conn.execute("UPDATE rewards SET tier = ?2 WHERE id = ?1", params![id, tier])? as u32;
+        if let Some(t) = &tier {
+            remember_reward_tier(conn, *id, t)?;
+        }
     }
     Ok(n)
 }
@@ -1415,11 +1423,74 @@ pub fn set_rewards_tier(conn: &Connection, ids: &[i64], tier: Option<&str>) -> r
 pub fn set_rewards_tier_by_folder(conn: &Connection, items: &[(String, String)]) -> rusqlite::Result<u32> {
     let mut n = 0u32;
     for (folder, tier) in items {
-        n += conn.execute(
-            "UPDATE rewards SET tier = ?2 WHERE folder_path = ?1",
-            params![folder, clean_tier(Some(tier))],
-        )? as u32;
+        let tier = clean_tier(Some(tier));
+        n += conn.execute("UPDATE rewards SET tier = ?2 WHERE folder_path = ?1", params![folder, tier])? as u32;
+        if let Some(t) = &tier {
+            let id: Option<i64> = conn
+                .query_row("SELECT id FROM rewards WHERE folder_path = ?1", params![folder], |r| r.get(0))
+                .optional()?;
+            if let Some(id) = id {
+                remember_reward_tier(conn, id, t)?;
+            }
+        }
     }
+    Ok(n)
+}
+
+/// A creator's tier list (JSON array in artists.tier_list).
+pub fn artist_tier_list(conn: &Connection, artist_id: i64) -> rusqlite::Result<Vec<String>> {
+    let raw: Option<String> = conn
+        .query_row("SELECT tier_list FROM artists WHERE id = ?1", params![artist_id], |r| r.get(0))
+        .optional()?
+        .flatten();
+    Ok(raw.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default())
+}
+
+pub fn set_artist_tier_list(conn: &Connection, artist_id: i64, tiers: &[String]) -> rusqlite::Result<()> {
+    // trimmed, no doubles (case doesn't count)
+    let mut out: Vec<String> = Vec::new();
+    for t in tiers {
+        if let Some(t) = clean_tier(Some(t)) {
+            if !out.iter().any(|o| o.to_lowercase() == t.to_lowercase()) {
+                out.push(t);
+            }
+        }
+    }
+    let json = serde_json::to_string(&out).unwrap_or_else(|_| "[]".into());
+    conn.execute("UPDATE artists SET tier_list = ?2 WHERE id = ?1", params![artist_id, json])?;
+    Ok(())
+}
+
+/// Add a reward's tier to its creator's list (when it isn't there yet).
+fn remember_reward_tier(conn: &Connection, reward_id: i64, tier: &str) -> rusqlite::Result<()> {
+    let artist: Option<i64> = conn
+        .query_row(
+            "SELECT p.artist_id FROM rewards r JOIN periods p ON p.id = r.period_id WHERE r.id = ?1",
+            params![reward_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let Some(artist) = artist else { return Ok(()) };
+    let mut list = artist_tier_list(conn, artist)?;
+    if !list.iter().any(|t| t.to_lowercase() == tier.to_lowercase()) {
+        list.push(tier.to_string());
+        set_artist_tier_list(conn, artist, &list)?;
+    }
+    Ok(())
+}
+
+/// Delete a tier from a creator: out of the list and off all their rewards. Returns how
+/// many rewards had it.
+pub fn remove_artist_tier(conn: &Connection, artist_id: i64, tier: &str) -> rusqlite::Result<u32> {
+    let key = tier.trim().to_lowercase();
+    let n = conn.execute(
+        "UPDATE rewards SET tier = NULL
+         WHERE lower(trim(tier)) = ?2
+           AND period_id IN (SELECT id FROM periods WHERE artist_id = ?1)",
+        params![artist_id, key],
+    )? as u32;
+    let list: Vec<String> = artist_tier_list(conn, artist_id)?.into_iter().filter(|t| t.to_lowercase() != key).collect();
+    set_artist_tier_list(conn, artist_id, &list)?;
     Ok(n)
 }
 
@@ -2293,7 +2364,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
             "SELECT id, name, preview_image, no_dates, tag, links, kind, template_source, template_verified, tags,
                     COALESCE(updated_at, created_at), notes, wallpaper_fav, aliases,
                     COALESCE(release_style, CASE WHEN no_dates = 1 THEN 'none' ELSE 'monthly' END),
-                    hidden, graveyard
+                    hidden, graveyard, tier_list
              FROM artists ORDER BY name COLLATE NOCASE",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -2315,6 +2386,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                 notes: r.get(11)?,
                 wallpaper_fav: r.get::<_, i64>(12)? != 0,
                 aliases: r.get(13)?,
+                tier_list: r.get(17)?,
                 hidden: r.get::<_, i64>(15)? != 0,
                 graveyard: r.get::<_, i64>(16)? != 0,
                 periods: Vec::new(),

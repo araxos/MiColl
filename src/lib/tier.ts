@@ -15,17 +15,36 @@ export function tierLabel(
   return /^\d+$/.test(t) ? tf("Tier {n}", { n: t }) : t;
 }
 
-/** The tiers a creator already uses, numbers first (1, 2, 10), then the rest A–Z. */
-export function creatorTiers(artist: Artist | undefined): string[] {
+/** Numbers first (1, 2, 10), then the rest A–Z. */
+const byTier = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+
+/**
+ * A creator's tiers with how many of their own rewards have each: the tier list from
+ * Details plus any tier a reward has that isn't in it (set before the list existed).
+ */
+export function tierUsage(artist: Artist | undefined): { tier: string; count: number }[] {
   if (!artist) return [];
-  const seen = new Map<string, string>();
+  const seen = new Map<string, { tier: string; count: number }>();
+  for (const t of artist.tierList ?? []) {
+    const k = t.trim().toLowerCase();
+    if (k && !seen.has(k)) seen.set(k, { tier: t.trim(), count: 0 });
+  }
   for (const p of artist.platforms)
     for (const m of p.months)
       for (const r of m.rewards) {
         const t = r.tier?.trim();
-        if (t && !seen.has(t.toLowerCase())) seen.set(t.toLowerCase(), t);
+        // a collab's borrowed copy counts for its owner
+        if (!t || r.collabFrom) continue;
+        const e = seen.get(t.toLowerCase());
+        if (e) e.count += 1;
+        else seen.set(t.toLowerCase(), { tier: t, count: 1 });
       }
-  return [...seen.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+  return [...seen.values()].sort((a, b) => byTier(a.tier, b.tier));
+}
+
+/** The tiers to offer for a creator (list + used), numbers first. */
+export function creatorTiers(artist: Artist | undefined): string[] {
+  return tierUsage(artist).map((e) => e.tier);
 }
 
 /** The number in a tier ("2", "Tier 3", "$10 Supporter" → 10), null when there's none. */

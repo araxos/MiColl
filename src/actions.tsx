@@ -28,7 +28,7 @@ import { fmtBytes } from "@/components/RewardDetails";
 import { useLibraryActions } from "@/store";
 import { useT, useTf, useTp } from "@/lib/i18n";
 import * as api from "@/api/library";
-import type { ReleaseStyle } from "@/types";
+import { isVirtualMonthId, type ReleaseStyle } from "@/types";
 
 export interface DeleteRequest {
   title: string;
@@ -61,12 +61,16 @@ interface ActionsCtx {
   /** Start deleting (uses the saved "don't ask again" choice). */
   requestDelete: (req: DeleteRequest) => void;
   /**
-   * Re-index the WHOLE collection (files added/removed in Explorer).
-   * Use rescanArtist for a single creator.
+   * Re-index the WHOLE collection (files added/removed in Explorer). True = stopped.
+   * Use rescanArtist / rescanMonth / rescanReward for less.
    */
-  reload: () => Promise<void>;
+  reload: () => Promise<boolean>;
   /** Re-index ONE creator with the progress overlay. */
   rescanArtist: (artistId: string) => void;
+  /** Re-index one month of a creator (F5 on a month page, the month card's Reload). */
+  rescanMonth: (artistId: string, monthId: string) => void;
+  /** Re-read one reward's folder (its Reload). */
+  rescanReward: (rewardId: string) => void;
   /**
    * Pick a folder or archive and import its rewards. In managed mode the files get
    * moved into the collection. With artist set (from an artist card) the rewards go
@@ -393,32 +397,37 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
   };
 
   /** Re-index everything. Slow, so it asks first. */
-  const reload = async () => {
-    if (!backed) return;
+  const reload = async (): Promise<boolean> => {
+    if (!backed) return false;
     try {
       const managed = (await api.getSetting("managed_enabled")) === "true";
-      if (managed) await api.rescanCollection();
-      else await api.rescan();
+      const sum = managed ? await api.rescanCollection() : await api.rescan();
       await refresh();
+      return !!sum.cancelled;
     } catch (e) {
       console.error("reload failed", e);
+      return false;
     }
   };
 
-  /** Re-index one creator, fast enough to not ask. */
-  const reloadArtist = async (artistId: string) => {
-    if (!backed) return;
+  /** Re-index one creator, or only one month of it. True = the user stopped it. */
+  const reloadArtist = async (artistId: string, monthId?: string): Promise<boolean> => {
+    if (!backed) return false;
     try {
-      await api.rescanArtist(artistId);
+      const sum = await api.rescanArtist(artistId, monthId);
       await refresh();
+      return !!sum.cancelled;
     } catch (e) {
       console.error("artist reload failed", e);
       showToast({ tone: "error", title: t("Rescan failed"), problem: String(e) });
+      return false;
     }
   };
 
   // a scan blocks the UI with ProgressModal, only one at a time
   const [scanning, setScanning] = useState<string | null>(null);
+  // the running scan checks Stop (a single reward is too short to need it)
+  const [scanStoppable, setScanStoppable] = useState(true);
   const [confirmFull, setConfirmFull] = useState(false);
   // live progress, total 0 = still walking folders
   const [scanProg, setScanProg] = useState<{ done: number; total: number; item: string }>({
@@ -497,17 +506,60 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const runScan = async (label: string, job: () => Promise<void>) => {
+  /** job returns true when the user stopped it. canStop = it checks the Stop flag. */
+  const runScan = async (label: string, job: () => Promise<boolean | void>, canStop = true) => {
     if (scanning) return;
     setScanProg({ done: 0, total: 0, item: "" });
+    setScanStoppable(canStop);
     setScanning(label);
     try {
-      await job();
-      showToast({ tone: "success", title: t("Rescanned for new files") });
+      const stopped = await job();
+      if (stopped)
+        showToast({
+          tone: "warn",
+          title: t("Rescan stopped"),
+          detail: t("What was read until then is saved, the rest stays as it was."),
+        });
+      else showToast({ tone: "success", title: t("Rescanned for new files") });
     } finally {
       setScanning(null);
     }
   };
+
+  /** Above this many files a rescan asks first (it can take a while). */
+  const BIG_SCAN = 500;
+  const [bigScan, setBigScan] = useState<{ files: number; run: () => void } | null>(null);
+  /** runScan, but asks first when the scope has many files (counts from the last scan). */
+  const scopedScan = async (
+    label: string,
+    scope: { artistId?: string; periodId?: string; rewardId?: string },
+    job: () => Promise<boolean | void>,
+    canStop = true,
+  ) => {
+    if (!backed || scanning) return;
+    const files = await api.scanFileCount(scope).catch(() => 0);
+    const run = () => void runScan(label, job, canStop);
+    if (files > BIG_SCAN) setBigScan({ files, run });
+    else run();
+  };
+  const rescanMonth = (artistId: string, monthId: string) => {
+    // a month shown because of a collab belongs to another creator: the whole creator
+    if (isVirtualMonthId(monthId)) {
+      void scopedScan(t("Rescanning this creator…"), { artistId }, () => reloadArtist(artistId));
+      return;
+    }
+    void scopedScan(t("Rescanning this month…"), { periodId: monthId }, () => reloadArtist(artistId, monthId));
+  };
+  const rescanReward = (rewardId: string) =>
+    void scopedScan(
+      t("Rescanning this reward…"),
+      { rewardId },
+      async () => {
+        await api.rescanReward(rewardId);
+        await refresh();
+      },
+      false,
+    );
 
   // F5 = rescan. Inside a creator only that creator, on the dashboard everything (asks
   // first).
@@ -515,15 +567,20 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const pathRef = useRef(location.pathname);
   pathRef.current = location.pathname;
-  const scanRef = useRef(runScan);
-  scanRef.current = runScan;
+  // F5 on a month page: only that month
+  const scanRef = useRef<{ month: (a: string, m: string) => void; artist: (a: string) => void }>({
+    month: rescanMonth,
+    artist: () => {},
+  });
+  scanRef.current = {
+    month: rescanMonth,
+    artist: (id: string) => void scopedScan(t("Rescanning this creator…"), { artistId: id }, () => reloadArtist(id)),
+  };
   const refreshHere = useCallback(() => {
-    const artistId = pathRef.current.match(/^\/artist\/([^/]+)/)?.[1];
-    if (artistId) {
-      void scanRef.current("Rescanning this creator…", () => reloadArtist(artistId));
-    } else {
-      setConfirmFull(true);
-    }
+    const m = pathRef.current.match(/^\/artist\/([^/]+)(?:\/month\/([^/?#]+))?/);
+    if (m?.[2]) scanRef.current.month(m[1], m[2]);
+    else if (m?.[1]) scanRef.current.artist(m[1]);
+    else setConfirmFull(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
@@ -1004,7 +1061,9 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
     requestDelete,
     reload,
     rescanArtist: (artistId: string) =>
-      void runScan("Rescanning this creator…", () => reloadArtist(artistId)),
+      void scopedScan(t("Rescanning this creator…"), { artistId }, () => reloadArtist(artistId)),
+    rescanMonth,
+    rescanReward,
     addRewards,
     importDropped,
     importIntoReward,
@@ -1030,6 +1089,8 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       requestDelete: fwd("requestDelete"),
       reload: fwd("reload"),
       rescanArtist: fwd("rescanArtist"),
+      rescanMonth: fwd("rescanMonth"),
+      rescanReward: fwd("rescanReward"),
       addRewards: fwd("addRewards"),
       importDropped: fwd("importDropped"),
       importIntoReward: fwd("importIntoReward"),
@@ -1062,9 +1123,25 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
           confirmLabel={t("Rescan everything")}
           onConfirm={() => {
             setConfirmFull(false);
-            void runScan("Rescanning the whole library…", reload);
+            void runScan(t("Rescanning the whole library…"), reload);
           }}
           onCancel={() => setConfirmFull(false)}
+        />
+      )}
+      {bigScan && (
+        <ConfirmDialog
+          title={t("This rescan can take a while")}
+          body={tf(
+            "It reads about {n} files. MiColl stays blocked while it runs, but you can stop it at any time.",
+            { n: bigScan.files },
+          )}
+          confirmLabel={t("Continue")}
+          onConfirm={() => {
+            const run = bigScan.run;
+            setBigScan(null);
+            run();
+          }}
+          onCancel={() => setBigScan(null)}
         />
       )}
       {scanning && (
@@ -1072,8 +1149,11 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
           title={scanning}
           total={scanProg.total}
           done={scanProg.done}
-          detail={scanProg.total === 0 ? "Reading folders…" : scanProg.item || "Indexing…"}
-          note="Looking for files added or removed outside MiColl."
+          detail={scanProg.total === 0 ? t("Reading folders…") : scanProg.item || t("Indexing…")}
+          note={t("Looking for files added or removed outside MiColl.")}
+          onCancel={scanStoppable ? () => void api.scanCancel() : undefined}
+          cancelLabel={t("Stop")}
+          cancelPendingLabel={t("Stopping after this reward…")}
         />
       )}
       {returning && (

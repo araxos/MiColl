@@ -52,7 +52,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
   const tp = useTp();
   const upNavigate = useUpNavigate();
   const { artists, findArtist, backed, refresh, imagesLoaded } = useData();
-  const { openMenu, requestDelete, reload, showToast } = useActions();
+  const { openMenu, requestDelete, rescanArtist, showToast } = useActions();
   const artist = findArtist(artistId);
   // load this artist's images when the page opens
   useArtistImages(artistId);
@@ -273,7 +273,8 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
       {
         label: t("Reload"),
         icon: <RefreshCw className="h-4 w-4" />,
-        onClick: () => void reload(),
+        // only this creator (was the whole library)
+        onClick: () => artist && rescanArtist(artist.id),
       },
       // a tab that only exists because of a collab can't be deleted here, say where to
       // change it

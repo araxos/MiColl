@@ -13,6 +13,7 @@ import { PLATFORM_ICONS, normalizePlatform } from "@/lib/platformIcons";
 import { useAccent } from "@/lib/theme";
 import { resolveLanguage, useLanguage, useT, useTf } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { tierLabel, tierUsage } from "@/lib/tier";
 import { ownRewards, platformStats } from "@/types";
 import type { Artist } from "@/types";
 
@@ -194,6 +195,10 @@ export function CreatorDetails({
     ...(stats.borrowed > 0 ? [row("Collabs shown", num(stats.borrowed))] : []),
     row("Release style", t(artist.releaseStyle ?? "monthly")),
     ...(artist.aliases?.length ? [row("Also known as", artist.aliases.join(", "))] : []),
+    // the tiers with how many rewards have each
+    ...(tierUsage(artist).length
+      ? [row("Tiers", tierUsage(artist).map((e) => `${tierLabel(e.tier, tf)} (${num(e.count)})`).join(", "))]
+      : []),
     ...(artist.verified || artist.personalLog
       ? [row("Template", artist.verified ? t("Verified") : t("Personal log"))]
       : []),

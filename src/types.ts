@@ -207,6 +207,8 @@ export interface Artist {
   tags?: string[];
   /** Other names of this creator (old handles etc). Search finds these too. */
   aliases?: string[];
+  /** The creator's tiers (Details → Tiers). Tiers set on rewards are added to it. */
+  tierList?: string[];
   /** Creator type: "Cosplayer" | "Artist" | "Animator" | "Model" | null. */
   kind?: string | null;
   /** Social media links. */

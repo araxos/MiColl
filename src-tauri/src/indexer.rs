@@ -29,6 +29,25 @@ pub struct ScanSummary {
     pub rewards: i64,
     pub images: i64,
     pub needs_review: i64,
+    /// The user stopped it: the rewards read so far are saved, the rest is as it was.
+    pub cancelled: bool,
+}
+
+/// "Stop" on a running rescan (scan_cancel). Checked between rewards, so every reward
+/// is either read completely or not touched.
+static SCAN_CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A rescan starts: forget an old stop.
+pub fn reset_scan_cancel() {
+    SCAN_CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn request_scan_cancel() {
+    SCAN_CANCEL.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn scan_cancelled() -> bool {
+    SCAN_CANCEL.load(std::sync::atomic::Ordering::SeqCst)
 }
 
 /* ---- pure parsing helpers (unit-tested) ------------------------------ */
@@ -1361,6 +1380,26 @@ pub fn commit_with_progress(
     open_as_cards: Option<bool>,
     progress: Progress<'_>,
 ) -> rusqlite::Result<ScanSummary> {
+    commit_inner(conn, rewards, open_as_cards, progress, false)
+}
+
+/// commit_with_progress for a rescan: stops after the current reward when the user
+/// clicks Stop (see SCAN_CANCEL). Imports never stop halfway.
+pub fn commit_cancellable(
+    conn: &Connection,
+    rewards: &[ResolvedReward],
+    progress: Progress<'_>,
+) -> rusqlite::Result<ScanSummary> {
+    commit_inner(conn, rewards, None, progress, true)
+}
+
+fn commit_inner(
+    conn: &Connection,
+    rewards: &[ResolvedReward],
+    open_as_cards: Option<bool>,
+    progress: Progress<'_>,
+    cancellable: bool,
+) -> rusqlite::Result<ScanSummary> {
     let total = rewards.len() as u32;
     let mut sum = ScanSummary::default();
     let mut seen_artists: HashSet<String> = HashSet::new();
@@ -1368,6 +1407,10 @@ pub fn commit_with_progress(
     let mut touched_periods: HashSet<i64> = HashSet::new();
 
     for (i, r) in rewards.iter().enumerate() {
+        if cancellable && scan_cancelled() {
+            sum.cancelled = true;
+            break;
+        }
         progress(i as u32, total, &r.title);
         let artist_id = upsert_artist(conn, &r.artist)?;
         if seen_artists.insert(r.artist.clone()) {
@@ -2482,6 +2525,47 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
+    /// F5 on a month page reads only that month, and Stop leaves the rest untouched.
+    #[test]
+    fn a_month_rescan_reads_only_that_month_and_stops_on_request() {
+        let _job = PLATFORM_LIST.lock().unwrap_or_else(|e| e.into_inner());
+        let base = tmpdir("month_rescan");
+        let creator = base.join("Nora").join("Patreon");
+        touch(creator.join("2026-03").join("Pack A").join("01.jpg"));
+        touch(creator.join("2026-04").join("Pack B").join("01.jpg"));
+        let conn = db::open(&base.join("t.db")).unwrap();
+        let root = db::Root { id: 1, path: base.to_string_lossy().to_string(), label: None, default_platform: None };
+        scan_root(&conn, &root).unwrap();
+        let count = |title: &str| -> i64 {
+            conn.query_row("SELECT image_count FROM rewards WHERE title = ?1", params![title], |r| r.get(0)).unwrap()
+        };
+        assert_eq!((count("Pack A"), count("Pack B")), (1, 1));
+
+        // new files in both months, then only March is read again
+        touch(creator.join("2026-03").join("Pack A").join("02.jpg"));
+        touch(creator.join("2026-04").join("Pack B").join("02.jpg"));
+        let march: String = conn
+            .query_row("SELECT folder_path FROM periods WHERE label = '2026-03'", [], |r| r.get(0))
+            .unwrap();
+        let mut plan = plan_root(&conn, &root).unwrap();
+        plan.retain(|r| period_key(&r.artist, r.platform.as_deref(), r.year, r.month, r.number) == march);
+        assert_eq!(plan.len(), 1);
+        reset_scan_cancel();
+        let sum = commit_cancellable(&conn, &plan, &no_progress).unwrap();
+        assert!(!sum.cancelled);
+        assert_eq!((count("Pack A"), count("Pack B")), (2, 1), "April stays as it was");
+
+        // Stop before the first reward: nothing is read, and it says so
+        let all = plan_root(&conn, &root).unwrap();
+        request_scan_cancel();
+        let sum = commit_cancellable(&conn, &all, &no_progress).unwrap();
+        reset_scan_cancel();
+        assert!(sum.cancelled);
+        assert_eq!(sum.rewards, 0);
+        assert_eq!(count("Pack B"), 1);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     /// an "Extra" folder starts as extra, a rescan doesn't change it
     #[test]
     fn an_extra_folder_arrives_marked_and_stays_how_the_user_left_it() {
@@ -2547,6 +2631,18 @@ pub(crate) mod tests {
         let folder: String = conn.query_row("SELECT folder_path FROM rewards WHERE id = ?1", [id], |r| r.get(0)).unwrap();
         assert_eq!(db::set_rewards_tier_by_folder(&conn, &[(folder, "2".into())]).unwrap(), 1);
         assert_eq!(tier_of(id).as_deref(), Some("2"));
+
+        // the creator's list: tiers set on rewards land in it, a removed one leaves it and
+        // its rewards; a tier only in the list stays there without rewards
+        let artist: i64 = conn
+            .query_row("SELECT p.artist_id FROM rewards r JOIN periods p ON p.id = r.period_id WHERE r.id = ?1", [id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(db::artist_tier_list(&conn, artist).unwrap(), ["Gold", "2"]);
+        db::set_artist_tier_list(&conn, artist, &["Gold".into(), "2".into(), " gold ".into(), "Platinum".into()]).unwrap();
+        assert_eq!(db::artist_tier_list(&conn, artist).unwrap(), ["Gold", "2", "Platinum"]);
+        assert_eq!(db::remove_artist_tier(&conn, artist, " 2 ").unwrap(), 1);
+        assert_eq!(tier_of(id), None);
+        assert_eq!(db::artist_tier_list(&conn, artist).unwrap(), ["Gold", "Platinum"]);
 
         let _ = std::fs::remove_dir_all(&base);
     }
