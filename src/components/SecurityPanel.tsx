@@ -7,6 +7,7 @@ import * as api from "@/api/library";
 import { AUTO_LOCK_OPTIONS, LOCK_SETTINGS_EVENT } from "@/lib/lock";
 import { useAccent, toggleOnClass } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import { useDialogTheme } from "@/lib/dialogTheme";
 import { useT, useTf } from "@/lib/i18n";
 
 /**
@@ -15,6 +16,7 @@ import { useT, useTf } from "@/lib/i18n";
  */
 export function SecurityPanel({ backed }: { backed: boolean }) {
   const t = useT();
+  const dlg = useDialogTheme();
   const tf = useTf();
   // light frosted inputs on iridescent
   const irid = useAccent() === "iridescent";
@@ -505,7 +507,7 @@ export function SecurityPanel({ backed }: { backed: boolean }) {
       {/* enable/disable confirmation */}
       {encModal && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-[32rem] max-w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-5 shadow-2xl">
+          <div className={cn("w-[32rem] max-w-full p-5", dlg.panel)}>
             <div className="flex items-center gap-2">
               <ShieldAlert className={`h-5 w-5 ${encModal === "enable" ? "text-rose-400" : "text-amber-400"}`} />
               <h2 className="text-base font-semibold text-zinc-100">
@@ -546,14 +548,14 @@ export function SecurityPanel({ backed }: { backed: boolean }) {
                   setEncErr(null);
                 }}
                 placeholder={t("Your MiColl password")}
-                className="h-9 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-brand-500/60"
+                className={dlg.input}
               />
               {encModal === "enable" && (
                 <input
                   value={understand}
                   onChange={(e) => setUnderstand(e.target.value)}
                   placeholder={tf("Type “{phrase}” to confirm", { phrase: t("I understand") })}
-                  className="h-9 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-rose-500/60"
+                  className={cn(dlg.input, "focus-within:border-rose-500/60")}
                 />
               )}
             </div>
@@ -610,7 +612,7 @@ export function SecurityPanel({ backed }: { backed: boolean }) {
       {/* one-time recovery key */}
       {recovery && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-[32rem] max-w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-5 shadow-2xl">
+          <div className={cn("w-[32rem] max-w-full p-5", dlg.panel)}>
             <div className="flex items-center gap-2">
               <KeyRound className="h-5 w-5 text-brand-300" />
               <h2 className="text-base font-semibold text-zinc-100">{t("Save your recovery key")}</h2>

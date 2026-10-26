@@ -3,6 +3,8 @@ import { motion } from "framer-motion";
 import { FolderInput, FolderTree, Files } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useT, useTf } from "@/lib/i18n";
+import { useDialogTheme } from "@/lib/dialogTheme";
+import { cn } from "@/lib/utils";
 
 /**
  * Shown when moving a reward into another reward: keep the whole folder
@@ -24,6 +26,7 @@ export function MergeChoiceDialog({
   onCancel: () => void;
 }) {
   const t = useT();
+  const dlg = useDialogTheme();
   const tf = useTf();
   const [dontAsk, setDontAsk] = useState(false);
   const what = count === 1 ? t("this folder") : tf("these {n} folders", { n: count });
@@ -32,7 +35,7 @@ export function MergeChoiceDialog({
       <motion.div
         initial={{ opacity: 0, y: 12, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        className="w-[32rem] max-w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-5 shadow-2xl"
+        className={cn("w-[32rem] max-w-full p-5", dlg.panel)}
       >
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-500/15 text-brand-300">
@@ -57,7 +60,10 @@ export function MergeChoiceDialog({
           <button
             disabled={busy}
             onClick={() => onChoose(false, dontAsk)}
-            className="flex items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-950/60 px-3.5 py-3 text-left transition-colors hover:border-brand-500/50 hover:bg-brand-500/5 disabled:opacity-50"
+            className={cn(
+              "flex items-start gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors hover:border-brand-500/50 hover:bg-brand-500/5 disabled:opacity-50",
+              dlg.soft,
+            )}
           >
             <Files className="mt-0.5 h-5 w-5 shrink-0 text-brand-300" />
             <span>
@@ -70,7 +76,10 @@ export function MergeChoiceDialog({
           <button
             disabled={busy}
             onClick={() => onChoose(true, dontAsk)}
-            className="flex items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-950/60 px-3.5 py-3 text-left transition-colors hover:border-brand-500/50 hover:bg-brand-500/5 disabled:opacity-50"
+            className={cn(
+              "flex items-start gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors hover:border-brand-500/50 hover:bg-brand-500/5 disabled:opacity-50",
+              dlg.soft,
+            )}
           >
             <FolderTree className="mt-0.5 h-5 w-5 shrink-0 text-brand-300" />
             <span>

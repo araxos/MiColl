@@ -3294,6 +3294,7 @@ function SortControl({
   onPick: (f: ImgSortField) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const { menu, menuRow, menuRowOpen } = useDialogTheme();
   return (
     <div className="relative">
       <ViewerBtn
@@ -3306,7 +3307,7 @@ function SortControl({
       {open && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-40 mt-1 w-44 rounded-xl border border-zinc-800 bg-zinc-900 p-1 shadow-2xl">
+          <div className={cn(menu, "absolute right-0 top-full z-40 mt-1 w-44 p-1")}>
             {IMG_SORT_FIELDS.map((f) => {
               const active = f === field;
               return (
@@ -3315,7 +3316,7 @@ function SortControl({
                   onClick={() => onPick(f)}
                   className={cn(
                     "flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors",
-                    active ? "bg-brand-500/15 text-brand-200" : "text-zinc-200 micoll-hover",
+                    active ? menuRowOpen : cn("text-zinc-200", menuRow),
                   )}
                   title={active ? "Click to reverse direction" : undefined}
                 >

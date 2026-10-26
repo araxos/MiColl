@@ -5,6 +5,13 @@
 import { useAccent } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
+/**
+ * Outline button on the standard accents: a faint brand rim and tint with a lit top
+ * edge instead of the flat grey zinc border. `micoll-hover` = the accent's hover fill.
+ */
+export const STD_OUTLINE =
+  "border border-brand-300/40 bg-brand-500/10 text-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] micoll-hover micoll-hover-ink hover:border-brand-300/60";
+
 export interface DialogTheme {
   /** The dialog panel (border, background, glow, clip-path). */
   panel: string;
@@ -116,8 +123,7 @@ export function useDialogTheme(): DialogTheme {
           "iri-frost rounded-lg border border-white/20 bg-white/10 text-zinc-100 hover:bg-white/20"
         : accent === "sakura"
           ? "rounded-lg border border-[#f9a8d4]/40 bg-[#f9a8d4]/10 text-zinc-100 hover:bg-[#f9a8d4]/20"
-          : // `micoll-hover` = the accent's own hover fill (index.css), not zinc.
-            "rounded-lg border border-zinc-700 text-zinc-200 micoll-hover micoll-hover-ink";
+          : cn("rounded-lg", STD_OUTLINE);
   const controlOn =
     accent === "cyberpunk"
       ? "rounded-none border border-[#fcee0a] bg-[#fcee0a]/20 text-[#fcee0a] shadow-[0_0_12px_rgba(252,238,10,0.3)]"

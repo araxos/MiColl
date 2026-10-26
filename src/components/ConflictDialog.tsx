@@ -3,6 +3,8 @@ import { motion } from "framer-motion";
 import { Files, Replace, Copy, Ban } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useT, useTf } from "@/lib/i18n";
+import { useDialogTheme } from "@/lib/dialogTheme";
+import { cn } from "@/lib/utils";
 import type { ConflictChoice, FillConflict } from "@/api/library";
 
 /**
@@ -23,6 +25,7 @@ export function ConflictDialog({
   onCancelAll: () => void;
 }) {
   const t = useT();
+  const dlg = useDialogTheme();
   const tf = useTf();
   const [index, setIndex] = useState(0);
   const [resolutions, setResolutions] = useState<Record<string, ConflictChoice>>({});
@@ -54,7 +57,7 @@ export function ConflictDialog({
       <motion.div
         initial={{ opacity: 0, y: 12, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        className="w-[30rem] rounded-2xl border border-zinc-800 bg-zinc-900 p-5 shadow-2xl"
+        className={cn("w-[30rem] p-5", dlg.panel)}
       >
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-300">
@@ -100,7 +103,7 @@ export function ConflictDialog({
           </Button>
         </div>
 
-        <div className="mt-4 flex justify-end border-t border-zinc-800 pt-3">
+        <div className={cn("mt-4 flex justify-end border-t pt-3", dlg.divider)}>
           <Button variant="ghost" onClick={onCancelAll}>
             {t("Cancel import")}
           </Button>

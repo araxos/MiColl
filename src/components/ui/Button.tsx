@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { useAccent } from "@/lib/theme";
+import { STD_OUTLINE } from "@/lib/dialogTheme";
 import { forwardRef, type ButtonHTMLAttributes } from "react";
 
 type Variant = "primary" | "secondary" | "ghost" | "outline";
@@ -16,7 +17,7 @@ const variants: Record<Variant, string> = {
     "border border-transparent bg-brand-600 text-white hover:bg-brand-500 shadow-lg shadow-brand-900/30",
   secondary: "border border-transparent bg-zinc-800 text-zinc-100 micoll-hover",
   ghost: "text-zinc-300 micoll-hover micoll-hover-ink",
-  outline: "border border-zinc-700 text-zinc-200 micoll-hover micoll-hover-ink",
+  outline: STD_OUTLINE,
 };
 
 const sizes: Record<Size, string> = {

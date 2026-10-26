@@ -210,7 +210,6 @@ export function ImportReviewTree({
   busy,
   lockedArtist,
   sourcePath,
-  allowCombine = true,
   defaultStyle,
   defaultPlatform,
   defaultYear,
@@ -226,10 +225,8 @@ export function ImportReviewTree({
   progress?: { steps: ImportStep[]; step: ImportStep; sub?: ImportSub } | null;
   /** If set, everything goes to this artist and the name can't be changed. */
   lockedArtist?: string;
-  /** The dropped/picked folder. Enables "one reward" + Quick import. */
+  /** The dropped/picked folder. Enables Quick import. */
   sourcePath?: string;
-  /** Allow merging everything into one reward (off for a whole artist tree). */
-  allowCombine?: boolean;
   /** Pre-select this release style. */
   defaultStyle?: ReleaseStyle;
   /** Pre-select this platform where none was detected. */
@@ -595,8 +592,6 @@ export function ImportReviewTree({
   // the dropped folder was split into sub-rewards, probably ONE reward with galleries
   const splitFromRoot =
     !!root && plan.rewards.length >= 2 && plan.rewards.every((r) => parentDir(r.folder) === root);
-  const [combine, setCombine] = useState(false);
-  const [combinedTitle, setCombinedTitle] = useState(rootName);
 
   const [customPlatforms, setCustomPlatforms] = useState<string[]>([]);
   const [newPlatform, setNewPlatform] = useState<string | null>(null);
@@ -730,8 +725,7 @@ export function ImportReviewTree({
   }, [rows, styles]);
 
   const activeRows = rows.filter((r) => r.mergedInto === null);
-  const outCount = combine && root ? 1 : activeRows.length;
-  const combinedImages = activeRows.reduce((s, r) => s + ownImageCount(r), 0);
+  const outCount = activeRows.length;
 
   /* ---- build + confirm --------------------------------------------------- */
 
@@ -763,34 +757,8 @@ export function ImportReviewTree({
     };
   };
 
-  const build = (): ResolvedReward[] => {
-    if (combine && root) {
-      const first = rows[0];
-      const creator = (lockedArtist ?? first?.creator ?? rootName).trim() || rootName;
-      const s = styleOf(creator);
-      return [
-        {
-          artist: creator,
-          platform: platformOf(first?.platform ?? UNSORTED),
-          year: s === "monthly" ? num(first?.year ?? "") : null,
-          month: s === "monthly" ? num(first?.month ?? "") : null,
-          number: s === "numbered" ? num(first?.num ?? "") : null,
-          category: null,
-          title: combinedTitle.trim() || rootName,
-          folder: root,
-          root: rows.every((r) => r.root) && rows.length > 0 ? true : false,
-          extra: activeRows.length > 0 && activeRows.every((r) => r.extra),
-          // one reward from many folders: their tier if they all agree
-          tier: (() => {
-            const tiers = new Set(activeRows.map((r) => r.tier?.trim() || ""));
-            return tiers.size === 1 ? [...tiers][0] || null : null;
-          })(),
-        },
-      ];
-    }
-    // folded rows are skipped, the backend indexes the parent folder recursively
-    return activeRows.map(rowToResolved);
-  };
+  // folded rows are skipped, the backend indexes the parent folder recursively
+  const build = (): ResolvedReward[] => activeRows.map(rowToResolved);
 
   /**
    * One StyleChoice per creator whose style changes. Existing creators get
@@ -960,7 +928,9 @@ export function ImportReviewTree({
   // quick import = sort it later: without a known platform it goes to Unsorted
   const quickPlatform = platformOf(firstRow?.platform ?? UNSORTED);
   const quickPlatformLabel = quickPlatform ?? t("Unsorted");
-  const quickTitle = (combine ? combinedTitle : firstRow?.title ?? rootName).trim() || rootName;
+  // the dropped folder bundled into one reward: its name
+  const rootRow = activeRows.find((r) => r.folder === root);
+  const quickTitle = (rootRow?.title ?? firstRow?.title ?? rootName).trim() || rootName;
 
   const runQuickImport = () => {
     const rewards: ResolvedReward[] = [
@@ -1064,7 +1034,7 @@ export function ImportReviewTree({
               </h2>
               <p className="text-xs text-zinc-400">
                 {tp("{n} rewards", outCount)}
-                {lockedArtist || combine ? "" : ` · ${tp("{n} creators", tree.length)}`}
+                {lockedArtist ? "" :` · ${tp("{n} creators", tree.length)}`}
                 {` · ${t("this is exactly what will be created")}`}
               </p>
             </div>
@@ -1080,24 +1050,6 @@ export function ImportReviewTree({
               </p>
             ) : (
               <div className="space-y-4">
-                {/* merge the dropped folder into ONE reward */}
-                {allowCombine && splitFromRoot && (
-                  <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-brand-500/30 bg-brand-500/5 p-3 text-sm text-zinc-300">
-                    <input
-                      type="checkbox"
-                      checked={combine}
-                      onChange={(e) => setCombine(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 accent-brand-500"
-                    />
-                    <span>
-                      {tf("Treat “{name}” as ONE reward", { name: rootName })}
-                      <span className="mt-0.5 block text-xs text-zinc-500">
-                        {t("Its subfolders become images inside a single reward instead of separate rewards.")}
-                      </span>
-                    </span>
-                  </label>
-                )}
-
                 {tree.map((node) => {
                   const isLocked = !!lockedArtist;
                   // the library creator of this group, if any
@@ -1272,73 +1224,28 @@ export function ImportReviewTree({
                       </div>
 
                       {/* preview tree: Period -> Reward */}
-                      {combine ? (
-                        // one merged reward, its period comes from the first row
-                        <div className={cn("flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs", softClass)}>
-                          <CornerDownRight className="h-3 w-3 shrink-0 text-zinc-600" />
-                          <input
-                            value={combinedTitle}
-                            onChange={(e) => setCombinedTitle(e.target.value)}
-                            placeholder={rootName}
-                            title={t("Reward folder name")}
-                            className={cn("h-7 min-w-0 flex-1", inputCls)}
-                          />
-                          {node.style === "monthly" && rows[0] && (
-                            <>
-                              <CommitInput
-                                value={rows[0].year}
-                                onCommit={(v) => patchRow(rows[0].folder, { year: v })}
-                                sanitize={(v) => v.replace(/\D/g, "").slice(0, 4)}
-                                placeholder={t("Year")}
-                                title={t("Year — leave blank for Misc")}
-                                className={cn("h-7 w-14", inputCls, !rows[0].year && "border-amber-500/50")}
-                              />
-                              <CommitInput
-                                value={rows[0].month}
-                                onCommit={(v) => patchRow(rows[0].folder, { month: v })}
-                                sanitize={(v) => v.replace(/\D/g, "").slice(0, 2)}
-                                placeholder="M"
-                                title={t("Month (1–12) — leave blank for a whole-year folder")}
-                                className={cn("h-7 w-10", inputCls)}
-                              />
-                            </>
-                          )}
-                          {node.style === "numbered" && rows[0] && (
-                            <span className="inline-flex items-center gap-0.5">
-                              <Hash className="h-3 w-3 text-zinc-500" />
-                              <CommitInput
-                                value={rows[0].num}
-                                onCommit={(v) => patchRow(rows[0].folder, { num: v })}
-                                sanitize={(v) => v.replace(/\D/g, "").slice(0, 6)}
-                                placeholder={t("Nr")}
-                                title={t("Drop number — blank = Unscheduled")}
-                                className={cn("h-7 w-12", inputCls, !rows[0].num && "border-amber-500/50")}
-                              />
-                            </span>
-                          )}
-                          {node.style === "none" && <Badge tone="neutral">{t("No schedule")}</Badge>}
-                          <span className="inline-flex items-center gap-1 text-zinc-500">
-                            <Images className="h-3 w-3" />
-                            {combinedImages}
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
+                      <div className="space-y-2">
                           {node.periods.map((period) => {
                             // "Bundle into ONE reward" when the rewards share a folder
                             // (e.g. characters in a month folder:
                             // reward/2026-05/charX|charY|charZ)
-                            const anc = commonAncestor(period.rows.map((r) => r.folder));
+                            // the dropped folder split into rewards: bundling takes all of
+                            // them into it, whatever period they landed in
+                            const wholeRoot =
+                              splitFromRoot && period.rows.every((r) => parentDir(r.folder) === root);
+                            const anc = wholeRoot ? root : commonAncestor(period.rows.map((r) => r.folder));
                             const rowAtAnc = anc != null ? rows.find((r) => r.folder === anc) : undefined;
                             // only an active row can take in siblings
                             const ancRow = rowAtAnc?.mergedInto === null ? rowAtAnc : undefined;
-                            const bundleKids = period.rows.filter((r) => r.folder !== anc);
+                            const bundleKids = wholeRoot
+                              ? activeRows.filter((r) => parentDir(r.folder) === root)
+                              : period.rows.filter((r) => r.folder !== anc);
                             const canBundle =
                               anc != null &&
                               !(rowAtAnc && !ancRow) &&
                               bundleKids.length >= (ancRow ? 1 : 2) &&
-                              // the dropped root has its own "Treat as ONE reward" checkbox
-                              !(allowCombine && splitFromRoot && anc === root && !ancRow);
+                              // offered once, on the first of its periods
+                              !(wholeRoot && period !== node.periods.find((p) => p.rows.every((r) => parentDir(r.folder) === root)));
                             const doBundle = () => {
                               if (!anc) return;
                               if (ancRow) {
@@ -1392,7 +1299,7 @@ export function ImportReviewTree({
                                             )
                                           : tf(
                                               "Bundle these {n} rewards into ONE reward — they’ll show as groups inside it in the viewer (undo via the toggle on the bundled row)",
-                                              { n: period.rows.length },
+                                              { n: bundleKids.length },
                                             )
                                       }
                                       className="inline-flex items-center gap-1 rounded-md border border-dashed border-brand-500/50 bg-brand-500/5 px-1.5 py-0.5 text-brand-200 transition-colors hover:bg-brand-500/15"
@@ -1623,8 +1530,7 @@ export function ImportReviewTree({
                             </div>
                             );
                           })}
-                        </div>
-                      )}
+                      </div>
                     </div>
                   );
                 })}
@@ -1639,7 +1545,7 @@ export function ImportReviewTree({
             <Button variant="ghost" onClick={onCancel} disabled={busy}>
               {t("Cancel")}
             </Button>
-            {allowCombine && root && (
+            {root && (
               <Button
                 variant="ghost"
                 disabled={busy || rows.length === 0}

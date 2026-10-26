@@ -9,6 +9,7 @@ import { RewardGrid } from "@/components/RewardGrid";
 import { CardShapeButton } from "@/components/CardShapeButton";
 import { ThemeCheck } from "@/components/ThemeCheck";
 import { NewFolderDialog } from "@/components/MovePicker";
+import { ThemedSelect } from "@/components/ThemedSelect";
 import { ArtistSidebar } from "@/components/ArtistSidebar";
 import { ArtistLinks } from "@/components/ArtistLinks";
 import { ImageViewer, type CoverTargets, type ViewerItem } from "@/components/ImageViewer";
@@ -23,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { useMonthsShort, useT, useTf, useTp } from "@/lib/i18n";
 import { isTauri } from "@/lib/tauri";
 import { useAccent, type AccentKey } from "@/lib/theme";
+import { useDialogTheme } from "@/lib/dialogTheme";
 import { useActions } from "@/actions";
 import { useUpNavigate } from "@/lib/nav";
 import { useArtistImages, useData } from "@/store";
@@ -65,9 +67,10 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
     ? "border-white/20 bg-white/10 text-zinc-100 hover:bg-white/20"
     : undefined;
   // small square buttons in the box's bottom right (same trim as CardShapeButton)
+  const { control, field, menu } = useDialogTheme();
   const iconButton = cn(
-    "rounded-lg border outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500",
-    irid ? iriOutline : "border-zinc-700 text-zinc-200 micoll-hover",
+    "outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500",
+    control,
   );
   // "All Creators" button: bright frosted pill on iridescent, dark glass on
   // sakura/cyberpunk, ghost on standard themes
@@ -969,13 +972,18 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                   {rest.length > 0 && (
                     <span className="group relative inline-flex">
                       <span
-                        className="classic-chip cursor-default rounded-full border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300"
+                        className="classic-chip cursor-default rounded-full border border-brand-500/30 bg-brand-500/10 px-2.5 py-1 text-xs text-brand-200"
                         // the list below is the hint, no title on top of it
                         aria-label={tp("{n} more", rest.length)}
                       >
                         …
                       </span>
-                      <div className="pointer-events-none absolute left-0 top-7 z-50 w-max max-w-[18rem] rounded-xl border border-zinc-700 bg-zinc-900 p-2 opacity-0 shadow-2xl shadow-black/50 transition-opacity duration-150 group-hover:opacity-100">
+                      <div
+                        className={cn(
+                          menu,
+                          "pointer-events-none absolute left-0 top-7 z-50 w-max max-w-[18rem] p-2 opacity-0 transition-opacity duration-150 group-hover:opacity-100",
+                        )}
+                      >
                         <div className="flex flex-wrap gap-1">
                           {rest.map((tag) => (
                             <span
@@ -1010,9 +1018,8 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                 aria-label={t("New folder")}
                 aria-description={t("Create a new (empty) folder — pick a year or leave it under Misc")}
                 className={cn(
-                  "group inline-flex h-8 items-center rounded-lg border px-2 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500",
-                  "border-zinc-700 text-zinc-200 micoll-hover",
-                  iriOutline,
+                  "group inline-flex h-8 items-center px-2 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500",
+                  control,
                 )}
               >
                 <span className="grid h-4 w-4 shrink-0 place-items-center">
@@ -1187,7 +1194,13 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
               {skipPickerOpen && (
                 <>
                   <div className="fixed inset-0 z-30" onClick={() => setSkipPickerOpen(false)} />
-                  <div className="absolute left-0 top-full z-40 mt-1 w-60 rounded-xl border border-zinc-800 bg-zinc-900 p-3 shadow-2xl">
+                  {/* same surface as the "+ Platform" menu, themed fields */}
+                  <div
+                    className={cn(
+                      "absolute left-0 top-full z-40 mt-1.5 w-60 p-3 shadow-2xl shadow-black/40",
+                      menuSurface,
+                    )}
+                  >
                     <p className="mb-2 text-xs text-zinc-400">
                       {tf("Mark a skipped month on {platform}.", { platform: platform.name })}
                     </p>
@@ -1196,19 +1209,19 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                         value={skipYear}
                         onChange={(e) => setSkipYear(e.target.value.replace(/[^0-9]/g, ""))}
                         placeholder={t("Year")}
-                        className="h-8 w-16 rounded-md border border-zinc-800 bg-zinc-950 px-2 text-xs text-zinc-100 outline-none focus:border-brand-500/60"
+                        className={cn(
+                          "h-8 w-16 px-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-500",
+                          field,
+                        )}
                       />
-                      <select
+                      {/* not a native <select>: Windows draws its list grey */}
+                      <ThemedSelect
                         value={skipMonth}
-                        onChange={(e) => setSkipMonth(e.target.value)}
-                        className="h-8 flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-2 text-xs text-zinc-100 outline-none focus:border-brand-500/60"
-                      >
-                        {months.map((mn, idx) => (
-                          <option key={mn} value={String(idx + 1)}>
-                            {mn}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={setSkipMonth}
+                        options={months.map((mn, idx) => ({ value: String(idx + 1), label: mn }))}
+                        className={cn("h-8 min-w-0 flex-1 px-2 text-xs text-zinc-100", field)}
+                        minWidth={120}
+                      />
                     </div>
                     <Button
                       variant="primary"
