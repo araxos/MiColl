@@ -107,6 +107,74 @@ fn app_cache<R: tauri::Runtime, M: Manager<R>>(app: &M) -> Result<std::path::Pat
     }
 }
 
+/* ---- the webview's own folder ----
+   WebView2 keeps its profile (localStorage with the theme, unlock and view settings,
+   caches) in %LOCALAPPDATA%\<identifier>\EBWebView by default. A portable copy shared
+   that with the installed MiColl and the dev build, and so their browser and GPU
+   processes too: one of them restarting or crashing could leave the portable's window
+   black. Portable gets its own in data\webview. Every window has to use it (the popout
+   reads its data from the shared localStorage), so windows are made in Rust only. */
+
+/// The portable copy's webview folder, None for a normal install (Tauri's default).
+fn webview_dir() -> Option<std::path::PathBuf> {
+    portable_root().map(|root| root.join("data").join("webview"))
+}
+
+/// Give a window the portable webview folder (no-op for a normal install).
+fn own_webview<'a, R: tauri::Runtime, M: Manager<R>>(
+    builder: tauri::WebviewWindowBuilder<'a, R, M>,
+) -> tauri::WebviewWindowBuilder<'a, R, M> {
+    match webview_dir() {
+        Some(dir) => builder.data_directory(dir),
+        None => builder,
+    }
+}
+
+/// First start with the own folder: take the localStorage along from the shared one, so
+/// the theme, unlock and settings stay. Copied into a temp folder and renamed at the
+/// end, a failed copy is tried again next start.
+fn prepare_webview_dir<R: tauri::Runtime, M: Manager<R>>(app: &M) {
+    let Some(dir) = webview_dir() else { return };
+    if dir.exists() {
+        return;
+    }
+    const STORAGE: [&str; 3] = ["EBWebView", "Default", "Local Storage"];
+    let Ok(shared) = app.path().app_local_data_dir() else { return };
+    let from = STORAGE.iter().fold(shared, |p, s| p.join(s));
+    let tmp = dir.with_file_name("webview.tmp");
+    let _ = std::fs::remove_dir_all(&tmp);
+    if from.is_dir() {
+        let to = STORAGE.iter().fold(tmp.clone(), |p, s| p.join(s));
+        if let Err(e) = copy_tree_unlocked(&from, &to) {
+            crate::elog!("micoll: could not take the settings to the own webview folder: {e}");
+            let _ = std::fs::remove_dir_all(&tmp);
+            return;
+        }
+    } else if let Err(e) = std::fs::create_dir_all(&tmp) {
+        crate::elog!("micoll: could not make {}: {e}", tmp.display());
+        return;
+    }
+    if let Err(e) = std::fs::rename(&tmp, &dir) {
+        crate::elog!("micoll: could not make {}: {e}", dir.display());
+    }
+}
+
+/// copy_tree without LevelDB's LOCK files (held open by a running MiColl, made anew).
+fn copy_tree_unlocked(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let src = entry.path();
+        let dest = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_tree_unlocked(&src, &dest)?;
+        } else if entry.file_name() != "LOCK" {
+            std::fs::copy(&src, &dest)?;
+        }
+    }
+    Ok(())
+}
+
 /// Everything in a data folder EXCEPT the database (templates, versions, models).
 /// Used when a portable copy takes over the installed library. backups stays behind.
 fn copy_data_extras(from: &std::path::Path, to: &std::path::Path) {
@@ -6121,7 +6189,10 @@ async fn edit_expand(
                     use tauri::Emitter;
                     let _ = app.emit("expand-progress", serde_json::json!({ "done": done, "total": total }));
                 };
-                ai::outpaint_lama(&data, &img, width, height, x, y, &report)?
+                let mut out = ai::outpaint_lama(&data, &img, width, height, x, y, &report)?;
+                // the strips already held the colour, this adds the picture's grain
+                ai::hold_edge_colour(&mut out, &img, x, y, 0);
+                out
             }
             // LaMa lays out the border, Stable Diffusion redraws it (see diffusion.rs)
             "hq" => {
@@ -6143,26 +6214,31 @@ async fn edit_expand(
                     // as it was, people mode never touches it
                     image::imageops::replace(&mut laid, &img, x as i64, y as i64);
                     let band = ((width.min(height) as f32 * 0.02).round() as u32).clamp(8, 48);
-                    return edit::encode_png_data_url(&diffusion::refine_people(
+                    let mut out = diffusion::refine_people(
                         &ai::model_path(&data, ai::Model::Sd15),
                         &laid,
                         (x, y, img.width(), img.height()),
                         band,
                         seed.unwrap_or(7),
                         &|d, t| report("detail", d, t),
-                    )?);
+                    )?;
+                    // SD tints and darkens a plain backdrop too
+                    ai::hold_edge_colour(&mut out, &img, x, y, 0);
+                    return edit::encode_png_data_url(&out);
                 }
                 // SD may blend a bit further into the picture than LaMa (it's drawn at a
                 // lower resolution, a wider fade hides that)
                 let band = ((width.min(height) as f32 * 0.02).round() as u32).clamp(8, 48);
-                diffusion::refine(
+                let mut out = diffusion::refine(
                     &ai::model_path(&data, ai::Model::Sd15),
                     &laid,
                     (x, y, img.width(), img.height()),
                     band,
                     seed.unwrap_or(7),
                     &|d, t| report("detail", d, t),
-                )?
+                )?;
+                ai::hold_edge_colour(&mut out, &img, x, y, band);
+                out
             }
             "blur" => edit::expand_blur(&img, width, height, x, y),
             other => return Err(format!("unknown expand mode '{other}'")),
@@ -6740,7 +6816,7 @@ fn open_new_window(app: &AppHandle) {
     let app = app.clone();
     // off the calling thread: building a window from a blocked thread can deadlock
     std::thread::spawn(move || {
-        match tauri::WebviewWindowBuilder::from_config(&app, &config).and_then(|b| b.visible(false).build()) {
+        match tauri::WebviewWindowBuilder::from_config(&app, &config).and_then(|b| own_webview(b).visible(false).build()) {
             Ok(w) => {
                 // the size of the last window, the place is up to Windows
                 winstate::restore(&w, false);
@@ -6750,6 +6826,24 @@ fn open_new_window(app: &AppHandle) {
             Err(e) => crate::elog!("micoll: new window failed: {e}"),
         }
     });
+}
+
+/// The pop-out viewer window (popout.ts). Made here and not in JS so it gets the same
+/// webview folder as the main window (own_webview), its data waits in localStorage.
+/// async: building a window on the main thread can deadlock.
+#[tauri::command]
+async fn open_popout(app: AppHandle, id: String, title: String) -> Result<(), String> {
+    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err("bad popout id".into());
+    }
+    let url = tauri::WebviewUrl::App(format!("index.html?popout={id}").into());
+    own_webview(tauri::WebviewWindowBuilder::new(&app, format!("popout-{id}"), url))
+        .title(title)
+        .inner_size(1000.0, 720.0)
+        .decorations(true)
+        .build()
+        .map_err(map_err)?;
+    Ok(())
 }
 
 /* The tray menu: Open, Add rewards, Lock, the recently opened creators, Quit. The
@@ -10342,8 +10436,11 @@ pub fn run() {
             app.manage(winstate::WinState::new(&dir));
             let autostarted = std::env::args().skip(1).any(|a| a == AUTOSTART_ARG);
             let mut main_window = None;
+            prepare_webview_dir(app);
             if let Some(config) = app.config().app.windows.first().cloned() {
-                let main = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?.visible(false).build()?;
+                let main = own_webview(tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?)
+                    .visible(false)
+                    .build()?;
                 winstate::restore(&main, true);
                 // started with Windows it waits for the tray (below)
                 if autostarted {
@@ -10716,6 +10813,7 @@ pub fn run() {
             get_autostart,
             set_autostart,
             take_launch_action,
+            open_popout,
             is_portable,
             portable_update,
         ]))

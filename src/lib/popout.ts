@@ -19,14 +19,12 @@ const keyFor = (id: string) => `micoll.popout.${id}`;
 export async function openInNewWindow(payload: PopoutPayload): Promise<void> {
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   localStorage.setItem(keyFor(id), JSON.stringify(payload));
-  // lazy import so the browser version doesn't load the window API
-  const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-  new WebviewWindow(`popout-${id}`, {
-    url: `index.html?popout=${id}`,
+  // made in Rust so it shares the main window's webview folder (and so this localStorage);
+  // lazy import so the browser version doesn't load the Tauri API
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("open_popout", {
+    id,
     title: payload.title ? `MiColl — ${payload.title}` : "MiColl",
-    width: 1000,
-    height: 720,
-    decorations: true,
   });
 }
 

@@ -558,6 +558,7 @@ fn outpaint_x(
             progress(done, total);
         }
     }
+    hold_edge_colour_x(&mut canvas, img, ox, side, 0, false);
     // the band: the picture again, fading from the inside (full) to its edge (LaMa)
     for y in 0..h {
         for i in 0..left_band {
@@ -571,6 +572,238 @@ fn outpaint_x(
         }
     }
     Ok(canvas)
+}
+
+/// hold_edge_colour: how far (share of the edge's brightness, per colour channel, plus a
+/// little) the new border's broad colour may stray from the picture's edge before it's pulled
+/// back, and from where on it's pulled all the way. Tight: on a dark backdrop 3 levels in one
+/// channel already read as a different colour (grey next to purple-black).
+const EDGE_TOLERANCE: f32 = 0.01;
+const EDGE_FULL: f32 = 0.03;
+/// hold_edge_colour: an edge this busy (luminance std dev) isn't a plain background, the
+/// pull fades out towards it.
+const EDGE_BUSY: f32 = 30.0;
+
+/// LaMa darkens a dark, plain background a little with every strip, and every strip
+/// builds on the last: a studio photo's dark grey ran into black within a few hundred
+/// pixels, and SD then ended it in a hard black cut (and tinted its windows next to the
+/// picture). Where the picture's edge is plain, the border's broad colour (a wide blur)
+/// is pulled back to the edge colour of the same rows (columns for a taller canvas); the
+/// texture on top stays. Busy edges (trees, a hand reaching out) are left alone: there a
+/// different border can be real. img sits at (ox, oy) on the canvas. band: how far the
+/// fill was blended into the picture (SD's band), the pull fades out across it.
+/// Also gives a plain border the picture's grain (see GRAIN_HP), LaMa and SD draw it smooth.
+pub fn hold_edge_colour(canvas: &mut RgbaImage, img: &RgbaImage, ox: u32, oy: u32, band: u32) {
+    let (w, h) = canvas.dimensions();
+    if w > img.width() {
+        hold_edge_colour_x(canvas, img, ox, h.min(w), band, true);
+    } else if h > img.height() {
+        let mut t = transpose(canvas);
+        hold_edge_colour_x(&mut t, &transpose(img), oy, w.min(h), band, true);
+        *canvas = transpose(&t);
+    }
+}
+
+/// hold_edge_colour's grain: the std dev of a pixel's luminance minus its 3 x 3 mean is
+/// this share of the std dev of white noise.
+const GRAIN_HP: f32 = 0.943;
+/// hold_edge_colour's grain: rounding the noisy pixels back to whole levels adds a grain of
+/// its own (that share of the variance), left out of the noise (a dark studio photo's
+/// border came out grainier than the picture without it).
+const GRAIN_ROUNDING: f32 = 0.025;
+
+/// hold_edge_colour for a wider canvas (side: outpaint_x's window size). grain: add the
+/// picture's grain to the border (only once, at the end: LaMa would build on it).
+fn hold_edge_colour_x(canvas: &mut RgbaImage, img: &RgbaImage, ox: u32, side: u32, band: u32, grain: bool) {
+    let (width, h) = canvas.dimensions();
+    let iw = img.width();
+    let lum = |c: [f32; 3]| 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+    // the picture's edge: colour and how busy it is, per row (over a few rows)
+    let k = ((side as f32 * 0.02).round() as u32).clamp(4, 48).min(iw);
+    let rv = ((h as f32 * 0.03).round() as u32).max(4);
+    // per row: the mean colour and the luminance std dev
+    type Edge = Vec<([f32; 3], f32)>;
+    let edge = |x0: u32| -> Edge {
+        let rows: Vec<([f32; 3], f32, f32)> = (0..h)
+            .map(|y| {
+                let mut c = [0f32; 3];
+                let (mut l, mut l2) = (0f32, 0f32);
+                for x in x0..x0 + k {
+                    let p = img.get_pixel(x, y);
+                    let v = [p[0] as f32, p[1] as f32, p[2] as f32];
+                    for i in 0..3 {
+                        c[i] += v[i];
+                    }
+                    let lv = lum(v);
+                    l += lv;
+                    l2 += lv * lv;
+                }
+                (c, l, l2)
+            })
+            .collect();
+        (0..h)
+            .map(|y| {
+                let (a, b) = (y.saturating_sub(rv), (y + rv + 1).min(h));
+                let n = ((b - a) * k) as f32;
+                let mut c = [0f32; 3];
+                let (mut l, mut l2) = (0f32, 0f32);
+                for r in &rows[a as usize..b as usize] {
+                    for (ci, ri) in c.iter_mut().zip(r.0) {
+                        *ci += ri;
+                    }
+                    l += r.1;
+                    l2 += r.2;
+                }
+                let mean = l / n;
+                let std = (l2 / n - mean * mean).max(0.0).sqrt();
+                ([c[0] / n, c[1] / n, c[2] / n], std)
+            })
+            .collect()
+    };
+    let band = band.min(iw / 2);
+    // per side: the columns pulled (the border plus the band inside the picture) and
+    // how strongly at a column (1 outside, fading to 0 across the band)
+    type Weight = Box<dyn Fn(u32) -> f32>;
+    let fade = move |d: u32| 1.0 - (d as f32 + 0.5) / band.max(1) as f32;
+    // also per side: the border's own columns and the picture's grain next to them
+    type Side = (u32, u32, (u32, u32), Edge, Vec<f32>, Weight);
+    let sides: Vec<Side> = [
+        (ox > 0).then(|| {
+            let w: Weight = Box::new(move |x| if x < ox { 1.0 } else { fade(x - ox) });
+            (0, ox + band, (0, ox), edge(0), grain_rows(img, 0, k, rv), w)
+        }),
+        (ox + iw < width).then(|| {
+            let end = ox + iw;
+            let w: Weight = Box::new(move |x| if x >= end { 1.0 } else { fade(end - 1 - x) });
+            (end - band, width, (end, width), edge(iw - k), grain_rows(img, iw - k, iw, rv), w)
+        }),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let r = ((side as f32 * 0.04).round() as u32).max(8);
+    for (x0, x1, (f0, f1), edge, edge_grain, weight) in sides {
+        // blurred on its own: the picture next to it would pull the broad colour towards
+        // the edge colour right at the seam and leave a stripe of the old colour there
+        let rw = x1 - x0;
+        let low = box_blur(&image::imageops::crop_imm(canvas, x0, 0, rw, h).to_image(), r);
+        for y in 0..h {
+            let (e, std) = edge[y as usize];
+            let plain = (1.0 - std / EDGE_BUSY).clamp(0.0, 1.0);
+            if plain <= 0.0 {
+                continue;
+            }
+            let le = lum(e);
+            let tol = le * EDGE_TOLERANCE + 0.3;
+            let full = le * EDGE_FULL + 1.0;
+            for x in x0..x1 {
+                let l = low[(y * rw + x - x0) as usize];
+                let off = (0..3).map(|i| (l[i] - e[i]).abs()).fold(0f32, f32::max);
+                if off <= tol {
+                    continue;
+                }
+                // none within the tolerance, all the way to the edge colour from full on
+                let s = ((off - tol) / (full - tol)).clamp(0.0, 1.0) * plain * weight(x);
+                let p = canvas.get_pixel_mut(x, y);
+                for i in 0..3 {
+                    let v = p[i] as f32 + s * (e[i] - l[i]);
+                    p[i] = v.round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+        if !grain {
+            continue;
+        }
+        // the grain the border lacks, as luminance noise (the same on every channel, a
+        // photo's grain is mostly brightness), on plain rows only: on busy ones the
+        // measure is the detail, not the grain
+        let fill_grain = grain_rows(canvas, f0, f1, rv);
+        for y in 0..h {
+            let plain = (1.0 - edge[y as usize].1 / EDGE_BUSY).clamp(0.0, 1.0);
+            let (g, f) = (edge_grain[y as usize], fill_grain[y as usize]);
+            let add = (g * g - f * f - GRAIN_ROUNDING).max(0.0).sqrt() / GRAIN_HP * plain;
+            if add < 0.05 {
+                continue;
+            }
+            for x in f0..f1 {
+                let n = add * noise(x, y);
+                let p = canvas.get_pixel_mut(x, y);
+                for i in 0..3 {
+                    p[i] = (p[i] as f32 + n).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+    }
+}
+
+/// Per row (over rows y - rv ..= y + rv): the std dev of the luminance minus its 3 x 3
+/// mean in columns x0..x1, the fine grain.
+fn grain_rows(img: &RgbaImage, x0: u32, x1: u32, rv: u32) -> Vec<f32> {
+    let h = img.height();
+    let lum = |c: [f32; 3]| 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+    let part = image::imageops::crop_imm(img, x0, 0, x1 - x0, h).to_image();
+    let mean = box_blur(&part, 1);
+    let rows: Vec<(f32, f32)> = part
+        .rows()
+        .zip(mean.chunks((x1 - x0) as usize))
+        .map(|(row, m)| {
+            row.zip(m).fold((0f32, 0f32), |(s, s2), (p, m)| {
+                let d = lum([p[0] as f32, p[1] as f32, p[2] as f32]) - lum(*m);
+                (s + d, s2 + d * d)
+            })
+        })
+        .collect();
+    (0..h)
+        .map(|y| {
+            let (a, b) = (y.saturating_sub(rv) as usize, (y + rv + 1).min(h) as usize);
+            let n = ((b - a) as u32 * (x1 - x0)) as f32;
+            let (s, s2) = rows[a..b].iter().fold((0f32, 0f32), |(s, s2), r| (s + r.0, s2 + r.1));
+            let mean = s / n;
+            (s2 / n - mean * mean).max(0.0).sqrt()
+        })
+        .collect()
+}
+
+/// Fixed noise for pixel (x, y): roughly normal, mean 0, std dev 1 (the same every run).
+fn noise(x: u32, y: u32) -> f32 {
+    // splitmix64 of the position, three 21-bit uniforms summed
+    let mut z = ((y as u64) << 32 | x as u64).wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    let u = |s: u32| ((z >> s) & 0x1F_FFFF) as f32 / 0x1F_FFFF as f32 - 0.5;
+    // three uniforms in [-0.5, 0.5] have variance 3 / 12
+    (u(0) + u(21) + u(42)) * 2.0
+}
+
+/// Box blur (radius r, clamped at the borders) of the colour, as floats.
+fn box_blur(img: &RgbaImage, r: u32) -> Vec<[f32; 3]> {
+    let (w, h) = img.dimensions();
+    let (w, h, r) = (w as usize, h as usize, r as usize);
+    let pass = |src: &[[f32; 3]], len: usize, lines: usize, at: &dyn Fn(usize, usize) -> usize| {
+        let mut out = vec![[0f32; 3]; src.len()];
+        let mut sum = vec![[0f32; 3]; len + 1];
+        for line in 0..lines {
+            for i in 0..len {
+                let v = src[at(line, i)];
+                for c in 0..3 {
+                    sum[i + 1][c] = sum[i][c] + v[c];
+                }
+            }
+            for i in 0..len {
+                let (a, b) = (i.saturating_sub(r), (i + r + 1).min(len));
+                let n = (b - a) as f32;
+                let o = &mut out[at(line, i)];
+                for c in 0..3 {
+                    o[c] = (sum[b][c] - sum[a][c]) / n;
+                }
+            }
+        }
+        out
+    };
+    let src: Vec<[f32; 3]> = img.pixels().map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]).collect();
+    let rows = pass(&src, w, h, &|y, x| y * w + x);
+    pass(&rows, h, w, &|x, y| y * w + x)
 }
 
 /// canvas(x, y) = t * picture(ix, y) + (1 - t) * what LaMa made there.
