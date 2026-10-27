@@ -62,6 +62,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
   const accent = useAccent();
   const irid = accent === "iridescent";
   const sakura = accent === "sakura";
+  const cyber = accent === "cyberpunk";
   // iridescent: frosted pills instead of a dark border
   const iriOutline = irid
     ? "border-white/20 bg-white/10 text-zinc-100 hover:bg-white/20"
@@ -1069,8 +1070,8 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                 title={t("Right-click for options (dates, delete…)")}
                 className={cn(
                   "flex items-center gap-2 border px-3.5 py-2 text-sm font-medium transition-colors",
-                  // sakura tabs use the petal diagonal shape
-                  sakura ? "sak-petal-cut" : "rounded-xl",
+                  // sakura tabs use the petal diagonal shape, cyberpunk ones are square
+                  sakura ? "sak-petal-cut" : cyber ? "rounded-none" : "rounded-xl",
                   // all iridescent tabs have the 2px border so selecting doesn't move the
                   // row
                   irid && "border-2",
@@ -1084,7 +1085,10 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                         // edge, instead of the grey zinc chip every other accent uses.
                         sakura
                         ? "sak-chip"
-                        : "classic-chip border-zinc-800 bg-zinc-900 text-zinc-300 micoll-hover",
+                        : cyber
+                          ? // like the viewer's idle buttons: dark glass, cyan edge, yellow on hover
+                            "border-[#00e5ff]/30 bg-zinc-950/70 text-zinc-200 hover:border-[#fcee0a]/55 hover:text-[#fcee0a]"
+                          : "classic-chip border-zinc-800 bg-zinc-900 text-zinc-300 micoll-hover",
                 )}
               >
                 {p.name}
@@ -1097,6 +1101,8 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                     irid && "!bg-white/15 !ring-white/30",
                     // no zinc chip on a rose tab
                     sakura && !active && "!bg-[#f9a8d4]/20 !ring-[#f9a8d4]/35",
+                    // square like the tab
+                    cyber && "!rounded-none",
                     // classic premium look: a brand count instead of the zinc one (index.css)
                     !active && "classic-chip-count",
                   )}

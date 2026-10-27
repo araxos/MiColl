@@ -279,6 +279,35 @@ function MonthCardBase({
   const holoTier = tracked ? (pctInt >= 100 ? 2 : pctInt >= 50 ? 1 : 0) : 0;
   const iriHolo = anim && irid ? holoTier : 0;
   const sakHolo = anim && sakura ? holoTier : 0;
+  const cpHolo = anim && cyber ? holoTier : 0;
+  // cyberpunk sparks at 100%: square pixels that blink in the neon colours (stable per
+  // month, long cycles like the iridescent ones)
+  const cpSparks = useMemo(() => {
+    if (cpHolo !== 2) return null;
+    const rnd = (a: number, b: number) => a + Math.random() * (b - a);
+    const hues = ["#fcee0a", "#00e5ff", "#ff2a6d", "#c026ff"];
+    return Array.from({ length: 18 }, (_, i) => {
+      const c = hues[Math.floor(Math.random() * hues.length)];
+      const s = Math.round(rnd(2, 4));
+      const dur = rnd(4, 9);
+      return (
+        <span
+          key={`c${i}`}
+          style={{
+            position: "absolute",
+            left: `${rnd(4, 96).toFixed(1)}%`,
+            top: `${rnd(4, 96).toFixed(1)}%`,
+            width: `${s}px`,
+            height: `${s}px`,
+            background: c,
+            boxShadow: `0 0 6px 1px ${c}`,
+            opacity: 0,
+            animation: `cp-holo-blink ${dur.toFixed(2)}s steps(1, end) ${(-rnd(0, dur)).toFixed(2)}s infinite`,
+          }}
+        />
+      );
+    });
+  }, [cpHolo, month.id]);
   // iridescent sparkles at stable random spots (per month). Long cycles so it only
   // glints now and then. The negative delay uses each speck's own duration.
   const iriSparkles = useMemo(() => {
@@ -629,17 +658,22 @@ function MonthCardBase({
           </>
         )}
         <motion.button
+          ref={sceneRef}
           whileHover={{ y: -3 }}
           whileTap={{ scale: 0.98 }}
           transition={{ type: "spring", stiffness: 400, damping: 28 }}
           onClick={onOpen}
           data-kbd-tile
           onContextMenu={onContextMenu}
+          onPointerMove={cpHolo ? onHoloMove : undefined}
+          onPointerLeave={cpHolo ? onHoloLeave : undefined}
           data-drop-year={month.year ?? undefined}
           data-drop-month={month.month ?? undefined}
           style={{ "--cp-line": CP.line, "--cp-gdur": CP.gdur } as React.CSSProperties}
-          className="cp-chip group relative flex h-full w-full flex-col overflow-hidden text-left outline-none"
+          className="cp-holo-scene group relative block h-full w-full text-left outline-none"
         >
+          {/* the chip is inside the button: framer moves the button, the chip tilts */}
+          <div className={cn("cp-chip cp-holo-card flex h-full w-full flex-col overflow-hidden", cpHolo && "cp-holo-tilt")}>
           <div className="relative aspect-square w-full grow overflow-hidden">
             <div className="h-full w-full transition-transform duration-500 group-hover:scale-105">
               {month.coverImage ? (
@@ -652,6 +686,17 @@ function MonthCardBase({
             <div className="cp-scan" />
             <div className="cp-glitch" />
             {cpTier === "max" && <div className="micoll-holo absolute inset-0" />}
+            {/* holo foil: neon bands + a grid and glare that follow the mouse. At 100% a
+                second band the other way + blinking pixels */}
+            {cpHolo >= 1 && (
+              <div className={cn("cp-holo", cpHolo === 2 ? "cp-holo--v2" : "cp-holo--v1")} aria-hidden>
+                <div className="cp-holo-bands" />
+                {cpHolo === 2 && <div className="cp-holo-prism" />}
+                <div className="cp-holo-grid" />
+                <div className="cp-holo-glare" />
+                {cpHolo === 2 && <div className="cp-holo-spark">{cpSparks}</div>}
+              </div>
+            )}
             {month.verified && (
               <div className="cp-check absolute left-2 top-2 h-5 w-5" aria-label={t("Verified by a template")}>
                 <Check className="cp-check-base absolute inset-0 h-5 w-5" strokeWidth={3} />
@@ -699,6 +744,7 @@ function MonthCardBase({
                 {pctInt}%
               </div>
             </div>
+          </div>
           </div>
         </motion.button>
       </motion.div>
@@ -878,6 +924,59 @@ function MonthCardBase({
               <span className="sak-pct pointer-events-none absolute inset-y-0 right-0 flex items-center whitespace-nowrap text-sm font-extrabold tabular-nums tracking-wide opacity-0 transition-opacity duration-150 group-hover/pips:opacity-100">
                 {pctInt}%
               </span>
+            </div>
+          </div>
+        </div>
+      </motion.button>
+    );
+  }
+
+  // ── cyberpunk without template: the data chip, quiet ──
+  // same cut-corner chip and corner label as the template card, but no aura, flames,
+  // glitch or %. Static scanlines only, so it's cheap.
+  if (cyber) {
+    return (
+      <motion.button
+        layout
+        whileHover={{ y: -3 }}
+        whileTap={{ scale: 0.98 }}
+        transition={{ type: "spring", stiffness: 400, damping: 28 }}
+        onClick={onOpen}
+        data-kbd-tile
+        onContextMenu={onContextMenu}
+        data-drop-year={month.year ?? undefined}
+        data-drop-month={month.month ?? undefined}
+        className="cyber-fx group relative block h-full w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-[#fcee0a]"
+      >
+        <div className="cp-chip cp-chip-quiet flex h-full w-full flex-col overflow-hidden">
+          <div className="relative aspect-square w-full grow overflow-hidden">
+            <div className="h-full w-full transition-transform duration-500 group-hover:scale-105">
+              {month.coverImage ? (
+                <Cover path={month.coverImage} seed={month.label} rounded="rounded-none" />
+              ) : (
+                <MonthMosaic covers={mosaic.map((r) => r.cover)} seed={month.label} />
+              )}
+            </div>
+            <div className="cp-scan" />
+            {/* only for a verified template without official count */}
+            {month.verified && (
+              <div className="cp-check absolute left-2 top-2 h-5 w-5" aria-label={t("Verified by a template")}>
+                <Check className="cp-check-base absolute inset-0 h-5 w-5" strokeWidth={3} />
+                <Check className="cp-check-ghost absolute inset-0 h-5 w-5" strokeWidth={3} />
+              </div>
+            )}
+            {sdChip}
+          </div>
+
+          <div className="cp-foot-quiet relative flex items-center justify-between gap-2 px-3 py-2.5">
+            {/* same corner label as the template card, in the theme's yellow */}
+            <div className="cp-label-quiet -ml-3 -mt-2.5 grid h-7 min-w-[1.75rem] max-w-[5rem] place-items-center truncate rounded-none border border-l-0 border-t-0 px-2 font-mono text-xs font-bold">
+              {label}
+            </div>
+            {/* one empty level bar next to the count */}
+            <div className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] font-medium text-[#8ff3ff]">
+              <span className="h-3.5 w-1.5 -skew-x-12 rounded-[1px] border border-[#00e5ff]/60" />
+              {tp("{n} rewards", owned)}
             </div>
           </div>
         </div>

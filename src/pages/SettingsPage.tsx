@@ -1147,7 +1147,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
             <Search
               className={cn(
                 "pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2",
-                irid ? "text-white" : "text-zinc-500",
+                irid ? "text-white" : premiumAccent ? "text-zinc-500" : "text-brand-200/80",
               )}
             />
             <input
@@ -1166,7 +1166,8 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                     : accent === "sakura"
                       ? "rounded-lg border border-[#f9a8d4]/30 bg-zinc-900/50 backdrop-blur-md focus:border-[#f9a8d4]/70"
                       : "rounded-none border border-[#fcee0a]/50 bg-zinc-950/60 backdrop-blur-md focus:border-[#fcee0a]/80"
-                  : "rounded-lg border border-zinc-800 bg-zinc-900/60 focus:border-brand-500/60",
+                  : // normal themes: a lighter glass tinted with the accent instead of near-black
+                    "rounded-lg border border-brand-300/30 bg-brand-500/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.07)] backdrop-blur-md placeholder:text-brand-100/70 focus:border-brand-300/60 focus:bg-brand-500/15",
               )}
             />
             {query && (
@@ -1231,8 +1232,13 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                     className={cn(
                       "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors",
                       activeId === s.id
-                        ? "bg-white/10 font-medium text-zinc-100"
-                        : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200",
+                        ? premiumAccent
+                          ? "bg-white/10 font-medium text-zinc-100"
+                          : // normal themes: the picked section in the accent, not plain grey
+                            "bg-brand-500/20 font-medium text-brand-50 ring-1 ring-inset ring-brand-300/30 [&>svg]:text-brand-200"
+                        : premiumAccent
+                          ? "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                          : "text-zinc-400 hover:bg-brand-500/10 hover:text-zinc-100",
                     )}
                   >
                     <s.Icon className="h-4 w-4 shrink-0" />

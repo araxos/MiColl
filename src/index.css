@@ -1217,6 +1217,100 @@ img {
   border: 1px solid var(--cp-line, rgba(0, 229, 255, 0.4));
   background: linear-gradient(160deg, rgba(12, 14, 22, 0.92), rgba(6, 8, 13, 0.97));
 }
+/* month without template: the same chip, a yellow rim instead of a level colour */
+[data-accent="cyberpunk"] .cp-chip-quiet {
+  --cp-line: rgba(252, 238, 10, 0.38);
+  transition: border-color 0.2s ease;
+}
+[data-accent="cyberpunk"] .group:hover > .cp-chip-quiet {
+  --cp-line: rgba(252, 238, 10, 0.75);
+}
+[data-accent="cyberpunk"] .cp-foot-quiet {
+  border-top: 1px solid var(--cp-line);
+  background: linear-gradient(90deg, rgba(252, 238, 10, 0.06), rgba(0, 229, 255, 0.04) 60%, transparent);
+}
+[data-accent="cyberpunk"] .cp-label-quiet {
+  border-color: #fcee0a;
+  color: #fcee0a;
+  background: rgba(252, 238, 10, 0.08);
+  box-shadow: 0 0 9px -3px #fcee0a;
+}
+/* === holo foil over the template chip (like .iri-holo, in neon) ===
+   Neon bands + a grid and glare that follow the mouse. V1 (50-99%) light, V2 (100%)
+   with a second band the other way and blinking pixels. Below 50% nothing (JSX).
+   The chip tilts toward the mouse (MonthCard). */
+[data-accent="cyberpunk"] .cp-holo-scene {
+  perspective: 1100px;
+}
+[data-accent="cyberpunk"] .cp-holo-card {
+  transform-style: preserve-3d;
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+[data-accent="cyberpunk"] .cp-holo-card.cp-holo-tilt {
+  transform:
+    rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg))
+    scale(calc(1 + var(--active, 0) * 0.02));
+  will-change: transform;
+}
+[data-accent="cyberpunk"] .cp-holo {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+[data-accent="cyberpunk"] .cp-holo > div {
+  position: absolute;
+  inset: 0;
+}
+/* neon bands: cyan, magenta, yellow, sliding back and forth */
+[data-accent="cyberpunk"] .cp-holo-bands {
+  mix-blend-mode: screen;
+  opacity: 0.24;
+  background: linear-gradient(110deg, transparent 22%, #00e5ff 36%, #c026ff 47%, #ff2a6d 55%, #fcee0a 63%, transparent 80%);
+  background-size: 240% 100%;
+  animation: micoll-holo-sheen 8s steps(80) infinite;
+}
+[data-accent="cyberpunk"] .cp-holo-prism {
+  mix-blend-mode: screen;
+  opacity: 0.22;
+  background: linear-gradient(-70deg, transparent 28%, #fcee0a 44%, #00e5ff 54%, transparent 72%);
+  background-size: 260% 100%;
+  animation: micoll-holo-sheen2 6.5s steps(65) infinite;
+}
+/* a fine circuit grid that shifts with the mouse, brighter on hover */
+[data-accent="cyberpunk"] .cp-holo-grid {
+  mix-blend-mode: screen;
+  opacity: calc(0.1 + var(--active, 0) * 0.14);
+  background:
+    repeating-linear-gradient(90deg, rgba(0, 229, 255, 0.55) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(0deg, rgba(192, 38, 255, 0.45) 0 1px, transparent 1px 7px);
+  background-position: calc(var(--px, 50%) * 0.15) calc(var(--py, 50%) * 0.15);
+  -webkit-mask: radial-gradient(circle at var(--px, 50%) var(--py, 50%), #000, transparent 70%);
+  mask: radial-gradient(circle at var(--px, 50%) var(--py, 50%), #000, transparent 70%);
+}
+/* cyan-white glare under the mouse */
+[data-accent="cyberpunk"] .cp-holo-glare {
+  mix-blend-mode: screen;
+  opacity: calc(0.05 + var(--active, 0) * 0.16);
+  background: radial-gradient(circle at var(--px, 50%) var(--py, 50%), rgba(200, 250, 255, 0.85), rgba(0, 229, 255, 0) 48%);
+}
+[data-accent="cyberpunk"] .cp-holo-spark {
+  mix-blend-mode: screen;
+  overflow: hidden;
+}
+[data-accent="cyberpunk"] .cp-holo--v2 .cp-holo-bands { opacity: 0.34; }
+[data-accent="cyberpunk"] .cp-holo--v2 .cp-holo-grid { opacity: calc(0.15 + var(--active, 0) * 0.16); }
+[data-accent="cyberpunk"] .cp-holo--v2 .cp-holo-glare { opacity: calc(0.07 + var(--active, 0) * 0.2); }
+@keyframes cp-holo-blink {
+  0%, 82%, 100% { opacity: 0; }
+  84% { opacity: 1; }
+  88% { opacity: 0.3; }
+  90% { opacity: 0.9; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="cyberpunk"] :is(.cp-holo-bands, .cp-holo-prism, .cp-holo-spark span) {
+    animation: none;
+  }
+}
 /* faint scanlines */
 [data-accent="cyberpunk"] .cp-scan {
   position: absolute;
@@ -3854,16 +3948,39 @@ img {
    data-sel = chosen. They never appear together, so one look serves both.
    Unlayered so they beat the ring-* / bg-* utilities. */
 
-/* cyberpunk: hard cell with a cut corner, chosen ones glow inside (inset, the cut clips
-   outer shadows) */
+/* cyberpunk: hard cell with a cut corner, chosen ones get a yellow rim and glow inside.
+   Both are layers OVER the picture: an inset box-shadow on the tile itself is painted
+   under its image, so it never showed (and the cut clips outer shadows). */
 [data-accent="cyberpunk"] .micoll-viewer .viewer-thumb {
   border-radius: 0;
   clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
 }
-[data-accent="cyberpunk"] .micoll-viewer .viewer-thumb:is([data-sel], [data-current]) {
-  box-shadow:
-    inset 0 0 0 2px #fcee0a,
-    inset 0 0 14px rgba(252, 238, 10, 0.35);
+[data-accent="cyberpunk"] .micoll-viewer .viewer-thumb:is([data-sel], [data-current])::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  box-shadow: inset 0 0 14px rgba(252, 238, 10, 0.45);
+}
+/* the rim follows the cut corners: the cell's outline minus the same shape 2.5px in */
+[data-accent="cyberpunk"] .micoll-viewer .viewer-thumb:is([data-sel], [data-current])::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: #fcee0a;
+  clip-path: polygon(
+    evenodd,
+    6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px, 6px 0,
+    7px 2.5px, 2.5px 7px, 2.5px calc(100% - 2.5px), calc(100% - 7px) calc(100% - 2.5px),
+    calc(100% - 2.5px) calc(100% - 7px), calc(100% - 2.5px) 2.5px, 7px 2.5px
+  );
+}
+/* the tick box and the versions icon stay above the rim and glow */
+[data-accent="cyberpunk"] .micoll-viewer :is(.viewer-thumb-check, .viewer-thumb-versions) {
+  z-index: 3;
 }
 [data-accent="cyberpunk"] .micoll-viewer .viewer-thumb-check {
   border-radius: 0;
@@ -6314,7 +6431,7 @@ html[data-fx-off~="logo"] :is(.fx-logo, .fx-logo *, .cp-logo, .cp-logo *, .empty
 
 /* Premium: card holo and frames (creator cards, month cards, card edges) */
 html:is([data-accent="iridescent"][data-fx-off~="holo.iridescent"], [data-accent="sakura"][data-fx-off~="holo.sakura"], [data-accent="cyberpunk"][data-fx-off~="holo.cyberpunk"])
-  :is(.micoll-holo, .iri-holo-bands, .iri-holo-pearl, .iri-holo-prism, .sak-holo-bands, .sak-holo-pearl, .sak-holo-prism, .iri-card-spark, .sak-card-petal, .iri-aura, .iri-edge, .iri-card, .sak-edge, .iri-foot, .iri-kite--on, .cp-ring, .cp-glitch, .cp-flames, .cp-flames > span, .iri-tpl-band1, .iri-tpl-band2),
+  :is(.micoll-holo, .cp-holo-bands, .cp-holo-prism, .cp-holo-spark span, .iri-holo-bands, .iri-holo-pearl, .iri-holo-prism, .sak-holo-bands, .sak-holo-pearl, .sak-holo-prism, .iri-card-spark, .sak-card-petal, .iri-aura, .iri-edge, .iri-card, .sak-edge, .iri-foot, .iri-kite--on, .cp-ring, .cp-glitch, .cp-flames, .cp-flames > span, .iri-tpl-band1, .iri-tpl-band2),
 html:is([data-accent="iridescent"][data-fx-off~="holo.iridescent"], [data-accent="sakura"][data-fx-off~="holo.sakura"], [data-accent="cyberpunk"][data-fx-off~="holo.cyberpunk"])
   :is(.micoll-holo, .iri-aura, .iri-edge, .iri-card, .sak-edge, .cp-glitch)::before,
 html:is([data-accent="iridescent"][data-fx-off~="holo.iridescent"], [data-accent="sakura"][data-fx-off~="holo.sakura"], [data-accent="cyberpunk"][data-fx-off~="holo.cyberpunk"])

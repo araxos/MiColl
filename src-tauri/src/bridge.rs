@@ -89,6 +89,12 @@ struct RewardDto {
     /// the creator's tier it came with ("2", "Gold"; left out when none is set)
     #[serde(skip_serializing_if = "Option::is_none")]
     tier: Option<String>,
+    /// the user's notes on the reward (left out when none)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notes: Option<String>,
+    /// the cover picked by hand in MiColl (relative, left out when there's none)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chosen_cover: Option<String>,
 }
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -108,6 +114,9 @@ struct MonthDto {
     needs_review: bool,
     /// month folder, the phone names its folders after it
     folder_path: String,
+    /// the cover picked by hand in MiColl (relative, left out when there's none)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chosen_cover: Option<String>,
 }
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -134,6 +143,9 @@ struct ArtistDto {
     no_dates: bool,
     /// the creator's tiers (Details → Tiers)
     tiers: Vec<String>,
+    /// the cover picked by hand in MiColl (relative, left out when there's none)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chosen_cover: Option<String>,
 }
 #[derive(Serialize, serde::Deserialize, Clone)]
 struct LinkDto {
@@ -305,6 +317,8 @@ fn make_reward(root: &Path, dir: &Path, title: &str, recursive: bool) -> Option<
         images,
         status: "owned".to_string(),
         tier: None,
+        notes: None,
+        chosen_cover: None,
     })
 }
 
@@ -339,6 +353,7 @@ fn month_dto(root: &Path, dir: &Path, year: Option<i32>, month: Option<u32>, lab
         platform: Some(platform.to_string()),
         needs_review: false,
         folder_path: rel(root, dir),
+        chosen_cover: None,
     })
 }
 
@@ -403,6 +418,7 @@ fn scan(root: &Path) -> Vec<ArtistDto> {
             verified: false,
             no_dates: false,
             tiers: Vec::new(),
+            chosen_cover: None,
         });
     }
     artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -953,20 +969,65 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
                     a.tiers = m.tiers;
                 }
             }
-            // each reward's tier, by its folder
-            let tiers = { let c = sh.src.db().conn(); reward_tiers(&c) }.unwrap_or_default();
-            if !tiers.is_empty() {
+            // each reward's tier and notes, by its folder
+            let tiers = { let c = sh.src.db().conn(); reward_texts(&c, "tier") }.unwrap_or_default();
+            let notes = { let c = sh.src.db().conn(); reward_texts(&c, "notes") }.unwrap_or_default();
+            if !tiers.is_empty() || !notes.is_empty() {
                 let rewards = artists
                     .iter_mut()
                     .flat_map(|a| &mut a.platforms)
                     .flat_map(|p| &mut p.months)
                     .flat_map(|m| &mut m.rewards);
                 for r in rewards {
-                    let full = r.folder_path.split('/').fold(root.clone(), |p, part| p.join(part));
-                    r.tier = tiers.get(&path_key(&full)).cloned();
+                    let full = path_key(&r.folder_path.split('/').fold(root.clone(), |p, part| p.join(part)));
+                    r.tier = tiers.get(&full).cloned();
+                    r.notes = notes.get(&full).cloned();
+                }
+            }
+            // the covers picked by hand, also as the shown cover
+            let covers = { let c = sh.src.db().conn(); chosen_covers(&c) }.unwrap_or_default();
+            let pick = |map: &HashMap<String, String>, key: &str| map.get(key).and_then(|abs| rel_inside(&root, Path::new(abs)));
+            let folder_key = |folder: &str| path_key(&folder.split('/').fold(root.clone(), |p, part| p.join(part)));
+            for a in &mut artists {
+                if let Some(r) = pick(&covers.artists, &a.name.to_lowercase()) {
+                    a.preview_path = r.clone();
+                    a.chosen_cover = Some(r);
+                }
+                for m in a.platforms.iter_mut().flat_map(|p| &mut p.months) {
+                    if let Some(r) = pick(&covers.periods, &folder_key(&m.folder_path)) {
+                        m.cover_image = Some(r.clone());
+                        m.chosen_cover = Some(r);
+                    }
+                    for rw in &mut m.rewards {
+                        if let Some(r) = pick(&covers.rewards, &folder_key(&rw.folder_path)) {
+                            rw.cover = r.clone();
+                            rw.chosen_cover = Some(r);
+                        }
+                    }
                 }
             }
             json(req, 200, &serde_json::to_value(&artists).unwrap_or_default());
+        }
+        // a creator's own card image, when it's outside the collection (app data)
+        "/api/card-image" => {
+            let Some(name) = query_param(&url, "a") else {
+                return fail(req, 400, "no creator");
+            };
+            let found: Option<String> = sh
+                .src
+                .db()
+                .conn()
+                .query_row(
+                    "SELECT preview_image FROM artists WHERE lower(name) = lower(?1) AND preview_image <> ''",
+                    [name.trim()],
+                    |r| r.get(0),
+                )
+                .ok()
+                .flatten();
+            match found.map(PathBuf::from).filter(|f| f.is_file() && rel_inside(&root, f).is_none()) {
+                Some(f) => serve_file(req, &f, key),
+                None => fail(req, 404, "no card image"),
+            }
         }
         // the creator details by lowercased name (the phone copies them on download)
         "/api/meta" => json(req, 200, &serde_json::to_value(meta()).unwrap_or_default()),
@@ -1189,10 +1250,59 @@ fn path_key(p: &Path) -> String {
     p.to_string_lossy().replace('/', "\\").to_lowercase()
 }
 
-/// The tier of every reward that has one (by path_key of its folder).
-fn reward_tiers(conn: &rusqlite::Connection) -> Result<HashMap<String, String>, String> {
+/// The covers picked by hand in MiColl, absolute paths as stored: creators by
+/// lowercased name, months and rewards by path_key of their folder.
+#[derive(Default)]
+struct ChosenCovers {
+    artists: HashMap<String, String>,
+    periods: HashMap<String, String>,
+    rewards: HashMap<String, String>,
+}
+
+fn chosen_covers(conn: &rusqlite::Connection) -> Result<ChosenCovers, String> {
+    let pairs = |sql: &str| -> Result<Vec<(String, String)>, String> {
+        let mut stmt = conn.prepare(sql).map_err(map_err)?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .map_err(map_err)?;
+        Ok(rows.flatten().collect())
+    };
+    let by_folder = |v: Vec<(String, String)>| v.into_iter().map(|(f, c)| (path_key(Path::new(&f)), c)).collect();
+    Ok(ChosenCovers {
+        artists: pairs("SELECT name, preview_image FROM artists WHERE preview_image <> ''")?
+            .into_iter()
+            .map(|(n, c)| (n.to_lowercase(), c))
+            .collect(),
+        periods: by_folder(pairs("SELECT folder_path, preview_image FROM periods WHERE preview_image <> ''")?),
+        // a reward's cover counts only when it was picked (cover_custom), not the first file
+        rewards: by_folder(pairs(
+            "SELECT folder_path, cover_image FROM rewards WHERE cover_custom = 1 AND cover_image <> ''",
+        )?),
+    })
+}
+
+/// A file as the phone sees it (relative, forward slashes), when it's a file inside the
+/// served folder that /api/file would hand out. The database may write the folder in
+/// another case.
+fn rel_inside(root: &Path, file: &Path) -> Option<String> {
+    let mut parts = file.components();
+    for want in root.components() {
+        let got = parts.next()?;
+        if got.as_os_str().to_string_lossy().to_lowercase() != want.as_os_str().to_string_lossy().to_lowercase() {
+            return None;
+        }
+    }
+    let rel: Vec<String> = parts.map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+    let rel = rel.join("/");
+    let full = safe_path(root, &rel)?;
+    full.is_file().then_some(rel)
+}
+
+/// A text column of every reward that has it set, by path_key of its folder (`tier`,
+/// `notes`). Only ever called with those fixed names.
+fn reward_texts(conn: &rusqlite::Connection, column: &str) -> Result<HashMap<String, String>, String> {
     let mut stmt = conn
-        .prepare("SELECT folder_path, tier FROM rewards WHERE tier IS NOT NULL AND trim(tier) <> ''")
+        .prepare(&format!("SELECT folder_path, {column} FROM rewards WHERE {column} IS NOT NULL AND trim({column}) <> ''"))
         .map_err(map_err)?;
     let rows = stmt
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
@@ -2027,8 +2137,11 @@ mod tests {
         conn.execute_batch(
             "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
              CREATE TABLE artists (name TEXT, kind TEXT, tag TEXT, tags TEXT, links TEXT, notes TEXT,
-                                   aliases TEXT, template_verified INTEGER, no_dates INTEGER, tier_list TEXT);
-             CREATE TABLE rewards (folder_path TEXT, tier TEXT);
+                                   aliases TEXT, template_verified INTEGER, no_dates INTEGER, tier_list TEXT,
+                                   preview_image TEXT);
+             CREATE TABLE periods (folder_path TEXT, preview_image TEXT);
+             CREATE TABLE rewards (folder_path TEXT, tier TEXT, cover_image TEXT, cover_custom INTEGER NOT NULL DEFAULT 0,
+                                   notes TEXT);
              CREATE TABLE images (file_path TEXT);
              CREATE TABLE image_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, orig_path TEXT,
                                           file_path TEXT, label TEXT, created_at TEXT);
@@ -2102,7 +2215,7 @@ mod tests {
             // a tier on the reward and the creator's tier list
             {
                 let c = src.db.lock().unwrap();
-                c.execute("INSERT INTO rewards (folder_path, tier) VALUES (?1, '2')", [reward.to_string_lossy()]).unwrap();
+                c.execute("INSERT INTO rewards (folder_path, tier, notes) VALUES (?1, '2', 'Bonus PSD missing')", [reward.to_string_lossy()]).unwrap();
                 c.execute("UPDATE artists SET tier_list = '[\"1\",\"2\"]'", []).unwrap();
             }
             let shared = Arc::new(Shared::new(Box::new(src), "testkey1234".into(), HashSet::new()));
@@ -2133,6 +2246,7 @@ mod tests {
         assert_eq!(month["rewards"][0]["cover"], "Ahri/Patreon/2026/03/Set/a.png");
         // the tier goes along, and the creator's list
         assert_eq!(month["rewards"][0]["tier"], "2");
+        assert_eq!(month["rewards"][0]["notes"], "Bonus PSD missing");
         assert_eq!(artists[0]["tiers"], serde_json::json!(["1", "2"]));
 
         let (code, body) = get(&format!("{k}/api/thumb?p=Ahri%2FPatreon%2F2026%2F03%2FSet%2Fa.png&s=300"), None);
@@ -2162,6 +2276,87 @@ mod tests {
         assert_eq!(get(&secret, None), (200, b"hidden bytes".to_vec()));
         assert_eq!(get(&secret, Some("bytes=0-5")), (206, b"hidden".to_vec()));
 
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Covers picked by hand go along as chosenCover (and as the shown cover), an
+    /// automatic reward cover doesn't. A card image outside the collection comes from
+    /// /api/card-image, everything else there is a 404.
+    #[test]
+    fn sends_the_chosen_covers() {
+        let base = std::env::temp_dir().join(format!("micoll_bridge_cov_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("MiColl");
+        let month = root.join("Ahri").join("Patreon").join("2026").join("03");
+        let (set, other) = (month.join("Set"), month.join("Other"));
+        std::fs::create_dir_all(&set).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        for f in [set.join("a.png"), set.join("b.png"), other.join("c.png")] {
+            std::fs::write(f, b"img").unwrap();
+        }
+        let card = base.join("covers").join("ahri.jpg");
+        std::fs::create_dir_all(card.parent().unwrap()).unwrap();
+        std::fs::write(&card, b"card bytes").unwrap();
+
+        let src = TestSource {
+            db: test_db(&base, false),
+            cache: base.join("cache"),
+            versions: base.join("versions"),
+            key: None,
+            arrivals: Arc::default(),
+        };
+        {
+            let c = src.db.lock().unwrap();
+            // the database may spell the folder in another case and with backslashes
+            let shout = |p: &Path| p.to_string_lossy().replace("MiColl", "MICOLL").replace('/', "\\");
+            c.execute("INSERT INTO periods VALUES (?1, ?2)", [shout(&month), shout(&set.join("b.png"))]).unwrap();
+            c.execute("INSERT INTO rewards (folder_path, cover_image, cover_custom) VALUES (?1, ?2, 1)", [shout(&set), shout(&set.join("b.png"))]).unwrap();
+            // picked automatically: not sent
+            c.execute("INSERT INTO rewards (folder_path, cover_image, cover_custom) VALUES (?1, ?2, 0)", [shout(&other), shout(&other.join("c.png"))]).unwrap();
+            c.execute("UPDATE artists SET preview_image = ?1", [card.to_string_lossy()]).unwrap();
+        }
+        let shared = Arc::new(Shared::new(Box::new(src), "testkey1234".into(), HashSet::new()));
+        let server = serve(0, shared.clone()).unwrap();
+        let k = format!("http://127.0.0.1:{}/k/testkey1234", server.server_addr().to_ip().unwrap().port());
+
+        let (code, body) = get(&format!("{k}/api/gallery"), None);
+        assert_eq!(code, 200);
+        let g: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let a = &g[0];
+        // the card image is outside the collection: no chosenCover, the first cover stays
+        assert!(a.get("chosenCover").is_none());
+        let m = &a["platforms"][0]["months"][0];
+        assert_eq!(m["chosenCover"], "Ahri/Patreon/2026/03/Set/b.png");
+        assert_eq!(m["coverImage"], "Ahri/Patreon/2026/03/Set/b.png");
+        let rewards = m["rewards"].as_array().unwrap();
+        let by_title = |t: &str| rewards.iter().find(|r| r["title"] == t).unwrap();
+        assert_eq!(by_title("Set")["chosenCover"], "Ahri/Patreon/2026/03/Set/b.png");
+        assert_eq!(by_title("Set")["cover"], "Ahri/Patreon/2026/03/Set/b.png");
+        assert!(by_title("Other").get("chosenCover").is_none());
+        // no notes set: the field is left out
+        assert!(by_title("Set").get("notes").is_none());
+
+        assert_eq!(get(&format!("{k}/api/card-image?a=ahri"), None), (200, b"card bytes".to_vec()));
+        assert_eq!(get(&format!("{k}/api/card-image?a=Nobody"), None).0, 404);
+        assert_eq!(get(&format!("{k}/api/card-image"), None).0, 400);
+
+        // a creator picture inside the collection is a chosenCover, not a card image
+        shared.src.db().conn().execute("UPDATE artists SET preview_image = ?1", [set.join("a.png").to_string_lossy()]).unwrap();
+        let (_, body) = get(&format!("{k}/api/gallery"), None);
+        let g: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(g[0]["chosenCover"], "Ahri/Patreon/2026/03/Set/a.png");
+        assert_eq!(g[0]["previewPath"], "Ahri/Patreon/2026/03/Set/a.png");
+        assert_eq!(get(&format!("{k}/api/card-image?a=Ahri"), None).0, 404);
+        // a file that's gone isn't sent either
+        std::fs::remove_file(set.join("a.png")).unwrap();
+        let (_, body) = get(&format!("{k}/api/gallery"), None);
+        let g: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(g[0].get("chosenCover").is_none());
+
+        for _ in 0..WORKERS {
+            server.unblock();
+        }
+        drop(server);
         let _ = std::fs::remove_dir_all(&base);
     }
 
