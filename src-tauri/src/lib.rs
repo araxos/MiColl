@@ -21,7 +21,7 @@ mod history;
 mod winstate;
 mod wshare;
 
-use db::{Artist, Db, Root};
+use db::{Artist, Db, DbLock, Root};
 use indexer::{ImportPlan, ResolvedReward, ScanSummary};
 use organize::OrganizeSummary;
 use template::TemplatePreview;
@@ -241,7 +241,7 @@ fn portable_first_run(app: AppHandle, db: State<Db>) -> Result<Option<PortableOf
         return Ok(None);
     }
     {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         if db::get_setting(&conn, "portable_choice").map_err(map_err)?.is_some() {
             return Ok(None);
         }
@@ -287,7 +287,7 @@ fn portable_adopt(app: AppHandle, db: State<Db>, dek_state: State<DekState>) -> 
 
     let path = data.join("micoll.db");
     {
-        let mut guard = db.lock().map_err(map_err)?;
+        let mut guard = db.conn();
         let placeholder = rusqlite::Connection::open_in_memory().map_err(map_err)?;
         drop(std::mem::replace(&mut *guard, placeholder));
         let wal = std::path::PathBuf::from(format!("{}-wal", path.to_string_lossy()));
@@ -313,7 +313,7 @@ fn portable_adopt(app: AppHandle, db: State<Db>, dek_state: State<DekState>) -> 
 /// The empty check keeps the questions away from older libraries.
 #[tauri::command]
 fn first_run_pending(db: State<Db>) -> Result<bool, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     if db::get_setting(&conn, "first_run_done").map_err(map_err)?.is_some() {
         return Ok(false);
     }
@@ -329,7 +329,7 @@ fn first_run_pending(db: State<Db>) -> Result<bool, String> {
 /// Keep this copy's own empty library under the user's name.
 #[tauri::command]
 fn portable_start_fresh(db: State<Db>, name: String) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let label = name.trim();
     if !label.is_empty() {
         db::set_setting(&conn, "library_name", label).map_err(map_err)?;
@@ -421,7 +421,7 @@ fn migrate_cover_crops_in(
 
     // all cover references that name a crop: (table, id, path)
     let refs: Vec<(&'static str, i64, String)> = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         let mut v = Vec::new();
         for (table, col) in [
             ("rewards", "cover_image"),
@@ -523,7 +523,7 @@ fn migrate_cover_crops_in(
         crypto::atomic_write(&dest, &to_write)?;
         let new_s = dest.to_string_lossy().to_string();
         {
-            let conn = db.lock().map_err(map_err)?;
+            let conn = db.conn();
             for (table, id, stored) in refs.iter().filter(|(_, _, p)| norm_str(p) == key_s) {
                 let col = if *table == "rewards" { "cover_image" } else { "preview_image" };
                 conn.execute(
@@ -560,7 +560,7 @@ async fn migrate_cover_crops(app: AppHandle) -> Result<CoverMigration, String> {
     let key = session_key(&app.state::<DekState>());
     let (bases, encrypted) = {
         let db = app.state::<Db>();
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         if db::get_setting(&conn, COVER_MIGRATION_KEY).ok().flatten().as_deref() == Some("1") {
             return Ok(CoverMigration::default());
         }
@@ -595,7 +595,7 @@ async fn migrate_cover_crops(app: AppHandle) -> Result<CoverMigration, String> {
     .map_err(map_err)??;
     if out.deferred == 0 && out.errors.is_empty() {
         let db = app.state::<Db>();
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         db::set_setting(&conn, COVER_MIGRATION_KEY, "1").map_err(map_err)?;
         db::checkpoint(&conn);
     }
@@ -877,7 +877,7 @@ fn discard_staging(db: State<Db>, path: String) -> Result<bool, String> {
         return Ok(false);
     };
     {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         if db::any_reward_under(&conn, &dir.to_string_lossy()).map_err(map_err)? {
             return Ok(false);
         }
@@ -904,7 +904,7 @@ fn allow_asset_dir(app: &AppHandle, path: &str) {
 
 #[tauri::command]
 fn list_roots(db: State<Db>) -> Result<Vec<Root>, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::list_roots(&conn).map_err(map_err)
 }
 
@@ -916,7 +916,7 @@ fn add_root(
     label: Option<String>,
     platform: Option<String>,
 ) -> Result<ScanSummary, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let id = db::add_root(&conn, &path, label.as_deref(), platform.as_deref()).map_err(map_err)?;
     allow_asset_dir(&app, &path);
     let root = Root {
@@ -930,19 +930,19 @@ fn add_root(
 
 #[tauri::command]
 fn remove_root(db: State<Db>, id: i64) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::remove_root(&conn, id).map_err(map_err)
 }
 
 #[tauri::command]
 fn clear_library(db: State<Db>) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::clear_library(&conn).map_err(map_err)
 }
 
 #[tauri::command]
 fn clear_roots(db: State<Db>) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::clear_roots(&conn).map_err(map_err)
 }
 
@@ -975,7 +975,7 @@ fn progress_events<'a>(app: &'a AppHandle, event: &'static str) -> impl Fn(u32, 
 #[tauri::command]
 async fn rescan(app: AppHandle, db: State<'_, Db>) -> Result<ScanSummary, String> {
     indexer::reset_scan_cancel();
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let roots = db::list_roots(&conn).map_err(map_err)?;
     let progress = scan_progress(&app);
     // discover all roots first so the bar has the real total
@@ -1015,7 +1015,7 @@ async fn rescan(app: AppHandle, db: State<'_, Db>) -> Result<ScanSummary, String
 #[tauri::command]
 async fn rescan_collection(app: AppHandle, db: State<'_, Db>) -> Result<ScanSummary, String> {
     indexer::reset_scan_cancel();
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let root = db::get_setting(&conn, "collection_root")
         .map_err(map_err)?
         .filter(|s| !s.trim().is_empty())
@@ -1088,7 +1088,7 @@ async fn rescan_artist(
     period_id: Option<i64>,
 ) -> Result<ScanSummary, String> {
     indexer::reset_scan_cancel();
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let name: String = conn
         .query_row("SELECT name FROM artists WHERE id = ?1", [artist_id], |r| r.get(0))
         .map_err(map_err)?;
@@ -1131,7 +1131,7 @@ async fn rescan_artist(
 /// Re-read one reward's folder (its "Reload"): files, cover and count.
 #[tauri::command]
 fn rescan_reward(db: State<Db>, reward_id: i64) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     reindex_rewards(&conn, &[reward_id])?;
     let _ = db::repair_missing_previews(&conn);
     Ok(())
@@ -1141,7 +1141,7 @@ fn rescan_reward(db: State<Db>, reward_id: i64) -> Result<(), String> {
 /// month or one creator. The window warns above a few hundred.
 #[tauri::command]
 fn scan_file_count(db: State<Db>, artist_id: Option<i64>, period_id: Option<i64>, reward_id: Option<i64>) -> Result<i64, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let (sql, id) = match (reward_id, period_id, artist_id) {
         (Some(r), _, _) => ("SELECT COALESCE(SUM(image_count), 0) FROM rewards WHERE id = ?1", r),
         (_, Some(p), _) => ("SELECT COALESCE(SUM(image_count), 0) FROM rewards WHERE period_id = ?1", p),
@@ -1162,7 +1162,7 @@ fn scan_cancel() {
 
 #[tauri::command]
 fn get_library(app: AppHandle, db: State<Db>) -> Result<Vec<Artist>, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     // make every root's files servable
     if let Ok(roots) = db::list_roots(&conn) {
         for r in roots {
@@ -1175,7 +1175,7 @@ fn get_library(app: AppHandle, db: State<Db>) -> Result<Vec<Artist>, String> {
 /// Images of one artist per reward (the light get_library has no image rows).
 #[tauri::command]
 fn artist_images(app: AppHandle, db: State<Db>, artist_id: i64) -> Result<Vec<db::RewardImages>, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     // make the roots servable so the URLs load
     if let Ok(roots) = db::list_roots(&conn) {
         for r in roots {
@@ -1187,7 +1187,7 @@ fn artist_images(app: AppHandle, db: State<Db>, artist_id: i64) -> Result<Vec<db
 
 #[tauri::command]
 fn set_reward_status(db: State<Db>, reward_id: i64, status: String) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_reward_status(&conn, reward_id, &status).map_err(map_err)
 }
 
@@ -1195,7 +1195,7 @@ fn set_reward_status(db: State<Db>, reward_id: i64, status: String) -> Result<()
 /// Nothing moves, partners show a read-only copy.
 #[tauri::command]
 fn set_reward_collabs(db: State<Db>, reward_id: i64, artist_ids: Vec<i64>) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     if let Some(owner) = db::reward_owner(&conn, reward_id).map_err(map_err)? {
         if artist_ids.contains(&owner) {
             return Err("A reward can't be a collab with its own creator.".into());
@@ -1207,26 +1207,26 @@ fn set_reward_collabs(db: State<Db>, reward_id: i64, artist_ids: Vec<i64>) -> Re
 /// Remove collab links whose folder is gone (only the links).
 #[tauri::command]
 fn clear_broken_collabs(db: State<Db>) -> Result<u32, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::clear_broken_collabs(&conn).map_err(map_err)
 }
 
 #[tauri::command]
 fn set_period_platform(db: State<Db>, period_id: i64, platform: String) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_period_platform(&conn, period_id, &platform).map_err(map_err)
 }
 
 /// Settings -> "Reset missing covers". Returns how many were reset.
 #[tauri::command]
 fn reset_missing_covers(db: State<Db>) -> Result<usize, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     Ok(clear_missing_covers(&conn))
 }
 
 #[tauri::command]
 fn set_artist_preview(db: State<Db>, artist_id: i64, image: String) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_artist_preview(&conn, artist_id, &image).map_err(map_err)
 }
 
@@ -1238,7 +1238,7 @@ fn set_reward_cover(
     reward_id: i64,
     image: String,
 ) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_reward_cover(&conn, reward_id, &image).map_err(map_err)?;
     // a reward on the MiSD disk: save the new cover's offline preview now (disk is
     // connected)
@@ -1274,14 +1274,14 @@ fn fill_sd_previews(
 
 #[tauri::command]
 fn set_period_preview(db: State<Db>, period_id: i64, image: String) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_period_preview(&conn, period_id, &image).map_err(map_err)
 }
 
 /// Set how many months a period covers.
 #[tauri::command]
 fn set_period_span(db: State<Db>, period_id: i64, span: i64) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_period_span(&conn, period_id, span).map_err(map_err)
 }
 
@@ -1342,7 +1342,7 @@ fn set_period_skipped(
     period_id: i64,
     skipped: bool,
 ) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_period_skipped(&conn, period_id, skipped).map_err(map_err)?;
     if let Some(dir) = period_month_dir(&conn, period_id) {
         if skipped {
@@ -1366,7 +1366,7 @@ fn add_skipped_period(
     year: Option<i64>,
     month: Option<i64>,
 ) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let (artist_name, _) = db::artist_info(&conn, artist_id)
         .map_err(map_err)?
         .ok_or_else(|| "Artist not found".to_string())?;
@@ -1804,7 +1804,7 @@ struct ArtistSize {
 #[tauri::command]
 async fn artist_size(db: State<'_, Db>, artist_id: i64) -> Result<ArtistSize, String> {
     let paths: Vec<String> = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         // only the creator's own rewards (see db::artist_own_image_paths)
         db::artist_own_image_paths(&conn, artist_id).map_err(map_err)?
     };
@@ -1850,7 +1850,7 @@ struct ArtistBytes {
 #[tauri::command]
 async fn library_sizes(db: State<'_, Db>) -> Result<Vec<ArtistBytes>, String> {
     let paths: Vec<(i64, String)> = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         db::all_own_image_paths(&conn).map_err(map_err)?
     };
     tauri::async_runtime::spawn_blocking(move || {
@@ -2063,7 +2063,7 @@ fn broken_root(path: &str) -> Option<std::path::PathBuf> {
 #[tauri::command]
 async fn library_health(db: State<'_, Db>) -> Result<HealthReport, String> {
     let (rows, sd_paths, broken_collabs, orphan_backups) = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         (
             db::images_with_artist(&conn).map_err(map_err)?,
             sd::sd_image_paths(&conn).map_err(map_err)?,
@@ -2125,7 +2125,7 @@ fn relink_library(
     old_prefix: String,
     new_prefix: String,
 ) -> Result<u32, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let n = db::relink_prefix(&conn, &old_prefix, &new_prefix).map_err(map_err)?;
     let _ = db::add_root(&conn, &new_prefix, None, None);
     allow_asset_dir(&app, &new_prefix);
@@ -2137,7 +2137,7 @@ fn relink_library(
 #[tauri::command]
 async fn prune_missing(db: State<'_, Db>) -> Result<u32, String> {
     let rows = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         sd::image_id_paths_excluding_sd(&conn).map_err(map_err)?
     };
     let missing_ids: Vec<i64> = tauri::async_runtime::spawn_blocking(move || {
@@ -2148,7 +2148,7 @@ async fn prune_missing(db: State<'_, Db>) -> Result<u32, String> {
     })
     .await
     .map_err(|e| e.to_string())?;
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::delete_images_by_ids(&conn, &missing_ids).map_err(map_err)
 }
 
@@ -2268,7 +2268,7 @@ fn fill_reward_plan(
     keep_folders: Option<Vec<String>>,
 ) -> Result<FillPlan, String> {
     let target = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         fill_target(&conn, reward_id)?
     };
     let mut conflicts = Vec::new();
@@ -2325,7 +2325,7 @@ async fn fill_reward(
     let key = session_key(&dek);
     // the real target folder
     let target: std::path::PathBuf = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         fill_target(&conn, reward_id)?
     };
 
@@ -2470,7 +2470,7 @@ async fn fill_reward(
     if images.is_empty() {
         return Err("No images or videos were found in the chosen files.".to_string());
     }
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_reward_content(&conn, reward_id, &target.to_string_lossy(), cover.as_deref(), &images)
         .map_err(map_err)?;
     if let Ok(Some((_, _, period_id))) = db::reward_scope(&conn, reward_id) {
@@ -2515,13 +2515,12 @@ async fn fill_reward(
         }
     }
     if !trashed.is_empty() {
-        if let Ok(conn) = db.lock() {
-            let (artist, place) = reward_place(&conn, reward_id);
-            history::log(
-                &conn,
-                history::Entry { action: "trash", kind: "source", artist, place, files: history::Files::Trash, items: trashed },
-            );
-        }
+        let conn = db.conn();
+        let (artist, place) = reward_place(&conn, reward_id);
+        history::log(
+            &conn,
+            history::Entry { action: "trash", kind: "source", artist, place, files: history::Files::Trash, items: trashed },
+        );
     }
 
     allow_asset_dir(&app, &target.to_string_lossy());
@@ -2535,7 +2534,7 @@ fn create_reward(app: AppHandle, db: State<Db>, period_id: i64, name: String) ->
     if name.is_empty() {
         return Err("Please enter a folder name.".to_string());
     }
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let dir = period_month_dir(&conn, period_id).ok_or_else(|| {
         "Couldn't locate this month's folder — set a managed collection in Settings.".to_string()
     })?;
@@ -2556,7 +2555,7 @@ fn create_missing_reward(db: State<Db>, period_id: i64, name: String) -> Result<
     if name.is_empty() {
         return Err("Please enter a name.".to_string());
     }
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let (artist, platform, year, month, number) = db::period_scope(&conn, period_id)
         .map_err(map_err)?
         .ok_or_else(|| "Period not found".to_string())?;
@@ -2585,7 +2584,7 @@ fn ensure_period(
     month: Option<i64>,
     number: Option<i64>,
 ) -> Result<i64, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let (artist, _no_dates) = db::artist_info(&conn, artist_id)
         .map_err(map_err)?
         .ok_or_else(|| "Artist not found.".to_string())?;
@@ -2638,7 +2637,7 @@ fn add_wish(
         return Err("Please name the reward you're after.".to_string());
     }
     let platform = platform.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
 
     // look up the creator first, create_artist would also change no_dates
     let artist_id = match db::artist_id_by_name(&conn, &creator).map_err(map_err)? {
@@ -2704,7 +2703,7 @@ fn add_wish(
 /// Take a reward off the wishlist without deleting it.
 #[tauri::command]
 fn set_wished(db: State<Db>, reward_id: i64, wished: i64) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_reward_wished(&conn, reward_id, wished).map_err(map_err)
 }
 
@@ -2718,14 +2717,14 @@ async fn move_rewards(
     dest_period_id: i64,
 ) -> Result<u32, String> {
     let dest_dir = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         period_month_dir(&conn, dest_period_id)
             .ok_or_else(|| "Couldn't locate the destination folder.".to_string())?
     };
     // (id, title, old_folder) of every movable reward, and its period (for undo)
     let mut back_period: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
     let sources: Vec<(i64, String, String)> = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         let mut out = Vec::new();
         for id in &reward_ids {
             if let Some((title, folder, _)) = db::reward_scope(&conn, *id).map_err(map_err)? {
@@ -2762,7 +2761,7 @@ async fn move_rewards(
 
     let count = moved.len() as u32;
     {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         for (id, old, new) in &moved {
             db::move_reward(&conn, *id, dest_period_id, old, new).map_err(map_err)?;
         }
@@ -2798,7 +2797,7 @@ async fn move_images(
 ) -> Result<u32, String> {
     // the target reward's real folder
     let dest_dir = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         let (title, folder, period_id) = db::reward_scope(&conn, dest_reward_id)
             .map_err(map_err)?
             .ok_or_else(|| "Destination reward not found".to_string())?;
@@ -2812,7 +2811,7 @@ async fn move_images(
     };
     // (path, source reward id) per image
     let srcs: Vec<(String, i64)> = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         let mut out = Vec::new();
         for id in &image_ids {
             if let Some((path, _rel, rid)) = db::image_row(&conn, *id).map_err(map_err)? {
@@ -2850,7 +2849,7 @@ async fn move_images(
 
     // re-index every changed reward and update previews/covers of moved files
     {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         let mut affected: Vec<i64> = srcs.iter().map(|(_, rid)| *rid).collect();
         affected.push(dest_reward_id);
         affected.sort_unstable();
@@ -2904,7 +2903,7 @@ async fn merge_rewards(
     let keep_folder = keep_folder.unwrap_or(false);
     // the target reward's real folder
     let dest_dir = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         let (title, folder, period_id) = db::reward_scope(&conn, dest_reward_id)
             .map_err(map_err)?
             .ok_or_else(|| "Destination reward not found".to_string())?;
@@ -2918,7 +2917,7 @@ async fn merge_rewards(
     };
     // source rewards (not the target, no placeholders) and their files
     let sources: Vec<(i64, String)> = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         let mut out = Vec::new();
         for id in &reward_ids {
             if *id == dest_reward_id {
@@ -2934,7 +2933,7 @@ async fn merge_rewards(
     };
     // for the history: what goes in, read before the rows go
     let (merge_items, merge_artist, merge_place) = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         let ids: Vec<i64> = sources.iter().map(|(id, _)| *id).collect();
         let (artist, place) = reward_place(&conn, dest_reward_id);
         (reward_items(&conn, &ids), artist, place)
@@ -2991,7 +2990,7 @@ async fn merge_rewards(
             .map_err(|e| e.to_string())?;
 
         {
-            let conn = db.lock().map_err(map_err)?;
+            let conn = db.conn();
             // update favourites + previews under each moved folder
             for (old_prefix, new_prefix) in &moved_dirs {
                 conn.execute(
@@ -3025,7 +3024,7 @@ async fn merge_rewards(
     }
 
     let files: Vec<String> = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         let mut out = Vec::new();
         for (id, _) in &sources {
             let mut stmt = conn
@@ -3067,7 +3066,7 @@ async fn merge_rewards(
     let count = moved.len() as u32;
 
     {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         // update favourites + previews of moved files
         for (old, new) in &moved {
             conn.execute(
@@ -3100,7 +3099,7 @@ async fn merge_rewards(
     // trash the source folders that are empty now. Only the indexed files moved, a
     // folder that still has something (a text file, a subfolder) stays
     {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         let boundaries = delete_boundaries(&conn);
         drop(conn);
         for (_, folder) in &sources {
@@ -3118,7 +3117,7 @@ async fn merge_rewards(
 /// Open a month's folder in Explorer (also works for a break without rewards).
 #[tauri::command]
 fn reveal_period(db: State<Db>, period_id: i64) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let dir = period_month_dir(&conn, period_id)
         .ok_or_else(|| "Couldn't locate this month's folder.".to_string())?;
     drop(conn);
@@ -3139,7 +3138,7 @@ fn period_own_dir(conn: &rusqlite::Connection, period_id: i64) -> Option<std::pa
 /// Delete a period (a break or empty month), optionally trashing its folder.
 #[tauri::command]
 async fn delete_period(db: State<'_, Db>, period_id: i64, also_files: bool) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     // for the history, read before anything goes
     let (h_artist, h_place) = period_place(&conn, period_id);
     let h_ids = db::period_reward_ids(&conn, period_id).map_err(map_err)?;
@@ -3208,7 +3207,7 @@ async fn delete_period(db: State<'_, Db>, period_id: i64, also_files: bool) -> R
 #[tauri::command]
 async fn library_size(db: State<'_, Db>) -> Result<u64, String> {
     let paths = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         db::all_image_paths(&conn).map_err(map_err)?
     };
     tauri::async_runtime::spawn_blocking(move || {
@@ -3224,14 +3223,14 @@ async fn library_size(db: State<'_, Db>) -> Result<u64, String> {
 
 #[tauri::command]
 fn set_artist_no_dates(db: State<Db>, artist_id: i64, no_dates: bool) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_artist_no_dates_by_id(&conn, artist_id, no_dates).map_err(map_err)
 }
 
 /// Set how a creator releases: "monthly" | "numbered" | "none" (keeps no_dates in sync).
 #[tauri::command]
 fn set_artist_release_style(db: State<Db>, artist_id: i64, style: String) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_artist_release_style_by_id(&conn, artist_id, &style).map_err(map_err)
 }
 
@@ -3243,7 +3242,7 @@ fn set_platform_release_style(
     platform: String,
     style: String,
 ) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_platform_release_style(&conn, artist_id, &platform, &style).map_err(map_err)
 }
 
@@ -3255,25 +3254,25 @@ fn set_platform_no_dates(
     platform: String,
     no_dates: bool,
 ) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_platform_no_dates(&conn, artist_id, &platform, no_dates).map_err(map_err)
 }
 
 #[tauri::command]
 fn set_artist_tag(db: State<Db>, artist_id: i64, tag: Option<String>) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_artist_tag(&conn, artist_id, tag.as_deref()).map_err(map_err)
 }
 
 #[tauri::command]
 fn set_artist_links(db: State<Db>, artist_id: i64, links: String) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_artist_links(&conn, artist_id, &links).map_err(map_err)
 }
 
 #[tauri::command]
 fn set_artist_notes(db: State<Db>, artist_id: i64, notes: Option<String>) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     // empty = no notes
     let trimmed = notes.as_deref().map(str::trim).filter(|s| !s.is_empty());
     db::set_artist_notes(&conn, artist_id, trimmed).map_err(map_err)
@@ -3281,41 +3280,41 @@ fn set_artist_notes(db: State<Db>, artist_id: i64, notes: Option<String>) -> Res
 
 #[tauri::command]
 fn set_artist_tags(db: State<Db>, artist_id: i64, tags: String) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_artist_tags(&conn, artist_id, &tags).map_err(map_err)
 }
 
 /// Clear a reward's "new" badge (first time its viewer opens).
 #[tauri::command]
 fn mark_reward_seen(db: State<Db>, reward_id: i64) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::mark_reward_seen(&conn, reward_id).map_err(map_err)
 }
 
 /// Clear every "new" badge. Returns how many.
 #[tauri::command]
 fn mark_all_rewards_seen(db: State<Db>) -> Result<usize, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::mark_all_rewards_seen(&conn).map_err(map_err)
 }
 
 #[tauri::command]
 fn set_artist_aliases(db: State<Db>, artist_id: i64, aliases: String) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_artist_aliases(&conn, artist_id, &aliases).map_err(map_err)
 }
 
 /// A creator's tier list (Details), as a JSON array.
 #[tauri::command]
 fn set_artist_tiers(db: State<Db>, artist_id: i64, tiers: Vec<String>) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_artist_tier_list(&conn, artist_id, &tiers).map_err(map_err)
 }
 
 /// Delete a tier from a creator: from the list and from every reward that has it.
 #[tauri::command]
 fn remove_artist_tier(db: State<Db>, artist_id: i64, tier: String) -> Result<u32, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let n = db::remove_artist_tier(&conn, artist_id, &tier).map_err(map_err)?;
     db::checkpoint(&conn);
     Ok(n)
@@ -3323,21 +3322,21 @@ fn remove_artist_tier(db: State<Db>, artist_id: i64, tier: String) -> Result<u32
 
 #[tauri::command]
 fn set_artist_kind(db: State<Db>, artist_id: i64, kind: Option<String>) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_artist_kind(&conn, artist_id, kind.as_deref()).map_err(map_err)
 }
 
 /// Turn "Wallpaper favourites" on/off for an artist.
 #[tauri::command]
 fn set_artist_wallpaper_fav(db: State<Db>, artist_id: i64, on: bool) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_artist_wallpaper_fav(&conn, artist_id, on).map_err(map_err)
 }
 
 /// Hide or unhide a creator (see db::set_artist_hidden).
 #[tauri::command]
 fn set_artist_hidden(db: State<Db>, artist_id: i64, hidden: bool) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_artist_hidden(&conn, artist_id, hidden).map_err(map_err)
 }
 
@@ -3352,7 +3351,7 @@ fn set_artist_graveyard(
     artist_id: i64,
     on: bool,
 ) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     if let Some(dir) = graveyard_move(&conn, artist_id, on)? {
         allow_asset_dir(&app, &dir);
     }
@@ -3464,22 +3463,28 @@ fn repoint_sd_origins(
 /// Mark/unmark one image as favourite wallpaper.
 #[tauri::command]
 fn set_image_wallpaper_fav(db: State<Db>, path: String, fav: bool) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_image_wallpaper_fav(&conn, &path, fav).map_err(map_err)
 }
 
 /// Add/remove one file to/from Favourites.
 #[tauri::command]
 fn set_image_favorite(db: State<Db>, path: String, fav: bool) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_image_favorite(&conn, &path, fav).map_err(map_err)
+}
+
+/// Each creator's number of Favourites (the heart button on the start page).
+#[tauri::command]
+fn favorite_counts(db: State<Db>) -> Result<Vec<db::FavoriteCount>, String> {
+    db::favorite_counts(&db.conn()).map_err(map_err)
 }
 
 /* ---- User-made collections (the "+" tabs on a creator's page) ------------- */
 
 #[tauri::command]
 fn list_collections(db: State<Db>) -> Result<Vec<db::CollectionRow>, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::list_collections(&conn).map_err(map_err)
 }
 
@@ -3490,7 +3495,7 @@ fn create_collection(db: State<Db>, name: String) -> Result<i64, String> {
     if name.is_empty() {
         return Err("A collection needs a name.".into());
     }
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::create_collection(&conn, name).map_err(map_err)
 }
 
@@ -3500,7 +3505,7 @@ fn rename_collection(db: State<Db>, id: i64, name: String) -> Result<(), String>
     if name.is_empty() {
         return Err("A collection needs a name.".into());
     }
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let old: Option<String> = conn
         .query_row("SELECT name FROM collections WHERE id = ?1", rusqlite::params![id], |r| r.get(0))
         .ok();
@@ -3524,7 +3529,7 @@ fn rename_collection(db: State<Db>, id: i64, name: String) -> Result<(), String>
 /// Delete a collection (only the grouping, no files).
 #[tauri::command]
 fn delete_collection(db: State<Db>, id: i64) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let name: Option<String> = conn
         .query_row("SELECT name FROM collections WHERE id = ?1", rusqlite::params![id], |r| r.get(0))
         .ok();
@@ -3558,7 +3563,7 @@ fn set_image_collection(
     path: String,
     on: bool,
 ) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_image_collection(&conn, collection_id, &path, on).map_err(map_err)
 }
 
@@ -4016,7 +4021,7 @@ fn replace_last_segment(rel: &str, new_seg: &str) -> String {
 /// the final names) so a batch can reuse names other items currently have.
 #[tauri::command]
 fn rename_rewards(db: State<Db>, items: Vec<RenameItem>) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     rename_rewards_in(&conn, &items, true)
 }
 
@@ -4126,7 +4131,7 @@ fn rename_rewards_in(conn: &rusqlite::Connection, items: &[RenameItem], log: boo
 /// rename_rewards.
 #[tauri::command]
 fn rename_images(db: State<Db>, items: Vec<RenameItem>) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     rename_images_in(&conn, &items, true)
 }
 
@@ -4236,7 +4241,7 @@ fn create_artist(
     release_style: Option<String>,
     kind: Option<String>,
 ) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let clean = sanitize_name(&name);
     if clean.is_empty() {
         return Err("Artist name is required.".into());
@@ -4345,7 +4350,7 @@ async fn stage_files_for_import(
 ) -> Result<Option<String>, String> {
     // read the managed setting here, the frontend doesn't know it yet at this point
     let managed = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         managed_collection(&conn)
     };
     tauri::async_runtime::spawn_blocking(move || -> Result<Option<String>, String> {
@@ -4409,7 +4414,7 @@ async fn stage_files_for_import(
 async fn analyze_import(db: State<'_, Db>, path: String) -> Result<ImportPlan, String> {
     // load the library's platform names first (see indexer::refresh_known_platforms)
     {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         indexer::refresh_known_platforms(&conn).map_err(map_err)?;
     }
     tauri::async_runtime::spawn_blocking(move || indexer::analyze(&path))
@@ -4446,7 +4451,7 @@ fn import_clashes(
     db: State<Db>,
     rewards: Vec<indexer::ResolvedReward>,
 ) -> Result<Vec<ImportClash>, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let mut out = Vec::new();
     for r in &rewards {
         // root rows have no own folder, so no name to clash
@@ -4536,7 +4541,7 @@ fn commit_import(
     styles: Option<Vec<StyleChoice>>,
     open_as_cards: Option<bool>,
 ) -> Result<ScanSummary, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     // creators this import makes new (undoing it removes them again when left empty)
     let new_artists: std::collections::HashSet<String> = rewards
         .iter()
@@ -4634,7 +4639,7 @@ fn commit_import(
 /// "organize-progress" events, a sync command would hold them until the end
 #[tauri::command]
 async fn organize_collection(app: AppHandle, db: State<'_, Db>) -> Result<OrganizeSummary, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let enabled = db::get_setting(&conn, "managed_enabled")
         .map_err(map_err)?
         .as_deref()
@@ -4674,7 +4679,7 @@ fn move_collection(app: AppHandle, db: State<Db>, new_root: String) -> Result<Mo
     if new_root.is_empty() {
         return Err("Pick a destination folder.".into());
     }
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let old_root = db::get_setting(&conn, "collection_root")
         .map_err(map_err)?
         .filter(|s| !s.trim().is_empty());
@@ -4806,7 +4811,7 @@ fn open_with_default(app: AppHandle, path: String) -> Result<(), String> {
 /// (cut at the artist name), else the managed collection path.
 #[tauri::command]
 fn reveal_artist(db: State<Db>, artist_id: i64) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let (name, _) = db::artist_info(&conn, artist_id)
         .map_err(map_err)?
         .ok_or("Artist not found.")?;
@@ -4877,7 +4882,7 @@ fn rename_artist(
     artist_id: i64,
     new_name: String,
 ) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     rename_artist_in(&app, &conn, artist_id, &new_name, true)
 }
 
@@ -4965,7 +4970,7 @@ async fn delete_platform(
     platform: String,
     also_files: bool,
 ) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let name = db::artist_info(&conn, artist_id).map_err(map_err)?.map(|(n, _)| n);
     // for the history, read before anything goes
     let h_ids = db::platform_reward_ids(&conn, artist_id, platform.trim()).map_err(map_err)?;
@@ -5056,7 +5061,7 @@ async fn delete_rewards(
     reward_ids: Vec<i64>,
     also_files: bool,
 ) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     // for the history, read before anything goes
     let (h_artist, h_place) = reward_ids
         .first()
@@ -5126,7 +5131,7 @@ async fn delete_artist(
     artist_id: i64,
     also_files: bool,
 ) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let name = db::artist_info(&conn, artist_id).map_err(map_err)?.map(|(n, _)| n);
     // for the history, read before anything goes
     let h_ids = db::artist_reward_ids(&conn, artist_id).map_err(map_err)?;
@@ -5237,7 +5242,7 @@ fn add_artist_platform(
     artist_id: i64,
     platform: String,
 ) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let (name, _no_dates) = db::artist_info(&conn, artist_id)
         .map_err(map_err)?
         .ok_or("Artist not found.")?;
@@ -5316,14 +5321,14 @@ fn image_delete_entry(conn: &rusqlite::Connection, ids: &[i64], also_files: bool
 /// Delete one image, optionally trashing the file.
 #[tauri::command]
 fn delete_image(db: State<Db>, image_id: i64, also_files: bool) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     delete_images_in(&conn, &[image_id], also_files)
 }
 
 /// Delete several images at once (viewer selection), under one DB lock.
 #[tauri::command]
 fn delete_images(db: State<Db>, image_ids: Vec<i64>, also_files: bool) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     delete_images_in(&conn, &image_ids, also_files)
 }
 
@@ -5373,7 +5378,7 @@ async fn extract_archive(
     permanent: Option<bool>,
 ) -> Result<String, String> {
     let managed = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         managed_collection(&conn)
     };
     let cache = app_cache(&app)?;
@@ -5403,7 +5408,7 @@ async fn trash_imported_originals(db: State<'_, Db>, paths: Vec<String>) -> Resu
     // per loose file: is it a library file itself, and where could its copy be
     let mut checks: Vec<(String, bool, Vec<String>)> = Vec::new();
     {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         for p in &paths {
             let path = std::path::Path::new(p);
             if !path.is_file() || is_archive(path) {
@@ -5455,7 +5460,7 @@ async fn trash_imported_originals(db: State<'_, Db>, paths: Vec<String>) -> Resu
     .map_err(|e| e.to_string())?;
     let (kept, trashed) = res;
     if !trashed.is_empty() {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         history::log(
             &conn,
             history::Entry {
@@ -5613,7 +5618,7 @@ fn undo_history(
     id: Option<i64>,
 ) -> Result<UndoDone, String> {
     let key = session_key(&dek);
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let row = match id {
         Some(id) => history::get(&conn, id),
         None => history::latest_open(&conn),
@@ -5934,7 +5939,7 @@ struct RewardPlace {
 #[tauri::command]
 fn locate_reward(db: State<Db>, id: i64, name: Option<String>) -> Result<Option<RewardPlace>, String> {
     use rusqlite::OptionalExtension;
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let found: Option<(String, RewardPlace)> = conn
         .query_row(
             "SELECT r.title, p.artist_id, r.period_id FROM rewards r JOIN periods p ON r.period_id = p.id WHERE r.id = ?1",
@@ -5952,14 +5957,14 @@ fn locate_reward(db: State<Db>, id: i64, name: Option<String>) -> Result<Option<
 /// The activity history, newest first (`before` = an id for the next page).
 #[tauri::command]
 fn list_history(db: State<Db>, before: Option<i64>, limit: Option<i64>) -> Result<Vec<history::Row>, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     history::list(&conn, before, limit.unwrap_or(100).clamp(1, 500)).map_err(map_err)
 }
 
 /// Empty the activity history (only the log, nothing else changes).
 #[tauri::command]
 fn clear_history(db: State<Db>) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     history::clear(&conn).map_err(map_err)
 }
 
@@ -5983,19 +5988,18 @@ fn trash_path(db: State<Db>, path: String, reason: Option<String>) -> Result<(),
     if std::path::Path::new(&path).exists() {
         trash::delete(&path).map_err(map_err)?;
         if reason.as_deref() == Some("import") {
-            if let Ok(conn) = db.lock() {
-                history::log(
-                    &conn,
-                    history::Entry {
-                        action: "trash",
-                        kind: "source",
-                        artist: None,
-                        place: None,
-                        files: history::Files::Trash,
-                        items: vec![history::Item::at(file_name_of(&path), path.clone())],
-                    },
-                );
-            }
+            let conn = db.conn();
+            history::log(
+                &conn,
+                history::Entry {
+                    action: "trash",
+                    kind: "source",
+                    artist: None,
+                    place: None,
+                    files: history::Files::Trash,
+                    items: vec![history::Item::at(file_name_of(&path), path.clone())],
+                },
+            );
         }
     }
     Ok(())
@@ -6516,7 +6520,7 @@ async fn save_cover_crop(
 /// Attach a saved copy to the same reward as the original (no full rescan).
 #[tauri::command]
 fn index_added_image(db: State<Db>, reference_path: String, new_path: String) -> Result<bool, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::add_image_beside(&conn, &reference_path, &new_path).map_err(map_err)
 }
 
@@ -6551,7 +6555,7 @@ fn save_image_version(
     let dir = app_data(&app)?.join("versions");
     std::fs::create_dir_all(&dir).map_err(map_err)?;
 
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     // insert first to get an id, then name the file after it
     let id = db::add_image_version(&conn, &orig_path, "", label.as_deref()).map_err(map_err)?;
     let dest = dir.join(format!("{id}.png"));
@@ -6573,7 +6577,7 @@ fn save_image_version(
 /// Versions of an image + the active one (None = original).
 #[tauri::command]
 fn list_image_versions(db: State<Db>, orig_path: String) -> Result<VersionList, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let (versions, active_id) = db::list_image_versions(&conn, &orig_path).map_err(map_err)?;
     Ok(VersionList { versions, active_id })
 }
@@ -6585,7 +6589,7 @@ fn image_versions_for(
     db: State<Db>,
     orig_paths: Vec<String>,
 ) -> Result<std::collections::HashMap<String, VersionList>, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let mut out = std::collections::HashMap::new();
     for p in orig_paths {
         let (versions, active_id) = db::list_image_versions(&conn, &p).map_err(map_err)?;
@@ -6599,7 +6603,7 @@ fn image_versions_for(
 /// Switch the shown version, null = original.
 #[tauri::command]
 fn set_active_version(db: State<Db>, orig_path: String, version_id: Option<i64>) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_active_version(&conn, &orig_path, version_id).map_err(map_err)
 }
 
@@ -6607,7 +6611,7 @@ fn set_active_version(db: State<Db>, orig_path: String, version_id: Option<i64>)
 #[tauri::command]
 fn delete_image_version(db: State<Db>, version_id: i64) -> Result<(), String> {
     {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         let orig: Option<String> = conn
             .query_row(
                 "SELECT orig_path FROM image_versions WHERE id = ?1",
@@ -6895,8 +6899,8 @@ fn tray_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     });
     // whether there's a password, and the recent creators' names (deleted ones drop out)
     let db = app.try_state::<Db>();
-    let (has_password, recent) = match db.as_ref().map(|db| db.lock()) {
-        Some(Ok(conn)) => {
+    let (has_password, recent) = match db.as_ref().map(|db| db.conn()) {
+        Some(conn) => {
             let pw = db::get_setting(&conn, "lock_pw_hash").ok().flatten().is_some_and(|s| !s.is_empty());
             let names: Vec<(i64, String)> = if show_recent {
                 recent_creators(&conn)
@@ -6963,7 +6967,7 @@ fn sync_tray(app: AppHandle, labels: TrayLabels, locked: bool, show_recent: bool
 fn note_recent_creator(app: AppHandle, db: State<Db>, id: String) -> Result<(), String> {
     let Ok(id) = id.parse::<i64>() else { return Ok(()) };
     {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         let mut list = recent_creators(&conn);
         if list.first() == Some(&id) {
             return Ok(());
@@ -7021,9 +7025,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 std::thread::spawn(move || {
                     drop(wait_for_command());
                     if let Some(db) = app.try_state::<Db>() {
-                        if let Ok(conn) = db.lock() {
-                            db::checkpoint(&conn);
-                        }
+                        db::checkpoint(&db.conn());
                     }
                     app.exit(0);
                 });
@@ -7047,10 +7049,39 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// The thumbnail cache's size now and its limit (Settings > Performance).
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThumbCacheInfo {
+    bytes: u64,
+    /// 0 = unlimited
+    limit_mb: u64,
+}
+
+#[tauri::command]
+async fn thumb_cache_info(app: AppHandle) -> Result<ThumbCacheInfo, String> {
+    let cache = app_cache(&app)?;
+    let bytes = tauri::async_runtime::spawn_blocking(move || thumbs::cache_size(&cache))
+        .await
+        .map_err(map_err)?;
+    Ok(ThumbCacheInfo { bytes, limit_mb: thumbs::limit_bytes() / (1024 * 1024) })
+}
+
+/// Save a new limit (MB, 0 = unlimited) and trim to it right away. Returns the size after.
+#[tauri::command]
+async fn set_thumb_cache_limit(app: AppHandle, db: State<'_, Db>, limit_mb: u64) -> Result<u64, String> {
+    db::set_setting(&db.conn(), thumbs::LIMIT_KEY, &limit_mb.to_string()).map_err(map_err)?;
+    thumbs::set_limit_mb(limit_mb);
+    let cache = app_cache(&app)?;
+    tauri::async_runtime::spawn_blocking(move || thumbs::trim(&cache, thumbs::limit_bytes()))
+        .await
+        .map_err(map_err)
+}
+
 #[tauri::command]
 fn set_close_to_tray(app: AppHandle, db: State<Db>, on: bool) -> Result<(), String> {
     {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         db::set_setting(&conn, CLOSE_TO_TRAY_KEY, if on { "true" } else { "false" })
             .map_err(map_err)?;
     }
@@ -7069,13 +7100,13 @@ fn set_close_to_tray(app: AppHandle, db: State<Db>, on: bool) -> Result<(), Stri
 
 #[tauri::command]
 fn get_setting(db: State<Db>, key: String) -> Result<Option<String>, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::get_setting(&conn, &key).map_err(map_err)
 }
 
 #[tauri::command]
 fn set_setting(db: State<Db>, key: String, value: String) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_setting(&conn, &key, &value).map_err(map_err)
 }
 
@@ -7103,7 +7134,7 @@ fn gen_salt() -> String {
 /// re-wraps the data key and clearing is blocked (it would lose the key).
 #[tauri::command]
 fn set_password(db: State<Db>, dek_state: State<DekState>, password: String) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     if password.is_empty() {
         if enc_enabled(&conn) {
             return Err("Can't remove the password while encryption is on — disable encryption first.".into());
@@ -7131,7 +7162,7 @@ fn set_password(db: State<Db>, dek_state: State<DekState>, password: String) -> 
 /// Is a lock password set?
 #[tauri::command]
 fn has_password(db: State<Db>) -> Result<bool, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     Ok(db::get_setting(&conn, "lock_pw_hash")
         .map_err(map_err)?
         .filter(|s| !s.is_empty())
@@ -7141,7 +7172,7 @@ fn has_password(db: State<Db>) -> Result<bool, String> {
 /// Check a password. Always true without a password.
 #[tauri::command]
 fn verify_password(db: State<Db>, password: String) -> Result<bool, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     match db::get_setting(&conn, "lock_pw_hash")
         .map_err(map_err)?
         .filter(|s| !s.is_empty())
@@ -7178,7 +7209,7 @@ fn set_decoy_password(
     dek_state: State<DekState>,
     password: String,
 ) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     if password.is_empty() {
         for k in ["lock_pw2_hash", "lock_pw2_salt", "enc_kdf_salt2", "enc_dek_pw2"] {
             db::set_setting(&conn, k, "").map_err(map_err)?;
@@ -7215,7 +7246,7 @@ fn set_decoy_password(
 /// Is a decoy password set?
 #[tauri::command]
 fn has_decoy_password(db: State<Db>) -> Result<bool, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     Ok(db::get_setting(&conn, "lock_pw2_hash")
         .map_err(map_err)?
         .filter(|s| !s.is_empty())
@@ -7357,7 +7388,7 @@ struct EncState {
 #[tauri::command]
 fn encryption_state(db: State<Db>, dek: State<DekState>) -> Result<EncState, String> {
     let enabled = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         enc_enabled(&conn)
     };
     let unlocked = dek.lock().map_err(map_err)?.is_some();
@@ -7374,7 +7405,7 @@ async fn enable_encryption(
     password: String,
 ) -> Result<String, String> {
     let (dek_raw, files, recovery) = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         if !password_ok(&conn, &password) {
             return Err("Wrong password.".into());
         }
@@ -7424,7 +7455,7 @@ async fn disable_encryption(
     password: String,
 ) -> Result<(), String> {
     let (dek_raw, files) = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         if !enc_enabled(&conn) {
             return Ok(());
         }
@@ -7447,7 +7478,7 @@ async fn disable_encryption(
         (dek_raw, collect_media_files(&conn, app_data(&app).ok().as_deref()))
     };
     run_sweep(&app, dek_raw, files, false).await?;
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     for k in ["enc_enabled", "enc_kdf_salt", "enc_dek_pw", "enc_rec_salt", "enc_dek_rec", "enc_verifier"] {
         db::set_setting(&conn, k, "").map_err(map_err)?;
     }
@@ -7463,7 +7494,7 @@ async fn encrypt_collection(
     dek_state: State<'_, DekState>,
 ) -> Result<(), String> {
     let (dek_raw, files) = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         if !enc_enabled(&conn) {
             return Ok(());
         }
@@ -7492,7 +7523,7 @@ fn unlock(
     dek_state: State<DekState>,
     password: String,
 ) -> Result<UnlockResult, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let no = UnlockResult { ok: false, decoy: false };
     if !enc_enabled(&conn) {
         // no encryption, only the password check
@@ -7527,7 +7558,7 @@ fn unlock(
 /// Unlock with the recovery code.
 #[tauri::command]
 fn unlock_recovery(db: State<Db>, dek_state: State<DekState>, code: String) -> Result<bool, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     if !enc_enabled(&conn) {
         return Ok(false);
     }
@@ -7695,7 +7726,7 @@ fn restore_backup(
 #[tauri::command]
 fn log_set_enabled(app: AppHandle, db: State<Db>, on: bool) -> Result<(), String> {
     applog::set_enabled(on)?;
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::set_setting(&conn, applog::SETTING_KEY, if on { "true" } else { "false" }).map_err(map_err)?;
     if on {
         applog::write(
@@ -7744,7 +7775,7 @@ fn reveal_backups(app: AppHandle) -> Result<(), String> {
 /// covers, settings, encryption), not the media files.
 #[tauri::command]
 fn backup_database(db: State<Db>, dest: String) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     // VACUUM INTO needs the target not to exist
     let _ = std::fs::remove_file(&dest);
     conn.execute("VACUUM INTO ?1", rusqlite::params![dest])
@@ -7794,7 +7825,7 @@ fn swap_in_database(
     src_wal: Option<&std::path::Path>,
 ) -> Result<(), String> {
     let path = db_path(app)?;
-    let mut guard = db.lock().map_err(map_err)?;
+    let mut guard = db.conn();
     // swap in a dummy connection to release the file locks (needed on Windows)
     let placeholder = rusqlite::Connection::open_in_memory().map_err(map_err)?;
     let old = std::mem::replace(&mut *guard, placeholder);
@@ -8553,27 +8584,26 @@ async fn windows_share(_srcs: Vec<String>, _name: String) -> Result<(), String> 
     Err("The system share sheet is only available on Windows.".into())
 }
 
-/// Drag a file out of the viewer (desktop, Explorer, a chat) as a COPY. The frontend
-/// calls this while the left button is still held. Encrypted files go out as a
-/// decrypted copy from the share stage, like Share does.
+/// Drag files out of the viewer (desktop, Explorer, a chat) as COPIES: one picture or
+/// the whole selection. The frontend calls this while the left button is still held.
+/// Encrypted files go out as decrypted copies from the share stage, like Share does.
 #[tauri::command]
 async fn drag_out(
     app: AppHandle,
     window: tauri::WebviewWindow,
     dek: State<'_, DekState>,
-    src: String,
+    srcs: Vec<String>,
 ) -> Result<(), String> {
     let key = session_key(&dek);
     let dir = share_stage_dir(&app)?;
-    let path = tauri::async_runtime::spawn_blocking(move || wshare::stage(&dir, &[src], key))
+    let paths = tauri::async_runtime::spawn_blocking(move || wshare::stage(&dir, &srcs, key))
         .await
-        .map_err(|e| e.to_string())??
-        .remove(0);
-    // OLE drag must run on the window's thread, it returns once the file is dropped
+        .map_err(|e| e.to_string())??;
+    // OLE drag must run on the window's thread, it returns once the files are dropped
     let (tx, rx) = std::sync::mpsc::channel();
     window
         .run_on_main_thread(move || {
-            let _ = tx.send(wshare::drag_file(&path));
+            let _ = tx.send(wshare::drag_files(&paths));
         })
         .map_err(map_err)?;
     tauri::async_runtime::spawn_blocking(move || {
@@ -9417,7 +9447,7 @@ fn list_templates(app: AppHandle, db: State<Db>) -> Result<Vec<TemplatePreview>,
     drop(cache);
 
     // phase 2: is each template applied (from the DB)
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let mut out: Vec<TemplatePreview> = Vec::new();
     for (artist, mut p) in rows {
         // not cached, a backup can appear/disappear on its own
@@ -9469,7 +9499,7 @@ fn delete_template(app: AppHandle, file_name: String) -> Result<(), String> {
 /// Files on disk and the template file stay.
 #[tauri::command]
 fn deactivate_template(db: State<Db>, json: String) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let t = template::parse(&json)?;
     let name = t.artist.name.trim();
     let artist_id = match db::artist_id_by_name(&conn, name).map_err(map_err)? {
@@ -9564,7 +9594,7 @@ fn verify_theme_license(db: State<Db>, token: String) -> Result<ThemeLicenseInfo
     if let Some(days) = lic.days {
         let fp = signing::theme_key_fingerprint(&token)?;
         let row = format!("trial_started_{fp}");
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         let started = match db::get_setting(&conn, &row).map_err(map_err)? {
             Some(v) => v.trim().parse::<i64>().unwrap_or_else(|_| signing::epoch_day()),
             None => {
@@ -9607,7 +9637,7 @@ fn generate_signing_keypair() -> Result<String, String> {
 /// the normal teardown, so fold the WAL first (like the tray Quit does).
 #[tauri::command]
 fn prepare_for_update(db: State<Db>) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     db::checkpoint(&conn);
     Ok(())
 }
@@ -9630,9 +9660,7 @@ async fn portable_update(app: AppHandle, db: State<'_, Db>, version: String) -> 
         .await
         .map_err(map_err)??;
     // save the database before the new version opens it
-    if let Ok(conn) = db.lock() {
-        db::checkpoint(&conn);
-    }
+    db::checkpoint(&db.conn());
     std::process::Command::new(&exe)
         .spawn()
         .map_err(|e| format!("the update is in place, but MiColl couldn't restart: {e}"))?;
@@ -9643,7 +9671,7 @@ async fn portable_update(app: AppHandle, db: State<'_, Db>, version: String) -> 
 /// Set up (or rename) the MiSD folder.
 #[tauri::command]
 fn sd_setup(db: State<Db>, path: String, label: String) -> Result<sd::SdStatus, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     sd::setup(&conn, &path, &label)
 }
 
@@ -9653,7 +9681,7 @@ fn sd_status(app: AppHandle, db: State<Db>, dek: State<DekState>) -> Result<sd::
     // probe the drive letter before taking the lock (see sd::preheal), Settings calls this
     // a lot
     sd::preheal(db.inner())?;
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let st = sd::status(&conn)?;
     // disk is here: fill missing offline previews (only this call has the key when
     // encrypted)
@@ -9667,7 +9695,7 @@ fn sd_status(app: AppHandle, db: State<Db>, dek: State<DekState>) -> Result<sd::
 #[tauri::command]
 fn sd_available(db: State<Db>) -> Result<bool, String> {
     sd::preheal(db.inner())?; // runs on every click into an offloaded reward
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     Ok(sd::available(&conn))
 }
 
@@ -9682,7 +9710,7 @@ fn sd_mark(
     marked: bool,
     mode: Option<String>,
 ) -> Result<u32, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let mode = sd::SdMode::parse(mode.as_deref().unwrap_or("move"));
     let mut n = 0;
     if let Some(ids) = reward_ids {
@@ -9709,7 +9737,7 @@ fn sd_mark_year(
     mode: Option<String>,
     rule: bool,
 ) -> Result<u32, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let mode = sd::SdMode::parse(mode.as_deref().unwrap_or("move"));
     let n = sd::mark_year(&conn, artist_id, platform.as_deref(), year, mode, marked)?;
     if rule {
@@ -9733,7 +9761,7 @@ fn sd_year_rule(
     year: Option<i64>,
     mode: Option<String>,
 ) -> Result<(), String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     sd::set_year_rule(
         &conn,
         artist_id,
@@ -9746,14 +9774,14 @@ fn sd_year_rule(
 /// All year rules of a creator (for the year headers).
 #[tauri::command]
 fn sd_year_rules(db: State<Db>, artist_id: i64) -> Result<Vec<sd::YearRule>, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     sd::year_rules(&conn, artist_id)
 }
 
 /// Creators the next job would touch (for the confirmation).
 #[tauri::command]
 fn sd_queued_creators(db: State<Db>) -> Result<Vec<sd::QueuedCreator>, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     sd::queued_creators(&conn)
 }
 
@@ -9778,7 +9806,7 @@ async fn sd_transport(
 ) -> Result<sd::SdSummary, String> {
     let thumbs_dir = app_cache(&app)?.join("thumbs");
     let key = session_key(&dek);
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     sd::transport(&conn, &thumbs_dir, key, &sd_progress(&app, "transport"))
 }
 
@@ -9789,14 +9817,14 @@ async fn sd_return(
     db: State<'_, Db>,
     reward_ids: Option<Vec<i64>>,
 ) -> Result<sd::SdSummary, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     sd::bring_back(&conn, reward_ids.as_deref(), &sd_progress(&app, "return"))
 }
 
 /// Copy every reward queued for backup to the disk (same check), nothing deleted locally.
 #[tauri::command]
 async fn sd_backup_now(app: AppHandle, db: State<'_, Db>) -> Result<sd::SdSummary, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     sd::backup(&conn, &sd_progress(&app, "backup"))
 }
 
@@ -9804,7 +9832,7 @@ async fn sd_backup_now(app: AppHandle, db: State<'_, Db>) -> Result<sd::SdSummar
 /// Extras stay in the month but aren't used for the month mosaic.
 #[tauri::command]
 fn set_rewards_extra(db: State<Db>, reward_ids: Vec<i64>, extra: bool) -> Result<u32, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let n = db::set_rewards_extra(&conn, &reward_ids, extra).map_err(map_err)?;
     db::checkpoint(&conn);
     Ok(n)
@@ -9813,16 +9841,22 @@ fn set_rewards_extra(db: State<Db>, reward_ids: Vec<i64>, extra: bool) -> Result
 /// Mark rewards as partial (only part of the release is in the folder) or complete.
 #[tauri::command]
 fn set_rewards_partial(db: State<Db>, reward_ids: Vec<i64>, partial: bool) -> Result<u32, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let n = db::set_rewards_partial(&conn, &reward_ids, partial).map_err(map_err)?;
     db::checkpoint(&conn);
     Ok(n)
 }
 
 /// Set or remove (None / empty) the tier of rewards.
+/// A reward's notes (Details), blank clears them.
+#[tauri::command]
+fn set_reward_notes(db: State<Db>, reward_id: i64, notes: Option<String>) -> Result<(), String> {
+    db::set_reward_notes(&db.conn(), reward_id, notes.as_deref()).map_err(map_err)
+}
+
 #[tauri::command]
 fn set_rewards_tier(db: State<Db>, reward_ids: Vec<i64>, tier: Option<String>) -> Result<u32, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let n = db::set_rewards_tier(&conn, &reward_ids, tier.as_deref()).map_err(map_err)?;
     db::checkpoint(&conn);
     Ok(n)
@@ -9838,7 +9872,7 @@ fn sd_cancel() {
 /// Remove MiSD backups (local files stay). reward_ids None = all.
 #[tauri::command]
 fn sd_backup_drop(db: State<Db>, reward_ids: Option<Vec<i64>>) -> Result<sd::SdSummary, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     sd::drop_backup(&conn, reward_ids.as_deref())
 }
 
@@ -9980,7 +10014,7 @@ fn apply_template(
     create_folders: bool,
     base_dir: Option<String>,
 ) -> Result<ScanSummary, String> {
-    let conn = db.lock().map_err(map_err)?;
+    let conn = db.conn();
     let t = template::parse(&json)?;
     // refuse before changing anything if a month is listed twice
     template::check_no_duplicate_periods(&t)?;
@@ -10097,7 +10131,7 @@ async fn find_duplicates(
     use std::collections::HashMap;
     let key = session_key(&dek);
     let rows = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         db::images_for_dup(&conn).map_err(map_err)?
     };
     // images in the scope (by id)
@@ -10283,7 +10317,7 @@ struct ArtistStorage {
 async fn storage_breakdown(db: State<'_, Db>) -> Result<Vec<ArtistStorage>, String> {
     use std::collections::HashMap;
     let rows = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         db::images_with_artist(&conn).map_err(map_err)?
     };
     let result = tauri::async_runtime::spawn_blocking(move || {
@@ -10479,6 +10513,9 @@ pub fn run() {
             let tray_on =
                 db::get_setting(&conn, CLOSE_TO_TRAY_KEY).ok().flatten().as_deref() == Some("true");
             app.manage(CloseToTray(std::sync::atomic::AtomicBool::new(tray_on)));
+            // the thumbnail cache limit (Settings > Performance)
+            let cache_limit = db::get_setting(&conn, thumbs::LIMIT_KEY).ok().flatten();
+            thumbs::set_limit_mb(thumbs::limit_mb_from(cache_limit.as_deref()));
             let mut in_tray = false;
             if tray_on {
                 match build_tray(app.handle()) {
@@ -10514,6 +10551,15 @@ pub fn run() {
                     ("New window", "--new-window"),
                 ]);
             }
+            // a cache that grew past its limit while MiColl was closed (or under an
+            // older build without one) shrinks in the background
+            if let Ok(cache) = app_cache(app) {
+                std::thread::spawn(move || {
+                    startup_step("thumbnail cache trim", || {
+                        thumbs::trim(&cache, thumbs::limit_bytes());
+                    })
+                });
+            }
             // allow the thumbnail cache folder for the asset protocol
             let thumbs = app_cache(app).ok().map(|cache| cache.join("thumbs"));
             if let Some(thumbs) = &thumbs {
@@ -10545,7 +10591,7 @@ pub fn run() {
             let versions = dir.join("versions");
             std::thread::spawn(move || {
                 let db = handle.state::<Db>();
-                let Ok(conn) = db.lock() else { return };
+                let conn = db.conn();
                 // remove verified marks whose template doesn't verify anymore
                 startup_step("template re-verification", || {
                     if let Err(e) = template::reverify_applied(&conn) {
@@ -10669,6 +10715,7 @@ pub fn run() {
             library_sizes,
             set_image_wallpaper_fav,
             set_image_favorite,
+            favorite_counts,
             list_collections,
             create_collection,
             rename_collection,
@@ -10731,6 +10778,7 @@ pub fn run() {
             set_rewards_extra,
             set_rewards_partial,
             set_rewards_tier,
+            set_reward_notes,
             set_artist_tiers,
             remove_artist_tier,
             rescan_reward,
@@ -10808,6 +10856,8 @@ pub fn run() {
             undo_history,
             locate_reward,
             set_close_to_tray,
+            thumb_cache_info,
+            set_thumb_cache_limit,
             sync_tray,
             note_recent_creator,
             get_autostart,

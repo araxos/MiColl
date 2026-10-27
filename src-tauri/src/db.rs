@@ -9,6 +9,20 @@ use std::path::Path;
 
 pub type Db = std::sync::Mutex<Connection>;
 
+/// Locking the DB. A command that panics while holding the lock poisons the mutex, and
+/// a plain `lock()` would then fail every later command until MiColl restarts. The
+/// connection itself is still fine (an open transaction rolls back on unwind), so take
+/// it back like the indexer does.
+pub trait DbLock {
+    fn conn(&self) -> std::sync::MutexGuard<'_, Connection>;
+}
+
+impl DbLock for Db {
+    fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
+        self.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Root {
@@ -78,6 +92,8 @@ pub struct Reward {
     /// The creator's tier it came with ("2", "Gold" …), the user's mark. None = not set.
     /// Like is_partial a rescan keeps it.
     pub tier: Option<String>,
+    /// The user's notes ("Tier 3, bonus PSD still missing"). A rescan keeps them.
+    pub notes: Option<String>,
     /// Number of media files (from a column, so the dashboard doesn't need image rows).
     pub image_count: i64,
     /// MiSD: queued for the next move.
@@ -516,6 +532,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN is_extra INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN is_partial INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN tier TEXT", []);
+    let _ = conn.execute("ALTER TABLE rewards ADD COLUMN notes TEXT", []);
     let _ = conn.execute(
         "ALTER TABLE artists ADD COLUMN wallpaper_fav INTEGER NOT NULL DEFAULT 0",
         [],
@@ -939,6 +956,44 @@ pub fn set_image_favorite(conn: &Connection, path: &str, on: bool) -> rusqlite::
         conn.execute("DELETE FROM favorites WHERE file_path = ?1", params![path])?;
     }
     Ok(())
+}
+
+/// One creator's part of Favourites (the heart list on the start page).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FavoriteCount {
+    pub artist_id: i64,
+    pub count: i64,
+    /// One of the favourite pictures (not a video), for the list's thumbnail.
+    pub preview: Option<String>,
+}
+
+/// How many Favourites each creator has. Only the "Favourites" collection: Fav.
+/// Wallpaper and the user's own collections don't count. Marks whose file is gone
+/// from the library drop out.
+pub fn favorite_counts(conn: &Connection) -> rusqlite::Result<Vec<FavoriteCount>> {
+    let mut stmt = conn.prepare(
+        "SELECT p.artist_id, f.file_path FROM favorites f
+         JOIN images i  ON i.file_path = f.file_path
+         JOIN rewards r ON r.id = i.reward_id
+         JOIN periods p ON p.id = r.period_id
+         GROUP BY p.artist_id, f.file_path
+         ORDER BY p.artist_id, MIN(i.sort)",
+    )?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+    let mut out: Vec<FavoriteCount> = Vec::new();
+    for row in rows {
+        let (artist_id, path) = row?;
+        if out.last().is_none_or(|c| c.artist_id != artist_id) {
+            out.push(FavoriteCount { artist_id, count: 0, preview: None });
+        }
+        let c = out.last_mut().expect("pushed above");
+        c.count += 1;
+        if c.preview.is_none() && crate::dup::is_image(&path) {
+            c.preview = Some(path);
+        }
+    }
+    Ok(out)
 }
 
 /// Mark an artist as manual (kept even without rewards).
@@ -1417,6 +1472,13 @@ pub fn set_rewards_tier(conn: &Connection, ids: &[i64], tier: Option<&str>) -> r
         }
     }
     Ok(n)
+}
+
+/// Set a reward's notes. Blank clears them.
+pub fn set_reward_notes(conn: &Connection, id: i64, notes: Option<&str>) -> rusqlite::Result<()> {
+    let notes = notes.map(str::trim).filter(|n| !n.is_empty());
+    conn.execute("UPDATE rewards SET notes = ?2 WHERE id = ?1", params![id, notes])?;
+    Ok(())
 }
 
 /// The tiers typed in the import review, by reward folder (after the commit).
@@ -2262,7 +2324,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                     r.is_root, r.image_count, r.sd_marked, r.sd_volume,
                     p.id, p.platform, p.year, p.month, p.number, p.span, p.label, p.folder_path,
                     oa.id, oa.name, r.cover_custom, r.sd_backup, r.sd_backup_at, r.fresh, r.wished,
-                    r.is_extra, r.is_partial, r.tier
+                    r.is_extra, r.is_partial, r.tier, r.notes
              FROM reward_collabs c
              JOIN rewards r  ON r.id = c.reward_id
              JOIN periods p  ON p.id = r.period_id
@@ -2290,6 +2352,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                         is_extra: r.get::<_, i64>(26)? != 0,
                         is_partial: r.get::<_, i64>(27)? != 0,
                         tier: r.get(28)?,
+                        notes: r.get(29)?,
                         image_count: r.get(8)?,
                         sd_marked: r.get::<_, i64>(9)? == 1,
                         sd_volume: r.get(10)?,
@@ -2438,7 +2501,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                 let mut stmt = conn.prepare_cached(
                     "SELECT id, title, category, folder_path, cover_image, status, is_root, image_count,
                             sd_marked, sd_volume, cover_custom, sd_backup, sd_backup_at, fresh, wished,
-                            is_extra, is_partial, tier
+                            is_extra, is_partial, tier, notes
                      FROM rewards WHERE period_id = ?1
                      ORDER BY category IS NULL DESC, title COLLATE NOCASE",
                 )?;
@@ -2455,6 +2518,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                         is_extra: r.get::<_, i64>(15)? != 0,
                         is_partial: r.get::<_, i64>(16)? != 0,
                         tier: r.get(17)?,
+                        notes: r.get(18)?,
                         image_count: r.get(7)?,
                         sd_marked: r.get::<_, i64>(8)? == 1,
                         sd_volume: r.get(9)?,
@@ -2888,6 +2952,74 @@ pub fn remap_versions_prefix(conn: &Connection, old_prefix: &str, new_prefix: &s
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The heart list counts only Favourites: no Fav. Wallpaper, no own collections, no
+    /// marks whose file left the library. Videos count but aren't the thumbnail.
+    #[test]
+    fn favorite_counts_only_count_favourites() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        let mut ids = Vec::new();
+        for name in ["A", "B", "C"] {
+            conn.execute("INSERT INTO artists(name) VALUES(?1)", [name]).unwrap();
+            let aid = conn.last_insert_rowid();
+            conn.execute(
+                "INSERT INTO periods(artist_id, label, folder_path) VALUES(?1, 'Misc', ?2)",
+                params![aid, name],
+            )
+            .unwrap();
+            let pid = conn.last_insert_rowid();
+            conn.execute(
+                "INSERT INTO rewards(period_id, title, folder_path, image_count) VALUES(?1, 'Pack', ?2, 3)",
+                params![pid, format!("{name}/Pack")],
+            )
+            .unwrap();
+            let rid = conn.last_insert_rowid();
+            for (i, f) in ["a.mp4", "b.jpg", "c.png"].iter().enumerate() {
+                conn.execute(
+                    "INSERT INTO images(reward_id, file_path, rel_name, sort) VALUES(?1, ?2, ?3, ?4)",
+                    params![rid, format!("{name}/Pack/{f}"), f, i as i64],
+                )
+                .unwrap();
+            }
+            ids.push(aid);
+        }
+        // A: a video and a picture, B: only Fav. Wallpaper + a collection, C: nothing
+        set_image_favorite(&conn, "A/Pack/a.mp4", true).unwrap();
+        set_image_favorite(&conn, "A/Pack/c.png", true).unwrap();
+        set_image_favorite(&conn, "gone/elsewhere.jpg", true).unwrap();
+        conn.execute("INSERT INTO wallpaper_favs(file_path) VALUES('B/Pack/b.jpg')", []).unwrap();
+        conn.execute("INSERT INTO collections(name) VALUES('Mine')", []).unwrap();
+        let cid = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO collection_items(collection_id, file_path) VALUES(?1, 'B/Pack/c.png')",
+            [cid],
+        )
+        .unwrap();
+
+        let got = favorite_counts(&conn).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].artist_id, ids[0]);
+        assert_eq!(got[0].count, 2);
+        assert_eq!(got[0].preview.as_deref(), Some("A/Pack/c.png"));
+    }
+
+    /// A command that panics while holding the DB must not lock everyone else out.
+    #[test]
+    fn conn_survives_a_poisoned_lock() {
+        let db: Db = std::sync::Mutex::new(Connection::open_in_memory().unwrap());
+        std::thread::scope(|s| {
+            let _ = s
+                .spawn(|| {
+                    let _conn = db.conn();
+                    panic!("command blew up while holding the DB");
+                })
+                .join();
+        });
+        assert!(db.is_poisoned());
+        let one: i64 = db.conn().query_row("SELECT 1", [], |r| r.get(0)).unwrap();
+        assert_eq!(one, 1);
+    }
 
     /// Emptying a creator must not delete the creator (aliases, links, notes... must stay).
     ///

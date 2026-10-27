@@ -149,6 +149,19 @@ const IDLE_PAUSE_OPTIONS: [IdlePause, string, string][] = [
   ["off", "Never", "Always animate, whatever it costs."],
 ];
 
+// limit of the thumbnail cache in MB, 0 = unlimited
+const THUMB_CACHE_LIMITS: [number, string][] = [
+  [250, "250 MB"],
+  [500, "500 MB"],
+  [1024, "1 GB"],
+  [2048, "2 GB"],
+  [5120, "5 GB"],
+  [0, "Unlimited"],
+];
+
+const fmtCacheSize = (b: number) =>
+  b < 1024 * 1024 * 1024 ? `${Math.round(b / (1024 * 1024))} MB` : `${(b / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+
 const SECTIONS: NavSection[] = [
   {
     id: "appearance",
@@ -162,7 +175,7 @@ const SECTIONS: NavSection[] = [
     label: "Performance",
     Icon: Activity,
     keywords:
-      "performance cpu processor fan noise battery power idle background minimized minimised inactive unfocused animations pause holo frequency glint shimmer webview webview2 usage load lag stutter slow gif gifs play animated optimize optimise large images downscale preview huge resolution graphics gpu renderer driver hardware acceleration software swiftshader webgl frosted buttons blur backdrop glass line seam edge black stripe artifact tray taskbar notification area system close quit hide minimize background running resident autostart startup start with windows boot sign in login",
+      "performance cpu processor fan noise battery power idle background minimized minimised inactive unfocused animations pause holo frequency glint shimmer webview webview2 usage load lag stutter slow gif gifs play animated optimize optimise large images downscale preview huge resolution graphics gpu renderer driver hardware acceleration thumbnail thumbnails cache disk space storage size limit megabytes gigabytes unlimited software swiftshader webgl frosted buttons blur backdrop glass line seam edge black stripe artifact tray taskbar notification area system close quit hide minimize background running resident autostart startup start with windows boot sign in login",
   },
   {
     id: "content",
@@ -551,6 +564,28 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
       setCloseToTrayOn(!on); // the tray couldn't be built — don't claim it worked
       setStatus(tf("Couldn’t change the tray option: {error}", { error: String(e) }));
     });
+  };
+  // the thumbnail cache: how big it is now and its limit (MB, 0 = unlimited)
+  const [thumbCache, setThumbCache] = useState<api.ThumbCacheInfo | null>(null);
+  useEffect(() => {
+    if (!backed) return;
+    let alive = true;
+    api.thumbCacheInfo()
+      .then((v) => alive && setThumbCache(v))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [backed]);
+  const changeThumbCacheLimit = (limitMb: number) => {
+    const before = thumbCache;
+    setThumbCache((c) => c && { ...c, limitMb });
+    api.setThumbCacheLimit(limitMb)
+      .then((bytes) => setThumbCache({ bytes, limitMb }))
+      .catch((e) => {
+        setThumbCache(before);
+        setStatus(tf("Couldn’t change the cache limit: {error}", { error: String(e) }));
+      });
   };
   // "Start with Windows": an entry in the registry, not a setting (Windows reads it)
   const [autostart, setAutostartOn] = useState(false);
@@ -1992,6 +2027,31 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
               </div>
               <Toggle checked={optimizeLarge} onChange={toggleOptimizeLarge} />
             </div>
+
+            {backed && thumbCache && (
+              <div className={cn("mt-3 flex items-center justify-between gap-3", cardInner)}>
+                <div className="min-w-0">
+                  <h2 className="text-sm font-semibold text-zinc-100">{t("Thumbnail cache")}</h2>
+                  <p className="settings-desc mt-0.5 text-sm text-zinc-400">
+                    {t(
+                      "The small covers in the grids and the viewer’s lighter previews are saved on this PC so they load instantly next time. Over the limit, the ones you haven’t looked at for the longest are deleted and simply made again when you need them. Your own files are never touched, and the covers saved for rewards on a MiSD disk are always kept.",
+                    )}
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {tf("Uses {size} right now.", { size: fmtCacheSize(thumbCache.bytes) })}
+                  </p>
+                </div>
+                <ThemedSelect
+                  value={String(thumbCache.limitMb)}
+                  onChange={(v) => changeThumbCacheLimit(Number(v))}
+                  options={THUMB_CACHE_LIMITS.map(([mb, label]) => ({ value: String(mb), label: t(label) }))}
+                  title={t("Limit for the thumbnail cache")}
+                  ink="text-zinc-100"
+                  className={cn("h-9 w-44 shrink-0 px-3 text-sm", dlg.field)}
+                  minWidth={176}
+                />
+              </div>
+            )}
 
             {/* the renderer (software = shader on the CPU) */}
             <div className={cn("mt-3", cardInner)}>

@@ -14,6 +14,7 @@ import {
   Tags,
   History,
   Dices,
+  Heart,
   ChevronDown,
   Users,
   GripVertical,
@@ -27,6 +28,8 @@ import { ArtistCard } from "@/components/ArtistCard";
 import { DASHBOARD_SHAPE } from "@/lib/tileShape";
 import { VirtualGrid } from "@/components/VirtualGrid";
 import { RecentPanel } from "@/components/RecentPanel";
+import { FavoritesPanel } from "@/components/FavoritesPanel";
+import { isTauri } from "@/lib/tauri";
 import { CyberScramble } from "@/components/CyberScramble";
 import { AddArtistSheet } from "@/components/AddArtistSheet";
 import { ImportFolderButton } from "@/components/ImportFolderButton";
@@ -271,6 +274,8 @@ export function StartPage({ onLock }: { onLock: () => void }) {
   // "Details" in the background menu = the collection stats here
   useEffect(() => onPageDetails(() => setStatsOpen(true)), []);
   const [recentOpen, setRecentOpen] = useState(false);
+  // the heart next to the dice: creators with Favourites
+  const [favsOpen, setFavsOpen] = useState(false);
   // sort field + direction, saved
   const [sortField, setSortField] = useState<SortField>(
     () => (localStorage.getItem("micoll.sortField") as SortField) || "name",
@@ -972,6 +977,17 @@ export function StartPage({ onLock }: { onLock: () => void }) {
               >
                 <Dices className="h-4 w-4" />
               </Button>
+              {isTauri() && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setFavsOpen((o) => !o)}
+                  title={t("Favourites — every creator with favourite pictures")}
+                  className={cn(iriOutline, bareIcon)}
+                >
+                  <Heart className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           )}
 
@@ -1159,6 +1175,17 @@ export function StartPage({ onLock }: { onLock: () => void }) {
             onPick={(id) => {
               setRecentOpen(false);
               navigate(`/artist/${id}`);
+            }}
+          />
+        )}
+        {favsOpen && (
+          <FavoritesPanel
+            artists={visibleAll}
+            onClose={() => setFavsOpen(false)}
+            onPick={(id) => {
+              setFavsOpen(false);
+              // straight into that creator's Favourites (see ArtistPage)
+              navigate(`/artist/${id}?favs=1`);
             }}
           />
         )}

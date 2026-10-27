@@ -41,6 +41,7 @@ interface BReward {
   isExtra: boolean;
   isPartial: boolean;
   tier: string | null;
+  notes: string | null;
   imageCount: number;
   sdMarked: boolean;
   sdVolume: string | null;
@@ -244,6 +245,7 @@ function mapReward(r: BReward): Reward {
     isExtra: !!r.isExtra,
     isPartial: !!r.isPartial,
     tier: r.tier ?? null,
+    notes: r.notes ?? null,
     sdMarked: !!r.sdMarked,
     sdVolume: r.sdVolume ?? null,
     sdBackupMarked: !!r.sdBackupMarked,
@@ -819,6 +821,19 @@ export async function setImageFavorite(path: string, fav: boolean): Promise<void
   await invoke("set_image_favorite", { path, fav });
 }
 
+/** One creator's part of Favourites (the heart list on the start page). */
+export interface FavoriteCount {
+  artistId: string;
+  count: number;
+  /** One of the favourite pictures (not a video), for the thumbnail. */
+  preview: string | null;
+}
+/** How many Favourites each creator has (not Fav. Wallpaper, not own collections). */
+export async function favoriteCounts(): Promise<FavoriteCount[]> {
+  const rows = await invoke<{ artistId: number; count: number; preview: string | null }[]>("favorite_counts");
+  return rows.map((r) => ({ ...r, artistId: String(r.artistId) }));
+}
+
 /* ---- User-made collections (the "+" tabs on a creator's page) ------------- */
 
 export async function listCollections(): Promise<Collection[]> {
@@ -891,6 +906,20 @@ export async function getAutostart(): Promise<boolean> {
 }
 export async function setAutostart(on: boolean): Promise<void> {
   await invoke("set_autostart", { on });
+}
+
+/** The thumbnail cache's size now and its limit (Settings > Performance). */
+export interface ThumbCacheInfo {
+  bytes: number;
+  /** 0 = unlimited */
+  limitMb: number;
+}
+export async function thumbCacheInfo(): Promise<ThumbCacheInfo> {
+  return invoke<ThumbCacheInfo>("thumb_cache_info");
+}
+/** Save the limit (MB, 0 = unlimited) and trim to it now. Returns the size afterwards. */
+export async function setThumbCacheLimit(limitMb: number): Promise<number> {
+  return invoke<number>("set_thumb_cache_limit", { limitMb });
 }
 
 /** Where this copy of MiColl keeps its own files. */
@@ -1397,13 +1426,13 @@ export async function copyFilesToClipboard(srcs: string[]): Promise<number> {
   return invoke<number>("copy_files_to_clipboard", { srcs });
 }
 /**
- * Drag a file out of MiColl (Explorer, the desktop, a chat): a native Windows drag that
- * only offers COPY, so the original never moves. Call while the mouse button is held.
+ * Drag files out of MiColl (Explorer, the desktop, a chat): a native Windows drag that
+ * only offers COPY, so the originals never move. Call while the mouse button is held.
  */
-export async function dragOut(src: string): Promise<void> {
+export async function dragOut(srcs: string[]): Promise<void> {
   draggingOut = true;
   try {
-    await invoke("drag_out", { src });
+    await invoke("drag_out", { srcs });
   } finally {
     draggingOut = false;
   }
@@ -1545,6 +1574,11 @@ export async function setRewardsExtra(rewardIds: string[], extra: boolean): Prom
 /** Mark rewards as partial (only part of the release is there) or complete. */
 export async function setRewardsPartial(rewardIds: string[], partial: boolean): Promise<number> {
   return invoke<number>("set_rewards_partial", { rewardIds: rewardIds.map(Number), partial });
+}
+
+/** Set a reward's notes, null or blank clears them. */
+export async function setRewardNotes(rewardId: string, notes: string | null): Promise<void> {
+  await invoke("set_reward_notes", { rewardId: Number(rewardId), notes });
 }
 
 /** Set the tier of rewards, null or "" removes it. Returns how many changed. */

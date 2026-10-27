@@ -18,6 +18,7 @@
 //! could overwrite a moved child's only copy.
 
 use crate::db;
+use crate::db::DbLock;
 use crate::thumbs;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -393,7 +394,7 @@ fn mounted_letters() -> Vec<u8> {
 /// in between without it. Callers that already hold the lock use status.
 pub fn preheal(db: &db::Db) -> Result<(), String> {
     let (root, id) = {
-        let conn = db.lock().map_err(|e| e.to_string())?;
+        let conn = db.conn();
         match (setting(&conn, "sd_root"), setting(&conn, "sd_id")) {
             (Some(r), Some(i)) => (r, i),
             _ => return Ok(()), // never set up — nothing to probe
@@ -406,7 +407,7 @@ pub fn preheal(db: &db::Db) -> Result<(), String> {
     let Some(healed) = probe_drive_letter(&root, &id) else {
         return Ok(());
     };
-    let conn = db.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn();
     db::relink_prefix(&conn, &root, &healed).map_err(|e| e.to_string())?;
     db::set_setting(&conn, "sd_root", &healed).map_err(|e| e.to_string())?;
     Ok(())

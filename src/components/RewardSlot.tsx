@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Ban, PlayCircle, FolderPlus, FileArchive, Users, Unlink } from "lucide-react";
+import { Ban, PlayCircle, FolderPlus, FileArchive, Users, Unlink, StickyNote } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useT, useTf, useTp } from "@/lib/i18n";
 import { useAccent } from "@/lib/theme";
@@ -175,6 +175,15 @@ export function RewardSlot({
                 </span>
               )}
               {sdState && <SdBadge state={sdState} title={rewardSdTitle(sdState, reward)} />}
+              {reward.notes && (
+                // hover shows the note (the row itself is pointer-events-none)
+                <span
+                  title={reward.notes}
+                  className="pointer-events-auto inline-flex items-center rounded-md bg-black/65 px-1 py-0.5 text-amber-200 backdrop-blur"
+                >
+                  <StickyNote className="h-3 w-3" />
+                </span>
+              )}
               {reward.imageCount > 1 && (
                 // hover shows the folder's size
                 <FileCountChip reward={reward} />

@@ -88,6 +88,8 @@ export interface Reward {
   isPartial?: boolean;
   /** The creator's tier it came with ("2", "Gold" …), the user's mark. */
   tier?: string | null;
+  /** The user's notes ("Tier 3, bonus PSD still missing"), set in Details. */
+  notes?: string | null;
   /** Added but never opened -> shows the "new" badge. Cleared when the viewer opens it. */
   fresh?: boolean;
   /** The user put this on the wishlist (template "missing" rewards don't count). */

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
-import { FolderOpen, Info, Loader2, Puzzle, Sparkles, Users, X } from "lucide-react";
+import { FolderOpen, Info, Loader2, Puzzle, Sparkles, StickyNote, Users, X } from "lucide-react";
 import { mediaStats } from "@/api/library";
 import { isTauri } from "@/lib/tauri";
 import { useDialogTheme } from "@/lib/dialogTheme";
@@ -36,6 +36,8 @@ export function RewardDetails({
   onToggleExtra,
   onTogglePartial,
   onCollab,
+  onSaveNotes,
+  focusNotes,
   onClose,
 }: {
   reward: Reward;
@@ -48,6 +50,10 @@ export function RewardDetails({
   onTogglePartial?: () => void;
   /** Credit it to other creators too (opens the collab picker). */
   onCollab?: () => void;
+  /** Save the notes (on blur). Without it they're read-only. */
+  onSaveNotes?: (notes: string | null) => void;
+  /** Opened from the menu's "Add note…": the cursor goes into the notes. */
+  focusNotes?: boolean;
   onClose: () => void;
 }) {
   const t = useT();
@@ -57,6 +63,11 @@ export function RewardDetails({
   const [size, setSize] = useState<number | null>(null);
   const [modified, setModified] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [notes, setNotes] = useState(reward.notes ?? "");
+  const saveNotes = () => {
+    const next = notes.trim() || null;
+    if (onSaveNotes && next !== (reward.notes ?? null)) onSaveNotes(next);
+  };
 
   const paths = reward.images.map((im) => im.path).filter((p): p is string => !!p);
 
@@ -83,12 +94,15 @@ export function RewardDetails({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
+        // Esc from the notes keeps what was typed
+        saveNotes();
         onClose();
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose, notes]);
 
   // count from the loaded gallery if there, else the DB count
   const kinds = reward.images.reduce<Record<string, number>>((acc, im) => {
@@ -156,7 +170,10 @@ export function RewardDetails({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      onClick={onClose}
+      onClick={() => {
+        saveNotes();
+        onClose();
+      }}
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
     >
       <motion.div
@@ -173,7 +190,10 @@ export function RewardDetails({
             {t("Details")}
           </h2>
           <button
-            onClick={onClose}
+            onClick={() => {
+              saveNotes();
+              onClose();
+            }}
             className="text-zinc-500 transition-colors hover:text-zinc-300"
             title={t("Close (Esc)")}
           >
@@ -188,6 +208,30 @@ export function RewardDetails({
           <p className={cn("mt-1.5 break-words px-2.5 py-2 text-sm text-zinc-100", dlg.field)}>
             {reward.title}
           </p>
+
+          {(onSaveNotes || reward.notes) && (
+            <>
+              <label className="mt-4 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                <StickyNote className="h-3.5 w-3.5" />
+                {t("Notes")}
+              </label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                onBlur={saveNotes}
+                readOnly={!onSaveNotes}
+                autoFocus={focusNotes}
+                // continue after what's there, not in front of it
+                onFocus={(e) => e.currentTarget.setSelectionRange(notes.length, notes.length)}
+                rows={3}
+                placeholder={t("Private notes about this reward — e.g. “Tier 3, bonus PSD still missing”")}
+                className={cn(
+                  "mt-1.5 w-full resize-y px-2.5 py-2 text-sm leading-relaxed text-zinc-100 outline-none placeholder:text-zinc-500",
+                  dlg.field,
+                )}
+              />
+            </>
+          )}
 
           <div className={cn("mt-4", dlg.field)}>
             {rows.map(([k, v]) => (

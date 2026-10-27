@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
-import { CheckSquare, Pencil, Trash2, X, FolderOpen, RotateCcw, RefreshCw, CopyCheck, MousePointerSquareDashed, Share2, FolderInput, FolderPlus, MonitorPlay, FileQuestion, HardDrive, DatabaseBackup, Users, Unlink, ExternalLink, Info, Layers } from "lucide-react";
+import { CheckSquare, Pencil, Trash2, X, FolderOpen, RotateCcw, RefreshCw, CopyCheck, MousePointerSquareDashed, Share2, FolderInput, FolderPlus, MonitorPlay, FileQuestion, HardDrive, DatabaseBackup, Users, Unlink, ExternalLink, Info, Layers, StickyNote } from "lucide-react";
 import { openDuplicates } from "@/lib/duplicates";
 import { RewardSlot } from "@/components/RewardSlot";
 import { ImageViewer, type CoverTargets, type ViewerItem } from "@/components/ImageViewer";
@@ -17,7 +17,7 @@ import { SdNoticeDialog } from "@/components/SdNoticeDialog";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useData } from "@/store";
 import { useActions } from "@/actions";
-import { KEEP_FOLDERS_KEY, setRewardCover, exportFiles, createReward, createMissingReward, ensurePeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, setRewardsTier, type SdMode } from "@/api/library";
+import { KEEP_FOLDERS_KEY, setRewardCover, exportFiles, createReward, createMissingReward, ensurePeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, setRewardsTier, setRewardNotes, type SdMode } from "@/api/library";
 import { isTauri } from "@/lib/tauri";
 import { useCardSize } from "@/lib/useCardSize";
 import { useTileShapeFor, type TileScope } from "@/lib/tileShape";
@@ -127,6 +127,18 @@ export function RewardGrid({
   const [rename, setRename] = useState<RenameTarget[] | null>(null);
   // reward whose Details panel is open
   const [details, setDetails] = useState<Reward | null>(null);
+  // Details opened from "Add note…": the cursor starts in the notes
+  const [notesFocus, setNotesFocus] = useState(false);
+  const saveNotes = async (r: Reward, notes: string | null) => {
+    try {
+      await setRewardNotes(r.id, notes);
+      // Details still open: it compares against this, so closing doesn't save again
+      setDetails((d) => (d && d.id === r.id ? { ...d, notes } : d));
+      await refresh();
+    } catch (e) {
+      showToast({ tone: "error", title: t("Couldn\u2019t save the note"), detail: `${e}` });
+    }
+  };
   const [addErr, setAddErr] = useState<string | null>(null);
   const [addingId, setAddingId] = useState<string | null>(null);
   const anchorRef = useRef<number | null>(null);
@@ -787,6 +799,14 @@ export function RewardGrid({
               onClick: () =>
                 openTier(selectMode && selected.has(r.id) && selected.size > 1 ? [...selected] : [r.id]),
             },
+            {
+              label: r.notes ? t("Edit note…") : t("Add note…"),
+              icon: <StickyNote className="h-4 w-4" />,
+              onClick: () => {
+                setNotesFocus(true);
+                setDetails(r);
+              },
+            },
           ]
         : []),
       ...(backed && !r.sdVolume
@@ -1220,7 +1240,14 @@ export function RewardGrid({
                   }
                 : undefined
             }
-            onClose={() => setDetails(null)}
+            onSaveNotes={
+              backed && !details.collabFrom ? (notes) => void saveNotes(details, notes) : undefined
+            }
+            focusNotes={notesFocus}
+            onClose={() => {
+              setDetails(null);
+              setNotesFocus(false);
+            }}
           />
         )}
       </AnimatePresence>

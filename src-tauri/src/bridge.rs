@@ -28,7 +28,7 @@
 //! What came from the phone goes into the history (action "phone"), one row for the
 //! files and one for the versions of each batch, and can be undone from there.
 
-use crate::{app_cache, crypto, db, history, indexer, map_err, media_mime, parse_range, read_window, session_key, Db, DekState, RANGE_CHUNK};
+use crate::{app_cache, crypto, db, db::DbLock, history, indexer, map_err, media_mime, parse_range, read_window, session_key, Db, DekState, RANGE_CHUNK};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -653,8 +653,9 @@ impl Source for AppSource {
         Ok(crate::app_data(&self.0)?.join("versions"))
     }
     fn arrived(&self, creators: &[String], files: &[FileArrival], versions: &[VersionArrival]) {
-        let mut places = Vec::new();
-        if let Ok(conn) = self.db().lock() {
+        // the lock only for the DB work, not for the emit
+        let places = {
+            let conn = self.db().conn();
             if let Ok(root) = served_root(&conn) {
                 crate::allow_asset_dir(&self.0, &root.to_string_lossy());
                 for c in creators {
@@ -665,8 +666,8 @@ impl Source for AppSource {
             }
             let paths: Vec<PathBuf> = files.iter().map(|(f, _)| f.clone()).collect();
             let origs: Vec<PathBuf> = versions.iter().map(|(o, _)| o.clone()).collect();
-            places = arrived_places(&conn, &paths, &origs);
-        }
+            arrived_places(&conn, &paths, &origs)
+        };
         let _ = self.0.emit(
             "phone-upload",
             PhoneUpload { files: files.len(), versions: versions.len(), places },
@@ -912,19 +913,20 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
         return fail(req, 401, "pairing key missing or wrong, scan the QR code in MiColl again");
     };
 
-    let root = match sh.src.db().lock().map_err(map_err).and_then(|c| served_root(&c)) {
+    let served = served_root(&sh.src.db().conn());
+    let root = match served {
         Ok(r) => r,
         Err(e) => return fail(req, 503, &e),
     };
     let key = sh.src.data_key();
-    let meta = || sh.src.db().lock().map_err(map_err).and_then(|c| load_meta(&c)).unwrap_or_default();
+    let meta = || { let c = sh.src.db().conn(); load_meta(&c) }.unwrap_or_default();
 
     match route.as_str() {
         "/api/ping" => json(req, 200, &serde_json::json!({ "app": "micoll-bridge", "ok": true, "host": "micoll" })),
         // scanned fresh each time, so moves and renames in MiColl show up right away
         "/api/gallery" => {
             let mut artists = scan(&root);
-            let counts = sh.src.db().lock().map_err(map_err).and_then(|c| version_counts(&c)).unwrap_or_default();
+            let counts = { let c = sh.src.db().conn(); version_counts(&c) }.unwrap_or_default();
             if !counts.is_empty() {
                 let images = artists
                     .iter_mut()
@@ -952,7 +954,7 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
                 }
             }
             // each reward's tier, by its folder
-            let tiers = sh.src.db().lock().map_err(map_err).and_then(|c| reward_tiers(&c)).unwrap_or_default();
+            let tiers = { let c = sh.src.db().conn(); reward_tiers(&c) }.unwrap_or_default();
             if !tiers.is_empty() {
                 let rewards = artists
                     .iter_mut()
@@ -1018,7 +1020,7 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
             let Some(orig) = full.is_file().then(|| known_original(sh, &full)).flatten() else {
                 return fail(req, 404, "MiColl doesn't know this picture");
             };
-            let found = sh.src.db().lock().map_err(map_err).and_then(|c| db::list_image_versions(&c, &orig).map_err(map_err));
+            let found = { let c = sh.src.db().conn(); db::list_image_versions(&c, &orig).map_err(map_err) };
             let (versions, active) = match found {
                 Ok(v) => v,
                 Err(e) => return fail(req, 500, &e),
@@ -1041,7 +1043,7 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
         "/api/version-file" => {
             let id: Option<i64> = query_param(&url, "id").and_then(|s| s.parse().ok());
             let file: Option<String> = id.and_then(|id| {
-                sh.src.db().lock().ok()?.query_row("SELECT file_path FROM image_versions WHERE id = ?1", [id], |r| r.get(0)).ok()
+                sh.src.db().conn().query_row("SELECT file_path FROM image_versions WHERE id = ?1", [id], |r| r.get(0)).ok()
             });
             match file.map(PathBuf::from).filter(|f| f.is_file()) {
                 Some(f) => serve_file(req, &f, key),
@@ -1289,7 +1291,7 @@ fn temp_in(dir: &Path) -> PathBuf {
 
 /// The data key when new files must be encrypted, Err while that can't be done.
 fn encrypt_key(sh: &Shared) -> Result<Option<[u8; 32]>, String> {
-    let on = sh.src.db().lock().map(|c| crate::enc_enabled(&c)).map_err(map_err)?;
+    let on = crate::enc_enabled(&sh.src.db().conn());
     match (on, sh.src.data_key()) {
         (false, _) => Ok(None),
         (true, Some(k)) => Ok(Some(k)),
@@ -1323,14 +1325,13 @@ fn find_spot(full: &Path, hash: &str, size: Option<u64>, key: Option<[u8; 32]>) 
 
 /// The original as MiColl knows it (the versions hang on that exact path).
 fn known_original(sh: &Shared, full: &Path) -> Option<String> {
-    sh.src.db().lock().ok().and_then(|c| {
-        c.query_row(
+    sh.src.db().conn()
+        .query_row(
             "SELECT file_path FROM images WHERE file_path = ?1 COLLATE NOCASE",
             [full.to_string_lossy()],
             |r| r.get(0),
         )
         .ok()
-    })
 }
 
 /// Is this picture already the original or one of its versions? Some(None) = the
@@ -1469,10 +1470,7 @@ fn add_version(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path, url: 
         }
     };
 
-    let Ok(conn) = sh.src.db().lock() else {
-        let _ = std::fs::remove_file(&temp);
-        return fail(req, 500, "database busy");
-    };
+    let conn = sh.src.db().conn();
     // the same picture again (the original or a version it already has) isn't new
     match same_version(&conn, &full, &orig, &hash, sh.src.data_key()) {
         Ok(None) => {}
@@ -1608,7 +1606,7 @@ fn check(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path) {
             let Some(orig) = known_original(sh, &full) else {
                 return serde_json::json!({ "p": v.p, "result": "unknown" });
             };
-            let found = sh.src.db().lock().map_err(map_err).and_then(|c| same_version(&c, &full, &orig, &hash, key));
+            let found = { let c = sh.src.db().conn(); same_version(&c, &full, &orig, &hash, key) };
             match found {
                 Ok(Some(id)) => serde_json::json!({ "p": v.p, "result": "same", "id": id }),
                 Ok(None) => serde_json::json!({ "p": v.p, "result": "new" }),
@@ -1900,7 +1898,7 @@ fn info(key: &str, folder: &Path, trusted: &HashSet<String>) -> Result<BridgeInf
 #[tauri::command]
 pub fn phone_bridge_start(app: AppHandle, db: State<Db>, state: State<BridgeState>) -> Result<BridgeInfo, String> {
     let (key, folder, trusted) = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         (stored_key(&conn)?, served_root(&conn)?, trusted_networks(&conn))
     };
     let mut inner = state.lock().map_err(map_err)?;
@@ -1948,7 +1946,7 @@ pub fn phone_bridge_stop(state: State<BridgeState>) -> Result<(), String> {
 #[tauri::command]
 pub fn phone_bridge_new_key(db: State<Db>, state: State<BridgeState>) -> Result<BridgeInfo, String> {
     let (key, folder, trusted) = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         let key = new_key();
         db::set_setting(&conn, KEY_SETTING, &key).map_err(map_err)?;
         (key, served_root(&conn)?, trusted_networks(&conn))
@@ -1970,7 +1968,7 @@ pub fn phone_bridge_new_key(db: State<Db>, state: State<BridgeState>) -> Result<
 #[tauri::command]
 pub fn phone_bridge_trust_network(id: String, allow: bool, db: State<Db>, state: State<BridgeState>) -> Result<BridgeInfo, String> {
     let (key, folder, trusted) = {
-        let conn = db.lock().map_err(map_err)?;
+        let conn = db.conn();
         let mut trusted = trusted_networks(&conn);
         if allow {
             trusted.insert(id);

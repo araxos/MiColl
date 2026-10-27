@@ -367,7 +367,8 @@ mod drag {
     use windows::Win32::System::Com::IDataObject;
     use windows::Win32::System::Ole::{DoDragDrop, IDropSource, IDropSource_Impl, DROPEFFECT, DROPEFFECT_COPY};
     use windows::Win32::System::SystemServices::{MK_LBUTTON, MODIFIERKEYS_FLAGS};
-    use windows::Win32::UI::Shell::{BHID_DataObject, IShellItem, SHCreateItemFromParsingName};
+    use windows::Win32::UI::Shell::Common::ITEMIDLIST;
+    use windows::Win32::UI::Shell::{BHID_DataObject, ILCreateFromPathW, ILFree, IShellItemArray, SHCreateShellItemArrayFromIDLists};
 
     /// Ends the drag when the left button is let go, cancels on Escape.
     #[implement(IDropSource)]
@@ -389,20 +390,46 @@ mod drag {
         }
     }
 
-    /// Drag one file like Explorer does, but only offer COPY: wherever it lands
-    /// (desktop, a folder, a chat) gets a copy, the original never moves.
-    /// Must run on the window's thread while the left button is held; returns when
-    /// the file is dropped or the drag is cancelled.
-    pub fn drag_file(path: &std::path::Path) -> Result<(), String> {
+    /// The files as one shell data object, like a selection in Explorer (CF_HDROP and
+    /// the shell formats). Works for files from different folders.
+    pub(super) fn data_object(paths: &[std::path::PathBuf]) -> Result<IDataObject, String> {
         use std::os::windows::ffi::OsStrExt;
-        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
-        let data = (|| -> WinResult<IDataObject> {
-            unsafe {
-                let item: IShellItem = SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()), None)?;
-                item.BindToHandler(None, &BHID_DataObject)
+        let mut pidls: Vec<*mut ITEMIDLIST> = Vec::with_capacity(paths.len());
+        for p in paths {
+            let wide: Vec<u16> = p.as_os_str().encode_wide().chain(Some(0)).collect();
+            let pidl = unsafe { ILCreateFromPathW(PCWSTR(wide.as_ptr())) };
+            if pidl.is_null() {
+                break;
             }
-        })();
-        let data = data.map_err(|e| format!("Windows couldn’t pick up the file ({e})."))?;
+            pidls.push(pidl);
+        }
+        let res = if pidls.len() < paths.len() {
+            Err(format!("Windows couldn’t pick up “{}”.", paths[pidls.len()].display()))
+        } else {
+            let list: Vec<*const ITEMIDLIST> = pidls.iter().map(|p| *p as *const _).collect();
+            (|| -> WinResult<IDataObject> {
+                unsafe {
+                    let items: IShellItemArray = SHCreateShellItemArrayFromIDLists(&list)?;
+                    items.BindToHandler(None, &BHID_DataObject)
+                }
+            })()
+            .map_err(|e| format!("Windows couldn’t pick up the files ({e})."))
+        };
+        for p in pidls {
+            unsafe { ILFree(Some(p as *const _)) };
+        }
+        res
+    }
+
+    /// Drag files like Explorer does, but only offer COPY: wherever they land (desktop,
+    /// a folder, a chat) gets a copy, the originals never move.
+    /// Must run on the window's thread while the left button is held; returns when
+    /// the files are dropped or the drag is cancelled.
+    pub fn drag_files(paths: &[std::path::PathBuf]) -> Result<(), String> {
+        if paths.is_empty() {
+            return Ok(());
+        }
+        let data = data_object(paths)?;
         let source: IDropSource = Source.into();
         let mut effect = DROPEFFECT(0);
         // DRAGDROP_S_DROP / _CANCEL are both fine, only real errors count
@@ -415,12 +442,12 @@ mod drag {
 }
 
 #[cfg(windows)]
-pub use drag::drag_file;
+pub use drag::drag_files;
 
 /* ---- non-Windows stubs ----------------------------------------------- */
 
 #[cfg(not(windows))]
-pub fn drag_file(_path: &std::path::Path) -> Result<(), String> {
+pub fn drag_files(_paths: &[PathBuf]) -> Result<(), String> {
     Err("Dragging files out is only implemented on Windows.".into())
 }
 
@@ -448,6 +475,46 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    /// Several files, also from different folders, go into ONE drag (what lands is
+    /// read back the way Explorer reads a drop: CF_HDROP).
+    #[cfg(windows)]
+    #[test]
+    fn drag_data_carries_every_file() {
+        use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED, DVASPECT_CONTENT, FORMATETC, TYMED_HGLOBAL};
+        use windows::Win32::System::Ole::{ReleaseStgMedium, CF_HDROP};
+        use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
+        let d = tmp("drag");
+        let (a, b) = (d.join("one"), d.join("two"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        let files = vec![a.join("01.jpg"), a.join("02.png"), b.join("03.gif")];
+        for f in &files {
+            std::fs::write(f, b"x").unwrap();
+        }
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            let data = drag::data_object(&files).unwrap();
+            let fmt = FORMATETC {
+                cfFormat: CF_HDROP.0,
+                ptd: std::ptr::null_mut(),
+                dwAspect: DVASPECT_CONTENT.0,
+                lindex: -1,
+                tymed: TYMED_HGLOBAL.0 as u32,
+            };
+            let mut medium = data.GetData(&fmt).unwrap();
+            let drop = HDROP(medium.u.hGlobal.0);
+            let n = DragQueryFileW(drop, u32::MAX, None);
+            let mut got = Vec::new();
+            for i in 0..n {
+                let mut buf = vec![0u16; 1024];
+                let len = DragQueryFileW(drop, i, Some(&mut buf)) as usize;
+                got.push(PathBuf::from(String::from_utf16_lossy(&buf[..len])));
+            }
+            ReleaseStgMedium(&mut medium);
+            assert_eq!(got, files);
+        }
     }
 
     #[test]

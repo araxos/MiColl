@@ -7,9 +7,10 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io::Cursor;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex, OnceLock};
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /* ---- generation gate --------------------------------------------------- */
 // A fast scroll can ask for many thumbnails at once, each decodes a big image.
@@ -280,6 +281,7 @@ fn make_jpeg(cache_dir: &Path, src: &str, size: u32, key: Option<[u8; 32]>, prio
         }
     };
     if let Some(cached) = read_cache() {
+        mark_used(&out);
         return Ok(cached);
     }
 
@@ -318,7 +320,9 @@ fn make_jpeg(cache_dir: &Path, src: &str, size: u32, key: Option<[u8; 32]>, prio
         Some(k) => crypto::Dek::from_bytes(k).encrypt_bytes(&jpeg),
         None => jpeg.clone(),
     };
-    let _ = std::fs::write(&out, &to_cache);
+    if std::fs::write(&out, &to_cache).is_ok() {
+        note_written(cache_dir, to_cache.len() as u64);
+    }
     Ok(jpeg)
 }
 
@@ -361,6 +365,7 @@ pub fn gif_thumb(
         }
     };
     if let Some(cached) = read_cache() {
+        mark_used(&out_path);
         return Ok(Some(cached));
     }
 
@@ -412,7 +417,9 @@ pub fn gif_thumb(
         Some(k) => crypto::Dek::from_bytes(k).encrypt_bytes(&out),
         None => out.clone(),
     };
-    let _ = std::fs::write(&out_path, &to_cache);
+    if std::fs::write(&out_path, &to_cache).is_ok() {
+        note_written(cache_dir, to_cache.len() as u64);
+    }
     Ok(Some(out))
 }
 
@@ -437,6 +444,139 @@ fn gif_cache_key(src: &str, mtime: u64, size: u32) -> String {
     // different key than the still cache
     "animated".hash(&mut h);
     format!("{:016x}.gif", h.finish())
+}
+
+/* ---- size limit --------------------------------------------------------- */
+// The thumbnails (<cache>/thumbs) and the viewer previews (<cache>/previews) can all be
+// made again, so they get a size limit (Settings > Performance). Over it, the files
+// used longest ago go first. "Used" = the file's mtime: a cache hit moves it to now
+// (at most once a day per file, so scrolling a grid doesn't write all the time).
+// The MiSD previews in <cache>/thumbs/sd are NOT part of it: their originals may be on
+// an unplugged disk, they couldn't be made again.
+
+/// The limit in bytes, 0 = unlimited. Set from the setting at startup.
+static LIMIT: AtomicU64 = AtomicU64::new(0);
+/// Bytes written since the last trim.
+static WRITTEN: AtomicU64 = AtomicU64::new(0);
+/// A trim is running (in the background).
+static TRIMMING: AtomicBool = AtomicBool::new(false);
+
+/// Setting key: the limit in MB, "0" = unlimited.
+pub const LIMIT_KEY: &str = "thumb_cache_limit_mb";
+/// Without the setting.
+pub const DEFAULT_LIMIT_MB: u64 = 1024;
+/// A trim goes down to this share of the limit, so the next one isn't right away.
+const TRIM_TO_PERCENT: u64 = 90;
+/// A cache hit moves the file's mtime only when it's older than this.
+const MARK_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// The limit in MB from the setting's value (missing or junk = the default).
+pub fn limit_mb_from(value: Option<&str>) -> u64 {
+    value.and_then(|v| v.trim().parse().ok()).unwrap_or(DEFAULT_LIMIT_MB)
+}
+
+pub fn limit_bytes() -> u64 {
+    LIMIT.load(Ordering::Relaxed)
+}
+
+pub fn set_limit_mb(mb: u64) {
+    LIMIT.store(mb.saturating_mul(1024 * 1024), Ordering::Relaxed);
+}
+
+/// A cache hit: the file counts as just used (see above).
+fn mark_used(file: &Path) {
+    let now = SystemTime::now();
+    let old = std::fs::metadata(file)
+        .and_then(|m| m.modified())
+        .is_ok_and(|t| now.duration_since(t).is_ok_and(|age| age > MARK_AFTER));
+    if old {
+        if let Ok(f) = std::fs::OpenOptions::new().write(true).open(file) {
+            let _ = f.set_modified(now);
+        }
+    }
+}
+
+/// <cache> for a thumbs/previews folder, None for anything else (tests use temp
+/// folders, a trim must never walk those).
+fn cache_root(dir: &Path) -> Option<&Path> {
+    let name = dir.file_name()?.to_str()?;
+    if name == "thumbs" || name == "previews" {
+        dir.parent()
+    } else {
+        None
+    }
+}
+
+/// After writing to the cache: once about a 20th of the limit has been written, trim
+/// in the background.
+fn note_written(cache_dir: &Path, bytes: u64) {
+    let limit = LIMIT.load(Ordering::Relaxed);
+    if limit == 0 {
+        return;
+    }
+    let written = WRITTEN.fetch_add(bytes, Ordering::Relaxed) + bytes;
+    if written < (limit / 20).max(8 * 1024 * 1024) {
+        return;
+    }
+    let Some(root) = cache_root(cache_dir) else { return };
+    if TRIMMING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    WRITTEN.store(0, Ordering::Relaxed);
+    let root = root.to_path_buf();
+    std::thread::spawn(move || {
+        trim(&root, LIMIT.load(Ordering::Relaxed));
+        TRIMMING.store(false, Ordering::Release);
+    });
+}
+
+/// The cache files that count toward the limit: (path, bytes, last used).
+fn cache_files(root: &Path) -> Vec<(PathBuf, u64, SystemTime)> {
+    let mut out = Vec::new();
+    for sub in ["thumbs", "previews"] {
+        let Ok(dir) = std::fs::read_dir(root.join(sub)) else { continue };
+        for e in dir.flatten() {
+            // only files directly inside, so thumbs/sd stays out
+            let Ok(meta) = e.metadata() else { continue };
+            if !meta.is_file() {
+                continue;
+            }
+            out.push((e.path(), meta.len(), meta.modified().unwrap_or(UNIX_EPOCH)));
+        }
+    }
+    out
+}
+
+/// How much the limited part of the cache takes now, in bytes.
+pub fn cache_size(root: &Path) -> u64 {
+    cache_files(root).iter().map(|f| f.1).sum()
+}
+
+/// Delete the files used longest ago until the cache is under the limit (to 90% of it).
+/// limit 0 = unlimited. Returns the size afterwards.
+pub fn trim(root: &Path, limit: u64) -> u64 {
+    let mut files = cache_files(root);
+    let mut total: u64 = files.iter().map(|f| f.1).sum();
+    if limit == 0 || total <= limit {
+        return total;
+    }
+    let target = limit / 100 * TRIM_TO_PERCENT;
+    files.sort_by_key(|f| f.2);
+    let mut removed = 0usize;
+    for (path, bytes, _) in files {
+        if total <= target {
+            break;
+        }
+        // one that's open right now just stays, the next trim gets it
+        if std::fs::remove_file(&path).is_ok() {
+            total -= bytes;
+            removed += 1;
+        }
+    }
+    if removed > 0 {
+        eprintln!("micoll: thumbnail cache over its limit, removed {removed} old file(s)");
+    }
+    total
 }
 
 /* ---- MiSD persistent previews ------------------------------------------ */
@@ -557,6 +697,58 @@ pub fn image_data_url(src: &str, key: Option<[u8; 32]>) -> Result<String, String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Over the limit the files used longest ago go, down to 90%; the MiSD previews and
+    /// anything outside thumbs/previews stay.
+    #[test]
+    fn trim_removes_the_least_recently_used_first() {
+        let root = std::env::temp_dir().join(format!("micoll_trim_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for d in ["thumbs/sd", "previews", "extracted"] {
+            std::fs::create_dir_all(root.join(d)).unwrap();
+        }
+        let day = Duration::from_secs(24 * 60 * 60);
+        let now = SystemTime::now();
+        // 10 files of 100 bytes, file i last used i days ago
+        let mut files = Vec::new();
+        for i in 0..10u32 {
+            let dir = if i % 2 == 0 { "thumbs" } else { "previews" };
+            let f = root.join(dir).join(format!("{i}.jpg"));
+            std::fs::write(&f, [0u8; 100]).unwrap();
+            let fh = std::fs::OpenOptions::new().write(true).open(&f).unwrap();
+            fh.set_modified(now - day * i).unwrap();
+            files.push(f);
+        }
+        let sd = root.join("thumbs/sd/keep.jpg");
+        let other = root.join("extracted/keep.bin");
+        std::fs::write(&sd, [0u8; 5000]).unwrap();
+        std::fs::write(&other, [0u8; 5000]).unwrap();
+
+        assert_eq!(cache_size(&root), 1000);
+        // unlimited and under the limit: nothing goes
+        assert_eq!(trim(&root, 0), 1000);
+        assert_eq!(trim(&root, 1000), 1000);
+        // limit 800 -> down to 720, so the 3 oldest go
+        assert_eq!(trim(&root, 800), 700);
+        for (i, f) in files.iter().enumerate() {
+            assert_eq!(f.exists(), i < 7, "file {i}");
+        }
+        assert!(sd.exists() && other.exists());
+
+        // a cache hit makes an old file the newest
+        mark_used(&files[6]);
+        assert_eq!(trim(&root, 600), 500);
+        assert!(files[6].exists() && !files[5].exists() && !files[4].exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn limit_setting_defaults_to_1_gb() {
+        assert_eq!(limit_mb_from(None), DEFAULT_LIMIT_MB);
+        assert_eq!(limit_mb_from(Some("junk")), DEFAULT_LIMIT_MB);
+        assert_eq!(limit_mb_from(Some("0")), 0);
+        assert_eq!(limit_mb_from(Some("250")), 250);
+    }
 
     /// must shrink big ones and leave small ones alone
     #[test]

@@ -2611,6 +2611,25 @@ pub(crate) mod tests {
         assert!(rewards.iter().find(|r| r.id == id).unwrap().is_partial);
         assert!(rewards.iter().filter(|r| r.id != id).all(|r| !r.is_partial));
 
+        // the notes as well: trimmed, kept by a rescan, cleared by a blank one
+        let notes_of = |id: i64| -> Option<String> {
+            db::get_library(&conn)
+                .unwrap()
+                .iter()
+                .flat_map(|a| &a.periods)
+                .flat_map(|p| &p.rewards)
+                .find(|r| r.id == id)
+                .unwrap()
+                .notes
+                .clone()
+        };
+        db::set_reward_notes(&conn, id, Some("  Tier 3, bonus PSD still missing 
+")).unwrap();
+        scan_root(&conn, &root).unwrap();
+        assert_eq!(notes_of(id).as_deref(), Some("Tier 3, bonus PSD still missing"));
+        db::set_reward_notes(&conn, id, Some("   ")).unwrap();
+        assert_eq!(notes_of(id), None);
+
         // the tier too: trimmed, kept by a rescan, removed by an empty one
         assert_eq!(db::set_rewards_tier(&conn, &[id], Some("  Gold  ")).unwrap(), 1);
         scan_root(&conn, &root).unwrap();

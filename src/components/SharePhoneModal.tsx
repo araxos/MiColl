@@ -4,6 +4,9 @@ import { motion } from "framer-motion";
 import { X, Smartphone, Loader2, Wifi } from "lucide-react";
 import { shareToPhone, shareFolderToPhone, stopSharing, type ShareInfo } from "@/api/library";
 import { useT, useTp } from "@/lib/i18n";
+import { useDialogTheme } from "@/lib/dialogTheme";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/Button";
 
 /**
  * Shows a QR code the phone scans to download from this PC over the local network.
@@ -22,6 +25,7 @@ export function SharePhoneModal({
 }) {
   const isFolder = !!srcs && srcs.length > 0;
   const t = useT();
+  const dlg = useDialogTheme();
   const tp = useTp();
   const [info, setInfo] = useState<ShareInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,9 +59,9 @@ export function SharePhoneModal({
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.96, opacity: 0, y: 8 }}
         onClick={(e) => e.stopPropagation()}
-        className="w-[24rem] max-w-[92vw] overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl"
+        className={cn("w-[24rem] max-w-[92vw] overflow-hidden", dlg.panel)}
       >
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
+        <div className={cn("flex items-center justify-between border-b px-5 py-3", dlg.divider)}>
           <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
             <Smartphone className="h-4 w-4 text-brand-300" />
             {t("Send to phone")}
@@ -95,7 +99,12 @@ export function SharePhoneModal({
               >
                 {info.url}
               </a>
-              <div className="mt-4 flex items-start gap-2 rounded-lg border border-zinc-800 bg-zinc-950/50 p-2.5 text-[11px] leading-relaxed text-zinc-400">
+              <div
+                className={cn(
+                  "mt-4 flex items-start gap-2 rounded-lg border p-2.5 text-[11px] leading-relaxed text-zinc-400",
+                  dlg.soft,
+                )}
+              >
                 <Wifi className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-500" />
                 <span>
                   {t("Phone and PC must be on the")}{" "}
@@ -109,12 +118,9 @@ export function SharePhoneModal({
             </>
           )}
 
-          <button
-            onClick={onClose}
-            className="mt-5 w-full rounded-lg border border-zinc-700 bg-zinc-800 py-2 text-sm font-medium text-zinc-100 transition-colors micoll-hover"
-          >
+          <Button variant="secondary" onClick={onClose} className="mt-5 w-full">
             {t("Done")}
-          </button>
+          </Button>
         </div>
       </motion.div>
     </motion.div>,

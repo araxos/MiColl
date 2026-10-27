@@ -1409,8 +1409,8 @@ export function ImageViewer({
   };
 
   // not zoomed in: holding the left button and moving drags the file out (desktop,
-  // Explorer, a chat) as a copy
-  const dragOutRef = useRef<{ x: number; y: number; path: string } | null>(null);
+  // Explorer, a chat) as a copy. Same from a tile in the grid or the filmstrip.
+  const dragOutRef = useRef<{ x: number; y: number; paths: string[] } | null>(null);
   useEffect(() => {
     const move = (e: MouseEvent) => {
       const d = dragOutRef.current;
@@ -1421,7 +1421,7 @@ export function ImageViewer({
       }
       if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 8) return;
       dragOutRef.current = null;
-      dragOut(d.path).catch((err) =>
+      dragOut(d.paths).catch((err) =>
         showToast({ tone: "error", title: t("Couldn’t drag the file out"), problem: String(err) }),
       );
     };
@@ -1437,9 +1437,29 @@ export function ImageViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /**
+   * What dragging `it` out takes along: the whole selection when it's part of one, else
+   * just it. Pictures as shown (their active version).
+   */
+  const dragPathsFor = (it: ViewerItem): string[] => {
+    const group =
+      selectMode && selected.size > 1 && selected.has(it.id) ? items.filter((x) => selected.has(x.id)) : [it];
+    return group
+      .map((x) =>
+        x.kind === "video" || x.kind === "archive" ? x.path : x.id === current.id ? curDisplayPath : tilePath(x),
+      )
+      .filter((p): p is string => !!p);
+  };
+  /** Left button down on something draggable: the drag starts once the mouse moves. */
+  const armDragOut = (e: React.MouseEvent, it: ViewerItem) => {
+    if (e.button !== 0 || !isTauri()) return;
+    const paths = dragPathsFor(it);
+    if (paths.length) dragOutRef.current = { x: e.clientX, y: e.clientY, paths };
+  };
+
   const startPan = (e: React.MouseEvent) => {
     if (e.button === 0 && view.scale <= 1 && isTauri() && curDisplayPath) {
-      dragOutRef.current = { x: e.clientX, y: e.clientY, path: curDisplayPath };
+      armDragOut(e, current);
       return;
     }
     if (e.button !== 0 || view.scale <= 1) return;
@@ -2108,6 +2128,9 @@ export function ImageViewer({
                         setGrid(false);
                       }}
                       onContextMenu={(e) => mediaMenu(e, it, i)}
+                      // drag out: this file, or the selection it belongs to
+                      onMouseDown={(e) => armDragOut(e, it)}
+                      onDragStart={(e) => e.preventDefault()}
                       title={it.name ?? it.title}
                       // same hooks as the filmstrip so the premium themes style the marked
                       // tile
@@ -2387,6 +2410,9 @@ export function ImageViewer({
                 setIndex(i);
               }}
               onContextMenu={(e) => mediaMenu(e, it, i)}
+              // drag out: this file, or the selection it belongs to
+              onMouseDown={(e) => armDragOut(e, it)}
+              onDragStart={(e) => e.preventDefault()}
               // viewer-thumb + data-sel / data-current are hooks for the premium themes
               // (index.css)
               data-sel={selectMode && isSel ? "" : undefined}
@@ -3004,6 +3030,7 @@ function dialogOverViewer(): boolean {
 /** Shortcut overlay ("?"). */
 function ShortcutHelp({ isVideo, onClose }: { isVideo: boolean; onClose: () => void }) {
   const t = useT();
+  const dlg = useDialogTheme();
   const rows: [string, string][] = [
     ["← / →", t("Previous / next")],
     [t("Home / End"), t("First / last file")],
@@ -3036,9 +3063,9 @@ function ShortcutHelp({ isVideo, onClose }: { isVideo: boolean; onClose: () => v
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.96, opacity: 0, y: 8 }}
         onClick={(e) => e.stopPropagation()}
-        className="w-[26rem] max-w-[90vw] overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl"
+        className={cn("w-[26rem] max-w-[90vw] overflow-hidden", dlg.panel)}
       >
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
+        <div className={cn("flex items-center justify-between border-b px-5 py-3", dlg.divider)}>
           <h2 className="text-sm font-semibold text-zinc-100">{t("Keyboard shortcuts")}</h2>
           <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300" title={t("Close (Esc)")}>
             <X className="h-4 w-4" />
@@ -3048,7 +3075,7 @@ function ShortcutHelp({ isVideo, onClose }: { isVideo: boolean; onClose: () => v
           {rows.map(([keys, desc]) => (
             <div key={keys} className="flex items-center justify-between gap-4 py-2">
               <span className="text-sm text-zinc-300">{desc}</span>
-              <kbd className="rounded-md border border-zinc-700 bg-zinc-950 px-2 py-0.5 text-xs font-medium text-zinc-200 shadow-sm">
+              <kbd className={cn("rounded-md border px-2 py-0.5 text-xs font-medium text-zinc-200 shadow-sm", dlg.soft)}>
                 {keys}
               </kbd>
             </div>
@@ -3096,6 +3123,7 @@ function ClearMetaDialog({
   const t = useT();
   const tf = useTf();
   const tp = useTp();
+  const dlg = useDialogTheme();
   const [f, setF] = useState<PropFields>(emptyFields);
   const [summary, setSummary] = useState<MetaSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -3137,9 +3165,9 @@ function ClearMetaDialog({
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.96, opacity: 0, y: 8 }}
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[85vh] w-[30rem] max-w-[94vw] flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl"
+        className={cn("flex max-h-[85vh] w-[30rem] max-w-[94vw] flex-col overflow-hidden", dlg.panel)}
       >
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
+        <div className={cn("flex items-center justify-between border-b px-5 py-3", dlg.divider)}>
           <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
             <Eraser className="h-4 w-4 text-brand-300" />
             {t("Delete metadata")}
@@ -3221,7 +3249,7 @@ function ClearMetaDialog({
 
               {/* files with notable metadata first */}
               {notableFiles.length > 0 && (
-                <div className="mt-4 border-t border-zinc-800 pt-3">
+                <div className={cn("mt-4 border-t pt-3", dlg.divider)}>
                   <div className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
                     <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
                     {t("Files with metadata (notable first)")}
@@ -3295,11 +3323,12 @@ function SortControl({
 }) {
   const [open, setOpen] = useState(false);
   const { menu, menuRow, menuRowOpen } = useDialogTheme();
+  const t = useT();
   return (
     <div className="relative">
       <ViewerBtn
         onClick={() => setOpen((o) => !o)}
-        title={`Sort: ${IMG_SORT_LABELS[field]} · ${dirLabel(field, dir)}`}
+        title={`${t("Sort:")} ${t(IMG_SORT_LABELS[field])} · ${t(dirLabel(field, dir))}`}
         active={open}
       >
         <ArrowDownUp className="h-5 w-5" />
@@ -3318,11 +3347,11 @@ function SortControl({
                     "flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors",
                     active ? menuRowOpen : cn("text-zinc-200", menuRow),
                   )}
-                  title={active ? "Click to reverse direction" : undefined}
+                  title={active ? t("Click to reverse direction") : undefined}
                 >
-                  <span>{IMG_SORT_LABELS[f]}</span>
+                  <span>{t(IMG_SORT_LABELS[f])}</span>
                   {active && (
-                    <span className="text-xs font-medium text-brand-300">{dirLabel(f, dir)}</span>
+                    <span className="text-xs font-medium text-brand-300">{t(dirLabel(f, dir))}</span>
                   )}
                 </button>
               );

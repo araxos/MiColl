@@ -640,6 +640,17 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
     setFavViewer({ items, index: 0 });
   };
 
+  // ?favs=1 (the heart list on the start page) opens the Favourites once they're loaded
+  const wantFavs = searchParams.get("favs") === "1";
+  useEffect(() => {
+    if (!wantFavs || !favoriteImages.length) return;
+    openFavorites();
+    const next = new URLSearchParams(searchParams);
+    next.delete("favs");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantFavs, favoriteImages.length]);
+
   // open one collection in the viewer
   const openCollection = (c: Collection) => {
     const imgs = collectionImages.get(c.id) ?? [];
