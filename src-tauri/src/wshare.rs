@@ -28,13 +28,42 @@ fn prune_stage(dir: &Path) {
             .map(|age| age.as_secs() > STAGE_TTL_SECS)
             .unwrap_or(false);
         if stale {
-            let _ = std::fs::remove_file(e.path());
+            // a staged folder (a dragged-out reward) goes as a whole
+            let _ = if e.path().is_dir() { std::fs::remove_dir_all(e.path()) } else { std::fs::remove_file(e.path()) };
         }
     }
 }
 
+/// True if any file in the folder (subfolders too) is encrypted.
+fn tree_has_encrypted(dir: &Path) -> bool {
+    walkdir::WalkDir::new(dir)
+        .into_iter()
+        .flatten()
+        .any(|e| e.file_type().is_file() && crypto::file_is_encrypted(e.path()))
+}
+
+/// Copy a folder with its subfolders to dest, encrypted files as plaintext.
+fn copy_tree_decrypted(src: &Path, dest: &Path, dek: &crypto::Dek) -> Result<(), String> {
+    for e in walkdir::WalkDir::new(src) {
+        let e = e.map_err(map_err)?;
+        let to = dest.join(e.path().strip_prefix(src).map_err(map_err)?);
+        if e.file_type().is_dir() {
+            std::fs::create_dir_all(&to).map_err(map_err)?;
+        } else if crypto::file_is_encrypted(e.path()) {
+            let bytes = std::fs::read(e.path()).map_err(map_err)?;
+            let data = dek.decrypt_bytes(&bytes).map_err(|_| "Couldn't decrypt the file.".to_string())?;
+            std::fs::write(&to, data).map_err(map_err)?;
+        } else {
+            std::fs::copy(e.path(), &to).map_err(map_err)?;
+        }
+    }
+    Ok(())
+}
+
 /// Turn srcs into paths other apps can open.
 /// Normal files keep their real path, only encrypted files get a decrypted copy in dir.
+/// Folders (whole rewards) the same: as they are, or a decrypted copy of the whole
+/// folder when anything in it is encrypted.
 /// Same order as srcs.
 pub fn stage(dir: &Path, srcs: &[String], key: Option<[u8; 32]>) -> Result<Vec<PathBuf>, String> {
     let mut out: Vec<PathBuf> = Vec::with_capacity(srcs.len());
@@ -42,10 +71,12 @@ pub fn stage(dir: &Path, srcs: &[String], key: Option<[u8; 32]>) -> Result<Vec<P
     let mut prepared = false;
     for s in srcs {
         let p = PathBuf::from(s);
-        if !p.is_file() {
+        let folder = p.is_dir();
+        if !folder && !p.is_file() {
             return Err(format!("File not found: {s}"));
         }
-        if !crypto::file_is_encrypted(&p) {
+        let encrypted = if folder { tree_has_encrypted(&p) } else { crypto::file_is_encrypted(&p) };
+        if !encrypted {
             out.push(p);
             continue;
         }
@@ -55,10 +86,6 @@ pub fn stage(dir: &Path, srcs: &[String], key: Option<[u8; 32]>) -> Result<Vec<P
             prepared = true;
         }
         let key = key.ok_or("MiColl is locked — unlock to share.")?;
-        let bytes = std::fs::read(&p).map_err(map_err)?;
-        let data = crypto::Dek::from_bytes(key)
-            .decrypt_bytes(&bytes)
-            .map_err(|_| "Couldn't decrypt the file.".to_string())?;
         // avoid name clashes inside one bundle
         let base = p.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
         let mut name = base.clone();
@@ -71,7 +98,18 @@ pub fn stage(dir: &Path, srcs: &[String], key: Option<[u8; 32]>) -> Result<Vec<P
             i += 1;
         }
         let dest = dir.join(&name);
-        std::fs::write(&dest, data).map_err(map_err)?;
+        let dek = crypto::Dek::from_bytes(key);
+        if folder {
+            // a copy from an earlier drag would mix old files in
+            if dest.exists() {
+                std::fs::remove_dir_all(&dest).map_err(map_err)?;
+            }
+            copy_tree_decrypted(&p, &dest, &dek)?;
+        } else {
+            let bytes = std::fs::read(&p).map_err(map_err)?;
+            let data = dek.decrypt_bytes(&bytes).map_err(|_| "Couldn't decrypt the file.".to_string())?;
+            std::fs::write(&dest, data).map_err(map_err)?;
+        }
         out.push(dest);
     }
     Ok(out)
@@ -477,7 +515,7 @@ mod tests {
         d
     }
 
-    /// Several files, also from different folders, go into ONE drag (what lands is
+    /// Several files, also from different folders, and whole folders go into ONE drag (what lands is
     /// read back the way Explorer reads a drop: CF_HDROP).
     #[cfg(windows)]
     #[test]
@@ -489,10 +527,14 @@ mod tests {
         let (a, b) = (d.join("one"), d.join("two"));
         std::fs::create_dir_all(&a).unwrap();
         std::fs::create_dir_all(&b).unwrap();
-        let files = vec![a.join("01.jpg"), a.join("02.png"), b.join("03.gif")];
+        let mut files = vec![a.join("01.jpg"), a.join("02.png"), b.join("03.gif")];
         for f in &files {
             std::fs::write(f, b"x").unwrap();
         }
+        // a whole reward folder goes the same way
+        let set = d.join("Set");
+        std::fs::create_dir_all(&set).unwrap();
+        files.push(set);
         unsafe {
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
             let data = drag::data_object(&files).unwrap();
@@ -541,6 +583,40 @@ mod tests {
         assert_ne!(out[0], f, "an encrypted file must not be handed over as-is");
         assert!(out[0].starts_with(&stage_dir));
         assert_eq!(std::fs::read(&out[0]).unwrap(), b"secret pixels");
+    }
+
+    /// A reward folder goes as it is, or as a decrypted copy of the whole tree (also the
+    /// subfolders) when anything in it is encrypted. Nothing of the original changes.
+    #[test]
+    fn folders_are_staged_whole() {
+        let d = tmp("folders");
+        let dek = crypto::Dek::from_bytes([5u8; 32]);
+        let plain = d.join("lib").join("Plain Set");
+        std::fs::create_dir_all(plain.join("PSD")).unwrap();
+        std::fs::write(plain.join("01.jpg"), b"one").unwrap();
+        std::fs::write(plain.join("PSD").join("a.psd"), b"layers").unwrap();
+        let enc = d.join("lib").join("Locked Set");
+        std::fs::create_dir_all(enc.join("Extra")).unwrap();
+        std::fs::write(enc.join("01.jpg"), dek.encrypt_bytes(b"secret one")).unwrap();
+        std::fs::write(enc.join("Extra").join("02.png"), dek.encrypt_bytes(b"secret two")).unwrap();
+        std::fs::write(enc.join("readme.txt"), b"plain text").unwrap();
+        let stage_dir = d.join("stage");
+        let srcs = [plain.to_string_lossy().into_owned(), enc.to_string_lossy().into_owned()];
+
+        let out = stage(&stage_dir, &srcs, Some([5u8; 32])).unwrap();
+        assert_eq!(out[0], plain, "a plain folder goes by its real path");
+        assert_eq!(out[1], stage_dir.join("Locked Set"));
+        assert_eq!(std::fs::read(out[1].join("01.jpg")).unwrap(), b"secret one");
+        assert_eq!(std::fs::read(out[1].join("Extra").join("02.png")).unwrap(), b"secret two");
+        assert_eq!(std::fs::read(out[1].join("readme.txt")).unwrap(), b"plain text");
+        assert!(crypto::file_is_encrypted(&enc.join("01.jpg")), "the original stays encrypted");
+
+        // again after a file is gone: the old copy doesn't leak into the new one
+        std::fs::remove_file(enc.join("readme.txt")).unwrap();
+        let out = stage(&stage_dir, &srcs, Some([5u8; 32])).unwrap();
+        assert!(!out[1].join("readme.txt").exists());
+        // locked: refused, like single files
+        assert!(stage(&stage_dir, &srcs, None).unwrap_err().contains("locked"));
     }
 
     #[test]
@@ -606,8 +682,18 @@ mod tests {
             .unwrap()
             .set_modified(long_ago)
             .unwrap();
+        let old_dir = d.join("Old Set");
+        std::fs::create_dir_all(&old_dir).unwrap();
+        std::fs::write(old_dir.join("01.jpg"), b"x").unwrap();
+        // Windows opens a folder only with FILE_FLAG_BACKUP_SEMANTICS
+        let mut opts = std::fs::File::options();
+        opts.write(true);
+        #[cfg(windows)]
+        std::os::windows::fs::OpenOptionsExt::custom_flags(&mut opts, 0x0200_0000);
+        opts.open(&old_dir).unwrap().set_modified(long_ago).unwrap();
         prune_stage(&d);
         assert!(!old.exists(), "a copy older than the TTL should be gone");
+        assert!(!old_dir.exists(), "an old folder copy goes as a whole");
         assert!(fresh.exists(), "a copy from this session must survive");
     }
 

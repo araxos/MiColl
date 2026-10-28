@@ -14,6 +14,9 @@ import cpRestricted from "@/assets/wallpapers/cyber-02-restricted.webp";
 import cpHorizon from "@/assets/wallpapers/cyber-03-horizon.webp";
 import cpCodeRain from "@/assets/wallpapers/cyber-04-code-rain.webp";
 import type { CyberAnimatedId } from "@/components/CyberpunkAnimated";
+
+/** Sakura pictures with a moving version (SakuraMoonPond). */
+export type SakuraAnimatedId = "moon-pond";
 import toriiMist from "@/assets/wallpapers/sakura-torii-mist.svg";
 import petalWind from "@/assets/wallpapers/sakura-petal-wind.svg";
 import moonPond from "@/assets/wallpapers/sakura-moon-pond.svg";
@@ -28,9 +31,9 @@ export interface WallpaperPreset {
   url: string;
   /** Which theme it belongs to (switching away removes it, see theme.ts). */
   accent: AccentKey;
-  /** Cyberpunk: the moving version shown instead while "Animated background" is on
-   *  (CyberpunkAnimated). Without one the picture stays still either way. */
-  animated?: CyberAnimatedId;
+  /** The moving version shown instead while "Animated background" is on
+   *  (CyberpunkAnimated, SakuraMoonPond). Without one the picture stays still either way. */
+  animated?: CyberAnimatedId | SakuraAnimatedId;
 }
 
 /** What iridescent shows when nothing is chosen and the animated background is off. */
@@ -136,9 +139,10 @@ export const SAKURA_WALLPAPERS: WallpaperPreset[] = [
   {
     id: "moon-pond",
     label: "Moon pond",
-    hint: "Still water at night, the moon mirrored in it and blossoms drifting in rings.",
+    hint: "Still water at night, the moon mirrored in it and blossoms drifting in rings. Animated when the animated background is on.",
     url: moonPond,
     accent: "sakura",
+    animated: "moon-pond",
   },
 ];
 

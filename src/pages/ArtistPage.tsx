@@ -904,6 +904,8 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
             showTabs ? "mb-0" : dateless ? "mb-3" : "mb-6",
             irid && glassBox,
             accent === "cyberpunk" && "p-4",
+            // sakura: the dashboard's rose glass bar (index.css .sak-dash-bar)
+            sakura && "sak-dash-bar p-4",
           )}
         >
         {/* cyberpunk: a HUD plate behind the block (index.css .cp-artist-plate). A layer
@@ -930,7 +932,12 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                 onContextMenu={classMenu}
                 className={cn(
                   "ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full border",
-                  irid ? "border-white/25 bg-white/10" : "classic-chip border-zinc-700 bg-zinc-900",
+                  irid
+                    ? "border-white/25 bg-white/10"
+                    : // sakura: the rose glass of its platform tabs (index.css .sak-chip)
+                      sakura
+                      ? "sak-chip"
+                      : "classic-chip border-zinc-700 bg-zinc-900",
                 )}
                 title={tf("Class: {label} — {desc} · right-click to remove", {
                   label: t(cl.label),
@@ -948,8 +955,13 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
               key={ct.key}
               onContextMenu={(e) => kindMenu(e, ct.key)}
               className={cn(
-                "ml-2 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs text-zinc-300",
-                irid ? "border-white/25 bg-white/10" : "classic-chip border-zinc-700 bg-zinc-900",
+                "ml-2 inline-flex items-center gap-1.5 border px-2.5 py-1 text-xs text-zinc-300",
+                irid
+                  ? "rounded-md border-white/25 bg-white/10"
+                  : // sakura: rose glass in the small petal cut
+                    sakura
+                    ? "sak-chip sak-petal-cut--sm"
+                    : "classic-chip rounded-md border-zinc-700 bg-zinc-900",
               )}
               title={tf("Creator type: {label} · right-click to remove", { label: t(ct.label) })}
             >
@@ -1754,12 +1766,12 @@ function YearSection({
             </span>
           </div>
         ) : (
-          // no template: a plain line (iridescent/cyberpunk have their own, see .iri-rule /
-          // .cp-rule)
+          // no template: a plain line (the premium themes have their own, see .iri-rule /
+          // .cp-rule / .sak-rule)
           <div
             className={cn(
               "h-px flex-1",
-              irid ? "iri-rule" : cyber ? "cp-rule" : "bg-zinc-800",
+              irid ? "iri-rule" : cyber ? "cp-rule" : sakura ? "sak-rule" : "bg-zinc-800",
             )}
           />
         )}

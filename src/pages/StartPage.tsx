@@ -237,7 +237,10 @@ export function StartPage({ onLock }: { onLock: () => void }) {
       mt,
       cyber
         ? "rounded-none border border-[#fcee0a]/70 bg-zinc-950/95 ring-1 ring-inset ring-[#00e5ff]/15 shadow-[0_0_20px_rgba(252,238,10,0.2)] [clip-path:polygon(0_0,100%_0,100%_calc(100%-9px),calc(100%-9px)_100%,0_100%)]"
-        : irid
+        : sakura
+          ? // dark rose glass, petal-cut corners, lit top edge (index.css .sak-menu)
+            "sak-menu"
+          : irid
           ? // 85%, not 70%: these three open straight over the animated shader at the
             // top of the page, where a thin fill let the moving colours read through
             // the rows. The app's other menus sit inside a dialog that already dims
@@ -743,6 +746,8 @@ export function StartPage({ onLock }: { onLock: () => void }) {
             // iridescent: light frosted panel, translateZ(0) against black flicker
             irid &&
               "rounded-2xl border border-white/12 bg-zinc-900/28 px-4 py-2.5 backdrop-blur-xl [transform:translateZ(0)]",
+            // sakura: frosted rose glass with petal-cut corners (index.css .sak-dash-bar)
+            sakura && "sak-dash-bar px-4 py-2.5",
           )}
         >
           {/* cyberpunk: a red glow band from under the top bar to under the title, a lit

@@ -18,8 +18,9 @@ import { isTauri } from "@/lib/tauri";
 import { readImage } from "@/api/library";
 import { SakuraFx } from "@/components/SakuraFx";
 import { SakuraStill } from "@/components/SakuraStill";
+import { SakuraMoonPond } from "@/components/SakuraMoonPond";
 // CyberpunkFx (the old glitch background) stays in the codebase but isn't mounted
-import { CyberpunkAnimated } from "@/components/CyberpunkAnimated";
+import { CyberpunkAnimated, type CyberAnimatedId } from "@/components/CyberpunkAnimated";
 import { IridescentFx } from "@/components/IridescentFx";
 import { ClassicGlintsFx } from "@/components/ClassicGlintsFx";
 
@@ -77,10 +78,13 @@ export function AppWallpaper() {
       : undefined;
   const cyberPreset = preset?.accent === "cyberpunk" ? preset : cyberDefault;
   // animation on and the picked cyberpunk picture has a moving version: that instead
-  const cyberAnim = accent === "cyberpunk" && animated ? cyberPreset?.animated : undefined;
+  const cyberAnim =
+    accent === "cyberpunk" && animated ? (cyberPreset?.animated as CyberAnimatedId | undefined) : undefined;
+  // same for sakura (Moon pond)
+  const sakAnim = sakura && preset?.accent === "sakura" && preset.animated === "moon-pond";
   // the picture painted over the whole background (the shader preset is handled by
   // iridStill)
-  const custom = cyberAnim
+  const custom = cyberAnim || sakAnim
     ? ""
     : preset
       ? preset.url
@@ -126,6 +130,8 @@ export function AppWallpaper() {
       {/* cyberpunk's moving picture: covers everything like a picture, so it sits
           under the dim like one */}
       {cyberAnim && <CyberpunkAnimated variant={cyberAnim} />}
+      {/* sakura's moving Moon pond, same place (the petals of SakuraFx fall over it) */}
+      {sakAnim && <SakuraMoonPond />}
       {custom && (
         <div
           className="absolute inset-0 bg-cover bg-center"

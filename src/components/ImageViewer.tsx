@@ -51,6 +51,7 @@ import { Cover } from "@/components/Cover";
 import { seedGradient, cn } from "@/lib/utils";
 import { useT, useTf, useTp } from "@/lib/i18n";
 import { isTauri, mediaUrl, previewUrl, thumbUrl } from "@/lib/tauri";
+import { useDragOut } from "@/lib/dragOut";
 import { useOptimizeLargeImages } from "@/lib/optimizeLarge";
 import { enterImmersive } from "@/lib/immersive";
 // renamed: setWallpaper from the API is the DESKTOP wallpaper
@@ -89,7 +90,6 @@ import {
   type MetaSummary,
   claimAudioName,
   copyImageToClipboard,
-  dragOut,
 } from "@/api/library";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { SharePhoneModal } from "@/components/SharePhoneModal";
@@ -1410,32 +1410,7 @@ export function ImageViewer({
 
   // not zoomed in: holding the left button and moving drags the file out (desktop,
   // Explorer, a chat) as a copy. Same from a tile in the grid or the filmstrip.
-  const dragOutRef = useRef<{ x: number; y: number; paths: string[] } | null>(null);
-  useEffect(() => {
-    const move = (e: MouseEvent) => {
-      const d = dragOutRef.current;
-      if (!d) return;
-      if (!(e.buttons & 1)) {
-        dragOutRef.current = null;
-        return;
-      }
-      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 8) return;
-      dragOutRef.current = null;
-      dragOut(d.paths).catch((err) =>
-        showToast({ tone: "error", title: t("Couldn’t drag the file out"), problem: String(err) }),
-      );
-    };
-    const up = () => {
-      dragOutRef.current = null;
-    };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-    return () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const armDragPaths = useDragOut();
 
   /**
    * What dragging `it` out takes along: the whole selection when it's part of one, else
@@ -1452,9 +1427,7 @@ export function ImageViewer({
   };
   /** Left button down on something draggable: the drag starts once the mouse moves. */
   const armDragOut = (e: React.MouseEvent, it: ViewerItem) => {
-    if (e.button !== 0 || !isTauri()) return;
-    const paths = dragPathsFor(it);
-    if (paths.length) dragOutRef.current = { x: e.clientX, y: e.clientY, paths };
+    if (e.button === 0) armDragPaths(e, dragPathsFor(it));
   };
 
   const startPan = (e: React.MouseEvent) => {

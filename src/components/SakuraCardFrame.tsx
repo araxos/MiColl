@@ -1,103 +1,154 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useMemo, useState, type CSSProperties } from "react";
 import { useFx } from "@/lib/fx";
 
 /**
  * Sakura card frame for dashboard cards (when the sakura frame option is on).
- * A petal shape: two sharp corners, two round ones and a V-notch in the top edge.
+ * Kumiko corners: a fine rose line around the card and, on each corner, a Japanese
+ * corner fitting (two parallel L-lines) with a cherry blossom sitting on its tip, big
+ * ones top left / bottom right, small ones on the other two corners.
+ * The fittings and blossoms keep their pixel size whatever the card size (each corner
+ * is its own small SVG), only the fine line stretches with the card.
  * bloom (deep rose) = template creators, petal (pale pink) = the rest.
- * The outline is built once in a 0-100 box and used for both the clip-path
- * and the SVG border, so they always match.
  */
 
-/** How deep the round corners are (share of the card). */
-const SWEEP = 26;
-/** The notch in the top edge: half width and depth. */
-const NOTCH_W = 7;
-const NOTCH_D = 8;
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
-
-/** A quarter ellipse in steps, in percent (stretches with the tile). */
-function quarter(
-  cx: number,
-  cy: number,
-  r: number,
-  fromDeg: number,
-  toDeg: number,
-  steps = 8,
-): [number, number][] {
-  const pts: [number, number][] = [];
-  for (let i = 0; i <= steps; i++) {
-    const a = ((fromDeg + ((toDeg - fromDeg) * i) / steps) * Math.PI) / 180;
-    pts.push([round2(cx + r * Math.cos(a)), round2(cy + r * Math.sin(a))]);
-  }
-  return pts;
-}
-
-const PTS: [number, number][] = [
-  [0, 0], //                                    sharp corner, top-left
-  [50 - NOTCH_W, 0],
-  [50, NOTCH_D], //                             the petal's V-notch
-  [50 + NOTCH_W, 0],
-  ...quarter(100 - SWEEP, SWEEP, SWEEP, -90, 0), // swept corner, top-right
-  [100, 100], //                                sharp corner, bottom-right
-  ...quarter(SWEEP, 100 - SWEEP, SWEEP, 90, 180), // swept corner, bottom-left
-];
-
-/** The petal outline as % polygon for clip-path. */
-export const SAKURA_CARD_CLIP = `polygon(${PTS.map(([x, y]) => `${x}% ${y}%`).join(", ")})`;
-
-const OUTLINE_D = `M${PTS.map(([x, y]) => `${x},${y}`).join(" L")} Z`;
+/** The card stays a plain rectangle (only a hair of rounding), so nothing is cut off. */
+export const SAKURA_CARD_CLIP = "inset(0 round 3px)";
 
 type Tone = "bloom" | "petal";
 
-const INK: Record<Tone, { line: string; inner: string; glow: string }> = {
-  bloom: { line: "#f472b6", inner: "rgba(255,209,227,0.6)", glow: "rgba(244,114,182,0.55)" },
-  petal: { line: "#f9a8d4", inner: "rgba(255,224,238,0.45)", glow: "rgba(249,168,212,0.4)" },
+const INK: Record<
+  Tone,
+  { from: string; mid: string; to: string; inner: string; line: string; glow: string; petal: [string, string, string]; heart: string }
+> = {
+  bloom: {
+    from: "#ffe1ee",
+    mid: "#f472b6",
+    to: "#d6418f",
+    inner: "rgba(255,209,227,0.6)",
+    line: "rgba(244,114,182,0.5)",
+    glow: "rgba(244,114,182,0.5)",
+    petal: ["#fff3f8", "#ffc8e1", "#f58cbe"],
+    heart: "#d6418f",
+  },
+  petal: {
+    from: "#fff0f7",
+    mid: "#f9a8d4",
+    to: "#e9b9d0",
+    inner: "rgba(255,224,238,0.5)",
+    line: "rgba(249,168,212,0.4)",
+    glow: "rgba(249,168,212,0.38)",
+    petal: ["#fff7fb", "#ffd9ea", "#f9a8d4"],
+    heart: "#ec6aa8",
+  },
 };
+
+/** One petal with the notch at its tip (0-100 box, centre 50/50). */
+const PETAL = "M50 57 C 38 50, 33 31, 39 12 L 50 21 L 61 12 C 67 31, 62 50, 50 57 Z";
+
+/** Corner fitting size and blossom sizes, in px. */
+const ARM = 34;
+const BIG = 20;
+const SMALL = 14;
+/** How far the fine line and the fittings sit inside the card edge (as in the sketch). */
+const INSET = 10;
+
+type Corner = "tl" | "tr" | "bl" | "br";
+
+function Fitting({ corner, tone }: { corner: Corner; tone: Tone }) {
+  const ink = INK[tone];
+  const id = useId();
+  const big = corner === "tl" || corner === "br";
+  const size = big ? BIG : SMALL;
+  // the blossom's heart sits right on the fitting's corner
+  const tip = 1;
+  // the fitting is drawn for the top-left corner and mirrored into the others
+  const sx = corner === "tr" || corner === "br" ? -1 : 1;
+  const sy = corner === "bl" || corner === "br" ? -1 : 1;
+  const turn = { tl: 0, tr: 20, bl: -20, br: 40 }[corner];
+  const pos: CSSProperties = {
+    width: ARM + 6,
+    height: ARM + 6,
+    // viewBox x/y = 1 (the outer L) lands on INSET
+    [corner[0] === "t" ? "top" : "bottom"]: INSET - 4,
+    [corner[1] === "l" ? "left" : "right"]: INSET - 4,
+  };
+  return (
+    <svg aria-hidden className="absolute overflow-visible" style={pos} viewBox={`-3 -3 ${ARM + 6} ${ARM + 6}`}>
+      <defs>
+        <linearGradient id={`${id}l`} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor={ink.from} />
+          <stop offset="0.5" stopColor={ink.mid} />
+          <stop offset="1" stopColor={ink.to} />
+        </linearGradient>
+        <linearGradient id={`${id}p`} x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0" stopColor={ink.petal[0]} />
+          <stop offset="0.55" stopColor={ink.petal[1]} />
+          <stop offset="1" stopColor={ink.petal[2]} />
+        </linearGradient>
+      </defs>
+      <g transform={`translate(${sx < 0 ? ARM : 0} ${sy < 0 ? ARM : 0}) scale(${sx} ${sy})`}>
+        <path d={`M1 ${ARM} V1 H${ARM}`} fill="none" stroke={`url(#${id}l)`} strokeWidth={2.4} />
+        <path d={`M7 ${ARM} V7 H${ARM}`} fill="none" stroke={ink.inner} strokeWidth={1} />
+        {/* the blossom on the fitting's corner */}
+        <g transform={`translate(${tip - size / 2} ${tip - size / 2}) scale(${size / 100}) rotate(${turn} 50 50)`}>
+          {[0, 72, 144, 216, 288].map((r) => (
+            <path
+              key={r}
+              d={PETAL}
+              transform={`rotate(${r} 50 50)`}
+              fill={`url(#${id}p)`}
+              stroke="#ec6aa8"
+              strokeWidth={2.2}
+              strokeLinejoin="round"
+            />
+          ))}
+          <circle cx={50} cy={50} r={7} fill={ink.heart} />
+          <circle cx={50} cy={50} r={3} fill="#fbbf24" />
+        </g>
+      </g>
+    </svg>
+  );
+}
 
 export function SakuraCardFrame({ tone }: { tone: Tone }) {
   const ink = INK[tone];
   return (
-    <svg
+    <div
       aria-hidden
-      viewBox="0 0 100 100"
-      preserveAspectRatio="none"
-      className="pointer-events-none absolute inset-0 z-20 h-full w-full"
-      style={{ filter: `drop-shadow(0 0 6px ${ink.glow})` }}
+      className="pointer-events-none absolute inset-0 z-20"
+      style={{ filter: `drop-shadow(0 0 5px ${ink.glow})` }}
     >
-      {/* non-scaling-stroke keeps the lines even when stretched */}
-      <path
-        d={OUTLINE_D}
-        fill="none"
-        stroke={ink.line}
-        strokeWidth={2.5}
-        strokeLinejoin="round"
-        vectorEffect="non-scaling-stroke"
-      />
-      {/* a second line slightly inside (double edge) */}
-      <path
-        d={OUTLINE_D}
-        fill="none"
-        stroke={ink.inner}
-        strokeWidth={1}
-        strokeLinejoin="round"
-        vectorEffect="non-scaling-stroke"
-        transform="translate(50 50) scale(0.945) translate(-50 -50)"
-      />
-    </svg>
+      {/* the fine line all round, on the same track as the fittings' outer L */}
+      <div className="absolute rounded-[2px]" style={{ inset: INSET - 0.5, border: `1px solid ${ink.line}` }} />
+      {(["tl", "tr", "bl", "br"] as Corner[]).map((c) => (
+        <Fitting key={c} corner={c} tone={tone} />
+      ))}
+    </div>
   );
 }
 
 /** Duration of one sheen pass (slow). Also used for the safety timer. */
 const SWEEP_MS = 7000;
 
-/** Fixed start positions and sizes of the petals (%), so they don't reshuffle. */
-const PETALS = [
-  { left: "18%", top: "12%", size: 9, delay: "0s", duration: "13s" },
-  { left: "62%", top: "4%", size: 7, delay: "-5s", duration: "16s" },
-  { left: "84%", top: "22%", size: 6, delay: "-9s", duration: "11s" },
-];
+/**
+ * Random petals for one card: 1-4 of them, each with its own spot, size, sideways
+ * drift and turn, and a long cycle in which it falls only once (the first ~45%) and
+ * then rests. Each starts after its own pause, so cards never look or move alike and
+ * petals come rarely, not in a steady stream.
+ */
+function randomPetals() {
+  const rnd = (a: number, b: number) => a + Math.random() * (b - a);
+  const count = 1 + Math.floor(Math.random() * 4);
+  return Array.from({ length: count }, () => ({
+    left: `${rnd(6, 88).toFixed(1)}%`,
+    top: `${rnd(0, 26).toFixed(1)}%`,
+    size: rnd(5, 9),
+    duration: `${rnd(20, 42).toFixed(2)}s`,
+    delay: `${rnd(1, 34).toFixed(2)}s`,
+    drift: `${rnd(-40, 25).toFixed(0)}%`,
+    turn: `${((Math.random() < 0.5 ? -1 : 1) * rnd(140, 300)).toFixed(0)}deg`,
+  }));
+}
 
 /**
  * Effects inside a framed card: falling petals and sometimes a pearl band
@@ -115,6 +166,8 @@ export function SakuraCardScreen({ tone }: { tone: Tone }) {
     const t = setTimeout(() => setSweeping(!sweeping), delay);
     return () => clearTimeout(t);
   }, [sweeping, anim]);
+  // this card's own petals, drawn once per mount
+  const petals = useMemo(randomPetals, []);
   // warmer on template cards, cooler on plain ones, kept faint
   const band =
     tone === "bloom"
@@ -135,19 +188,23 @@ export function SakuraCardScreen({ tone }: { tone: Tone }) {
           onAnimationEnd={() => setSweeping(false)}
         />
       )}
-      {PETALS.map((p) => (
+      {petals.map((p, i) => (
         <span
-          key={p.left}
+          key={i}
           className="sak-card-petal"
-          style={{
-            left: p.left,
-            top: p.top,
-            width: `${p.size}%`,
-            paddingBottom: `${p.size}%`,
-            animationDelay: anim ? p.delay : undefined,
-            animationDuration: anim ? p.duration : undefined,
-            animationName: anim ? undefined : "none",
-          }}
+          style={
+            {
+              left: p.left,
+              top: p.top,
+              width: `${p.size.toFixed(1)}%`,
+              paddingBottom: `${p.size.toFixed(1)}%`,
+              animationDelay: anim ? p.delay : undefined,
+              animationDuration: anim ? p.duration : undefined,
+              animationName: anim ? undefined : "none",
+              "--drift": p.drift,
+              "--turn": p.turn,
+            } as CSSProperties
+          }
         />
       ))}
     </div>

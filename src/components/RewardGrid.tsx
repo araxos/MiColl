@@ -20,6 +20,7 @@ import { useActions } from "@/actions";
 import { KEEP_FOLDERS_KEY, setRewardCover, exportFiles, createReward, createMissingReward, ensurePeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, setRewardsTier, setRewardNotes, type SdMode } from "@/api/library";
 import { isTauri } from "@/lib/tauri";
 import { useCardSize } from "@/lib/useCardSize";
+import { useDragOut } from "@/lib/dragOut";
 import { useTileShapeFor, type TileScope } from "@/lib/tileShape";
 import { buildFolderOrder } from "@/lib/rewardOrder";
 import { useDialogTheme } from "@/lib/dialogTheme";
@@ -468,6 +469,20 @@ export function RewardGrid({
       setSelected(new Set([id]));
       anchorRef.current = index;
     }
+  };
+
+  /* ---- drag rewards out (desktop, Explorer, a chat), always a copy -- */
+  const armDragPaths = useDragOut();
+  /**
+   * What dragging `r` out takes along: the whole selection when it's part of one, else
+   * just it. A reward is its folder; one whose files sit in the month folder itself
+   * (isRoot) goes as its files, or the other rewards would come along.
+   */
+  const dragPathsFor = (r: Reward): string[] => {
+    const group = selectMode && selected.has(r.id) ? selectedRewards() : [r];
+    return group
+      .filter((x) => x.status === "owned")
+      .flatMap((x) => (x.isRoot ? rewardSrcs(x) : x.folderPath ? [x.folderPath] : []));
   };
 
   /* ---- marquee (drag a box over empty grid space) ------------------- */
@@ -1150,6 +1165,10 @@ export function RewardGrid({
             // drop target: files dropped on a reward go into its folder
             data-drop-reward={borrowed ? undefined : reward.id}
             data-drop-label={borrowed ? undefined : reward.title}
+            // left button + move drags it (or the selection) out. Borrowed tiles can't be
+            // picked, so in selection mode they only start the box
+            onMouseDown={selectMode && borrowed ? undefined : (e) => e.button === 0 && armDragPaths(e, dragPathsFor(reward))}
+            onDragStart={(e) => e.preventDefault()}
             className="relative"
           >
             <RewardSlot

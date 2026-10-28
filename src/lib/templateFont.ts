@@ -1,8 +1,8 @@
 /**
  * "Template display font" setting.
  * Cards with a template show the name in a display font (KDA on iridescent,
- * MiColl Cut on cyberpunk). Those miss some letters, so this can turn them off.
- * On by default. Sakura has no display font.
+ * MiColl Cut on cyberpunk, Kaisei Decol on sakura). Those miss some letters, so this
+ * can turn them off. On by default.
  * Set as data-template-font="off" on <html> (only when off).
  * ArtistCard also reads it for the name size and the verified check.
  */

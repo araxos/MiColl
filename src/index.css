@@ -31,6 +31,13 @@
 [data-accent="cyberpunk"] .cc-template-type {
   font-family: "MiColl Cut", var(--font-sans);
 }
+/* Kaisei Decol - sakura's display font for template creator cards (an elegant serif
+   with a soft, flowery swing; loaded in boot.tsx, latin bold only). */
+[data-accent="sakura"] .cc-template-type {
+  font-family: "Kaisei Decol", var(--font-sans);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
 /* Both display fonts off (right-click the Iridescent or Cyberpunk swatch).
    Set on <html>, see lib/templateFont.ts. */
 [data-template-font="off"] .cc-template-type {
@@ -2199,22 +2206,29 @@ img {
   border-radius: 100% 0 100% 0;
   background: linear-gradient(135deg, rgba(255, 224, 238, 0.85), rgba(244, 114, 182, 0.5));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-  animation: micoll-sak-petal-fall 13s linear infinite;
+  opacity: 0;
+  animation: micoll-sak-petal-fall 30s linear infinite;
 }
-/* the petal fades in and out so the jump back to the top is invisible */
+/* one fall in the first ~45% of the cycle (fading in and out, so the jump back to the
+   top is invisible), then the petal rests out of sight. Drift and turn are per petal
+   (SakuraCardScreen), and so are cycle and start. */
 @keyframes micoll-sak-petal-fall {
   0% {
     transform: translate3d(0, -20%, 0) rotate(0deg);
     opacity: 0;
   }
-  12% {
+  5% {
     opacity: 0.85;
   }
-  78% {
+  36% {
     opacity: 0.85;
+  }
+  45% {
+    transform: translate3d(var(--drift, -22%), 340%, 0) rotate(var(--turn, 240deg));
+    opacity: 0;
   }
   100% {
-    transform: translate3d(-22%, 340%, 0) rotate(240deg);
+    transform: translate3d(var(--drift, -22%), 340%, 0) rotate(var(--turn, 240deg));
     opacity: 0;
   }
 }
@@ -6638,4 +6652,559 @@ html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-acc
   outline-offset: -1px;
   backdrop-filter: blur(6px);
   box-shadow: 0 2px 10px rgba(124, 58, 237, 0.35);
+}
+
+/* ---- Sakura: the top bar ------------------------------------------------- */
+/* Frosted dark rose glass with a soft blush light from the left, and instead of the
+   plain bottom border a blossom-pink hairline that fades out at both ends, with a
+   small glowing blossom sitting on its middle. */
+[data-accent="sakura"] .app-header {
+  border-bottom-color: transparent;
+  background-color: rgba(27, 16, 22, 0.62);
+  background-image:
+    radial-gradient(55% 160% at 10% 0%, rgba(255, 193, 218, 0.13), transparent 70%),
+    radial-gradient(40% 140% at 92% 0%, rgba(244, 114, 182, 0.08), transparent 70%),
+    linear-gradient(180deg, rgba(255, 224, 238, 0.05), rgba(255, 224, 238, 0));
+  backdrop-filter: blur(16px) saturate(1.2);
+}
+[data-accent="sakura"] .app-header::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 1px;
+  pointer-events: none;
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    rgba(249, 168, 212, 0.55) 22%,
+    #ffd0e3 50%,
+    rgba(249, 168, 212, 0.55) 78%,
+    transparent
+  );
+  box-shadow: 0 0 8px rgba(244, 114, 182, 0.4);
+}
+[data-accent="sakura"] .app-header::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  pointer-events: none;
+  background: linear-gradient(135deg, #ffe1ee, #f472b6);
+  -webkit-mask: var(--sak-blossom) center / contain no-repeat;
+  mask: var(--sak-blossom) center / contain no-repeat;
+  filter: drop-shadow(0 0 4px rgba(244, 114, 182, 0.8));
+}
+
+/* ---- Sakura: a lit top-bar button (wishlist, graveyard, history, hidden) --- */
+/* Same idea as iridescent's: only the RIM gets the colour (dark rose glass on the
+   padding box over a blossom gradient on the border box), drifting slowly. Petal-cut
+   corners like the platform tabs, and a fallen petal resting on the top right
+   corner. */
+[data-accent="sakura"] header [data-lit] {
+  position: relative;
+  border: 1.5px solid transparent;
+  border-radius: 0.35rem 0.9rem 0.35rem 0.9rem;
+  background-color: transparent;
+  background-image:
+    linear-gradient(rgba(36, 18, 28, 0.88), rgba(36, 18, 28, 0.88)),
+    linear-gradient(135deg, #ffe1ee, #f9a8d4 38%, #f472b6 68%, #ffd0e3);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  background-size: 100% 100%, 200% 200%;
+  color: #ffe1ee;
+  box-shadow:
+    0 0 10px rgba(244, 114, 182, 0.35),
+    inset 0 1px 0 rgba(255, 224, 238, 0.15);
+  animation: micoll-iri-flow 4.5s steps(45) infinite;
+}
+[data-accent="sakura"] header [data-lit]:hover {
+  color: #ffffff;
+  box-shadow:
+    0 0 14px rgba(244, 114, 182, 0.5),
+    inset 0 1px 0 rgba(255, 224, 238, 0.2);
+}
+/* a single blossom petal (notched tip, pale at the base) lying on the top right corner
+   of the button, turned as it landed, as if it had just drifted down from the tree;
+   its soft shadow falls on the button. */
+[data-accent="sakura"] header [data-lit]::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 13px;
+  height: 13px;
+  pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='1' x2='0' y2='0'%3E%3Cstop offset='0' stop-color='%23fff3f8'/%3E%3Cstop offset='.5' stop-color='%23ffc8e1'/%3E%3Cstop offset='1' stop-color='%23f58cbe'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M30 56 C 13 46, 8 22, 17 5 L 30 15 L 43 5 C 52 22, 47 46, 30 56 Z' fill='url%28%23g%29' stroke='%23ec6aa8' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M30 52 C 28 40, 28 28, 30 17' fill='none' stroke='%23f29bc5' stroke-width='1.2' stroke-linecap='round' opacity='.7'/%3E%3C/svg%3E") center / contain no-repeat;
+  transform: rotate(-35deg);
+  filter: drop-shadow(1px 2px 1.2px rgba(10, 4, 8, 0.55));
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="sakura"] header [data-lit] {
+    animation: none;
+  }
+}
+
+/* ---- Sakura: the dashboard's filter bar ---------------------------------- */
+/* Behind "Creators (n)", Sort / Class and the buttons: frosted rose glass with the
+   petal cut (wide on one diagonal), a lit top edge, a blossom-pink hairline along the
+   bottom that fades out at both ends, and one fallen petal resting on the lower left
+   corner (the same petal as on the lit top-bar buttons). */
+[data-accent="sakura"] .sak-dash-bar {
+  border: 1px solid rgba(249, 168, 212, 0.24);
+  border-radius: 0.6rem 1.6rem 0.6rem 1.6rem;
+  background:
+    linear-gradient(160deg, rgba(255, 209, 229, 0.1), rgba(27, 16, 22, 0.42) 55%),
+    rgba(27, 16, 22, 0.36);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 224, 238, 0.16),
+    0 10px 28px -16px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(14px) saturate(1.15);
+}
+[data-accent="sakura"] .sak-dash-bar::after {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: -1px;
+  height: 1px;
+  pointer-events: none;
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    rgba(249, 168, 212, 0.6) 25%,
+    #ffd0e3 50%,
+    rgba(249, 168, 212, 0.6) 75%,
+    transparent
+  );
+  box-shadow: 0 0 8px rgba(244, 114, 182, 0.35);
+}
+[data-accent="sakura"] .sak-dash-bar::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  bottom: -6px;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='1' x2='0' y2='0'%3E%3Cstop offset='0' stop-color='%23fff3f8'/%3E%3Cstop offset='.5' stop-color='%23ffc8e1'/%3E%3Cstop offset='1' stop-color='%23f58cbe'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M30 56 C 13 46, 8 22, 17 5 L 30 15 L 43 5 C 52 22, 47 46, 30 56 Z' fill='url%28%23g%29' stroke='%23ec6aa8' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M30 52 C 28 40, 28 28, 30 17' fill='none' stroke='%23f29bc5' stroke-width='1.2' stroke-linecap='round' opacity='.7'/%3E%3C/svg%3E") center / contain no-repeat;
+  transform: rotate(150deg);
+  filter: drop-shadow(1px 2px 1.2px rgba(10, 4, 8, 0.55));
+}
+
+/* ---- Sakura: the Sort / Class dropdowns ---------------------------------- */
+/* Dark rose glass with the petal cut, a blossom rim and lit top edge, a soft pink
+   glow; the rows keep their pink hover and get a petal-coloured active row. */
+[data-accent="sakura"] .sak-menu {
+  border: 1px solid rgba(249, 168, 212, 0.32);
+  border-radius: 0.5rem 1.25rem 0.5rem 1.25rem;
+  background:
+    linear-gradient(165deg, rgba(255, 209, 229, 0.1), transparent 45%),
+    rgba(27, 16, 22, 0.985);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 224, 238, 0.18),
+    0 0 0 1px rgba(0, 0, 0, 0.3),
+    0 18px 40px -12px rgba(0, 0, 0, 0.7),
+    0 0 22px -6px rgba(244, 114, 182, 0.35);
+  backdrop-filter: blur(20px) saturate(1.2);
+}
+[data-accent="sakura"] .sak-menu > button:hover,
+[data-accent="sakura"] .sak-menu > button.bg-brand-500\/15 {
+  background-image: linear-gradient(90deg, rgba(244, 114, 182, 0.2), rgba(255, 209, 229, 0.06));
+}
+
+/* ---- Sakura: holo on the creator cards ------------------------------------ */
+/* Normal cards: a soft blossom sheen (pale pink, rose, a touch of lilac) that sweeps
+   across now and then, stronger on hover. Each card has its own angle and timing
+   (holoVars in ArtistCard), the colours are the theme's, not the random ones. */
+[data-accent="sakura"] .micoll-holo {
+  opacity: 0.5;
+  transition: opacity 0.4s;
+  mix-blend-mode: screen;
+  background-image: linear-gradient(
+    var(--holo-angle, 115deg),
+    transparent 30%,
+    rgba(255, 214, 233, 0.2) 41%,
+    rgba(244, 114, 182, 0.14) 50%,
+    rgba(216, 180, 254, 0.12) 58%,
+    transparent 70%
+  );
+  background-size: 240% 240%;
+  background-repeat: no-repeat;
+  animation: sak-holo-sweep calc(var(--holo-dur, 7s) * 2.4) ease-in-out var(--holo-delay, 0s)
+    infinite;
+}
+[data-accent="sakura"] .group:hover .micoll-holo {
+  opacity: 0.9;
+}
+/* the sweep takes the first third of the cycle, then the card rests */
+@keyframes sak-holo-sweep {
+  0% {
+    background-position: 130% 0;
+  }
+  34%,
+  100% {
+    background-position: -130% 0;
+  }
+}
+
+/* Template cards: IriTemplateHolo skin="sak". Two blossom band layers drift slowly;
+   on hover they follow the mouse, a glare follows and the card tilts. A few petals
+   drift down the card, and a thin pink inner line frames it (the edge is .sak-edge). */
+[data-accent="sakura"] .sak-tpl-band1 {
+  mix-blend-mode: screen;
+  opacity: 0.22;
+  background-image: linear-gradient(
+    115deg,
+    rgba(255, 182, 214, 0) 8%,
+    rgba(255, 196, 224, 0.85) 24%,
+    rgba(255, 232, 242, 0.95) 34%,
+    rgba(255, 205, 228, 0.9) 42%,
+    rgba(244, 140, 196, 0.8) 52%,
+    rgba(222, 186, 252, 0.85) 62%,
+    rgba(200, 150, 236, 0.7) 72%,
+    rgba(244, 114, 182, 0) 88%
+  );
+  background-size: 320% 320%;
+  background-position: 30% 40%;
+  animation: iri-tpl-drift-a 26s ease-in-out infinite;
+  will-change: background-position, opacity;
+}
+[data-accent="sakura"] .sak-tpl-band2 {
+  mix-blend-mode: color-dodge;
+  opacity: 0.12;
+  background-image: linear-gradient(
+    65deg,
+    rgba(0, 0, 0, 0) 10%,
+    rgba(249, 168, 212, 0.5) 28%,
+    rgba(255, 236, 246, 0.7) 40%,
+    rgba(255, 214, 233, 0.55) 48%,
+    rgba(216, 180, 254, 0.5) 62%,
+    rgba(0, 0, 0, 0) 85%
+  );
+  background-size: 380% 380%;
+  background-position: 60% 55%;
+  animation: iri-tpl-drift-b 34s ease-in-out infinite;
+  will-change: background-position, opacity;
+}
+[data-accent="sakura"] .sak-tpl-glare {
+  mix-blend-mode: overlay;
+  opacity: 0;
+  will-change: background, opacity;
+}
+[data-accent="sakura"] .sak-tpl-inner {
+  inset: 8px;
+  border: 1px solid rgba(255, 214, 233, 0.16);
+  border-radius: 0.6rem;
+}
+[data-accent="sakura"] .sak-tpl-petals {
+  overflow: hidden;
+  container-type: size;
+}
+[data-accent="sakura"] .sak-tpl-petal {
+  position: absolute;
+  top: 0;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+/* one fall per cycle (first ~55%), drifting a little sideways, then a rest out of view */
+@keyframes sak-tpl-fall {
+  0% {
+    transform: translate(0, -16cqh);
+    opacity: 0;
+  }
+  5% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 1;
+  }
+  55% {
+    transform: translate(var(--drift, 0px), 116cqh);
+    opacity: 0;
+  }
+  100% {
+    transform: translate(var(--drift, 0px), 116cqh);
+    opacity: 0;
+  }
+}
+[data-accent="sakura"] .sak-tpl-petal > span {
+  display: block;
+}
+[data-accent="sakura"] .sak-tpl-petal > span > span {
+  display: block;
+  border-radius: 100% 0 100% 0;
+  background: radial-gradient(
+    125% 120% at 30% 22%,
+    rgba(255, 255, 255, 0.9),
+    rgba(255, 182, 218, 0.55) 55%,
+    rgba(255, 182, 218, 0) 100%
+  );
+  mix-blend-mode: screen;
+  filter: blur(0.4px) drop-shadow(0 0 5px rgba(255, 170, 210, 0.45));
+  transform: rotate(35deg);
+}
+html[data-holo-freq="2"] .sak-tpl-band1,
+html[data-holo-freq="2"] .sak-tpl-band2 {
+  animation-play-state: paused !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="sakura"] .micoll-holo,
+  [data-accent="sakura"] .sak-tpl-band1,
+  [data-accent="sakura"] .sak-tpl-band2,
+  [data-accent="sakura"] .sak-tpl-petal,
+  [data-accent="sakura"] .sak-tpl-petal > span {
+    animation: none !important;
+  }
+}
+
+/* Sakura pin (KanzashiPin in ArtistCard): the gold dangles sway gently from their
+   hanging point. Off with the "Pin, NEW badge and corners" switch (fx-pin). */
+.sak-kz-bira {
+  transform-box: view-box;
+  transform-origin: 14px -5px;
+  animation: sak-kz-sway 3.6s ease-in-out infinite;
+}
+@keyframes sak-kz-sway {
+  0%, 100% { transform: rotate(-7deg); }
+  50% { transform: rotate(7deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sak-kz-bira { animation: none; }
+}
+
+/* Sakura: small petal cut for little chips (creator type on the creator page) */
+[data-accent="sakura"] .sak-petal-cut--sm {
+  border-radius: 0.25rem 0.75rem 0.25rem 0.75rem;
+}
+/* Sakura: the line next to a year without a template. A rose hairline that fades out
+   to the right, starting at a small glowing blossom. */
+[data-accent="sakura"] .sak-rule {
+  position: relative;
+  margin-left: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(249, 168, 212, 0.75),
+    rgba(244, 114, 182, 0.4) 35%,
+    rgba(201, 140, 255, 0.18) 75%,
+    transparent
+  );
+}
+[data-accent="sakura"] .sak-rule::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  transform: translateY(-50%) rotate(12deg);
+  background: linear-gradient(160deg, #ffe1ee, #f472b6);
+  -webkit-mask: var(--sak-blossom) center / contain no-repeat;
+  mask: var(--sak-blossom) center / contain no-repeat;
+  filter: drop-shadow(0 0 4px rgba(244, 114, 182, 0.7));
+}
+
+/* Sakura month aura (MonthCard, template months): a rose halo around the card that
+   grows with completion, like the iridescent aura but in blossom colours.
+   low = a soft rose glow, mid = plus a slowly turning rose/lilac ring,
+   max = a brighter ring that turns faster and a breathing glow. 0% = nothing. */
+@property --sak-ang {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+[data-accent="sakura"] .sak-aura {
+  position: relative;
+  isolation: isolate;
+}
+[data-accent="sakura"] .sak-aura:is(.sak-mid, .sak-max)::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -4px;
+  border-radius: 1.05rem;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--sak-ang),
+    #ffd0e3,
+    #f472b6 18%,
+    #ffe6f2 34%,
+    #c98cff 52%,
+    #f9a8d4 70%,
+    #ff8fc4 85%,
+    #ffd0e3
+  );
+  filter: blur(7px);
+  opacity: 0.32;
+  /* steps: duration x 20, see the note at the iridescent aura */
+  animation: sak-aura-turn 12s steps(240) infinite;
+}
+[data-accent="sakura"] .sak-aura.sak-low {
+  filter: drop-shadow(0 0 6px rgba(244, 114, 182, 0.28));
+}
+[data-accent="sakura"] .sak-aura.sak-mid {
+  filter: drop-shadow(0 0 7px rgba(244, 114, 182, 0.3));
+}
+[data-accent="sakura"] .sak-aura.sak-max::before {
+  inset: -6px;
+  filter: blur(9px) saturate(1.2);
+  opacity: 0.46;
+  animation-duration: 7s;
+  animation-timing-function: steps(140);
+}
+[data-accent="sakura"] .sak-aura.sak-max {
+  /* the resting glow when the breathing is off (animations off, holo off) */
+  filter: drop-shadow(0 0 8px rgba(244, 114, 182, 0.36)) drop-shadow(0 0 16px rgba(201, 140, 255, 0.2));
+  animation: sak-aura-breathe 3.2s steps(32) infinite;
+}
+@keyframes sak-aura-turn {
+  to { --sak-ang: 360deg; }
+}
+@keyframes sak-aura-breathe {
+  0%, 100% { filter: drop-shadow(0 0 7px rgba(244, 114, 182, 0.32)) drop-shadow(0 0 14px rgba(201, 140, 255, 0.18)); }
+  50% { filter: drop-shadow(0 0 11px rgba(255, 143, 196, 0.46)) drop-shadow(0 0 22px rgba(201, 140, 255, 0.28)); }
+}
+/* holo off / low holo frequency / reduced motion: the aura stays, it just stops */
+html[data-accent="sakura"][data-fx-off~="holo.sakura"] :is(.sak-aura, .sak-aura::before) {
+  animation: none !important;
+}
+html[data-holo-freq="2"] :is(.sak-aura.sak-max, .sak-aura::before) {
+  animation-play-state: paused !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="sakura"] :is(.sak-aura, .sak-aura::before) {
+    animation: none;
+  }
+}
+
+/* Sakura settings: icon square in a list row (library folders) and inline code */
+[data-accent="sakura"] .sak-tile {
+  color: #fbcfe8;
+  border-radius: 0.35rem 0.9rem 0.35rem 0.9rem;
+  background:
+    linear-gradient(160deg, rgba(255, 209, 229, 0.2), rgba(26, 14, 21, 0.5) 62%),
+    rgba(26, 14, 21, 0.45);
+  box-shadow:
+    inset 0 0 0 1px rgba(249, 168, 212, 0.3),
+    inset 0 1px 0 rgba(255, 224, 238, 0.25);
+}
+[data-accent="sakura"] .sak-code {
+  color: #ffe1ee;
+  border-radius: 0.2rem 0.5rem 0.2rem 0.5rem;
+  background: rgba(249, 168, 212, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(249, 168, 212, 0.28);
+}
+
+/* Sakura "Moon pond" animated (SakuraMoonPond.tsx). Only transform and opacity, so
+   the compositor does the work. Strokes don't grow with the rings
+   (vector-effect). */
+.sak-pond-moon {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: sak-pond-breathe 7s ease-in-out infinite;
+}
+@keyframes sak-pond-breathe {
+  0%, 100% { opacity: 0.35; transform: scale(0.97); }
+  50% { opacity: 0.75; transform: scale(1.04); }
+}
+.sak-pond-glint {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: sak-pond-glint 4s ease-in-out infinite;
+}
+@keyframes sak-pond-glint {
+  0%, 100% { opacity: 0; transform: scaleX(0.6); }
+  45% { opacity: 0.75; transform: scaleX(1.15); }
+  60% { opacity: 0.5; transform: scaleX(1); }
+}
+.sak-pond-ring,
+.sak-pond-splash {
+  fill: none;
+  stroke: #f9a8d4;
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+}
+.sak-pond-ring {
+  animation: sak-pond-ring 9s ease-out infinite;
+}
+@keyframes sak-pond-ring {
+  0% { opacity: 0; transform: scale(0.6); }
+  12% { opacity: 0.42; }
+  100% { opacity: 0; transform: scale(6.5); }
+}
+/* the petal falls in the first 55% of its cycle, floats a moment and fades */
+.sak-pond-drop {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: sak-pond-drop 20s linear infinite;
+}
+@keyframes sak-pond-drop {
+  0% { opacity: 0; transform: translate(0, var(--fall)) rotate(0deg); }
+  6% { opacity: 0.85; }
+  55% { opacity: 0.9; transform: translate(var(--drift), 0) rotate(var(--turn)); animation-timing-function: ease-out; }
+  85% { opacity: 0.55; transform: translate(var(--drift), 4px) rotate(calc(var(--turn) + 20deg)); }
+  100% { opacity: 0; transform: translate(var(--drift), 4px) rotate(calc(var(--turn) + 24deg)); }
+}
+/* and its ring starts the moment it lands (same duration and delay) */
+.sak-pond-splash {
+  animation: sak-pond-splash 20s ease-out infinite;
+}
+@keyframes sak-pond-splash {
+  0%, 54% { opacity: 0; transform: scale(0.3); }
+  56% { opacity: 0.6; transform: scale(0.45); }
+  100% { opacity: 0; transform: scale(7); }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.sak-pond-moon, .sak-pond-glint, .sak-pond-ring, .sak-pond-drop, .sak-pond-splash) {
+    animation: none;
+  }
+}
+
+/* Sakura thumbnail without a picture (Thumb.tsx): deep rose into plum with a large
+   faint blossom in the corner, the same face on every tile (like iridescent's pearl) */
+.sak-face {
+  background:
+    radial-gradient(120% 90% at 18% 10%, rgba(255, 214, 233, 0.32), transparent 55%),
+    linear-gradient(150deg, #e889b8, #c4497f 46%, #6e2048);
+}
+.sak-face::after {
+  content: "";
+  position: absolute;
+  right: -18%;
+  bottom: -22%;
+  width: 70%;
+  aspect-ratio: 1;
+  transform: rotate(14deg);
+  background: rgba(255, 228, 240, 0.16);
+  -webkit-mask: var(--sak-blossom) center / contain no-repeat;
+  mask: var(--sak-blossom) center / contain no-repeat;
+  pointer-events: none;
+}
+
+/* Sakura "set type" marker (TypeCorner in ArtistCard): the omikuji slip sways gently
+   from where its thread meets the card edge, a little more while hovered. Off with the
+   "Pin, NEW badge and corners" switch (fx-corner). */
+.sak-omikuji {
+  transform-box: view-box;
+  transform-origin: -26px 0px;
+  animation: sak-omikuji-sway 4.2s ease-in-out infinite;
+  transition: filter 0.18s ease;
+}
+.fx-corner:hover .sak-omikuji {
+  filter: brightness(1.08) drop-shadow(0 0 4px rgba(244, 114, 182, 0.6));
+  animation-duration: 1.6s;
+}
+@keyframes sak-omikuji-sway {
+  0%, 100% { transform: rotate(-4deg); }
+  50% { transform: rotate(4deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sak-omikuji { animation: none; }
 }

@@ -14,6 +14,8 @@ import "@fontsource/orbitron/700.css";
 import "@fontsource/zen-maru-gothic/latin-400.css";
 import "@fontsource/zen-maru-gothic/latin-500.css";
 import "@fontsource/zen-maru-gothic/latin-700.css";
+// Kaisei Decol: sakura's display font for template creator cards (latin, bold only)
+import "@fontsource/kaisei-decol/latin-700.css";
 import "@fontsource/exo-2/400.css";
 import "@fontsource/exo-2/500.css";
 import "@fontsource/exo-2/600.css";

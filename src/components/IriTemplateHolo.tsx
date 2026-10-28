@@ -1,12 +1,14 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 /**
  * Iridescent holo for cards with a template. Two band layers drift slowly (CSS only).
  * On hover a rAF loop makes the bands follow the mouse, adds a glare and tilts the
  * card in 3D. Other cards keep the shared WebGL plasma (IriHoloCard).
  * Pointer is read from the parent, the tilt goes on the same element.
+ * skin="sak": the same holo in blossom colours (sak-tpl-* in index.css), plus a few
+ * petals drifting down the card.
  */
-export function IriTemplateHolo() {
+export function IriTemplateHolo({ skin = "iri" }: { skin?: "iri" | "sak" }) {
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -15,9 +17,9 @@ export function IriTemplateHolo() {
     const body = root.parentElement; // the card's clipped body (overflow-hidden)
     if (!body) return;
     const btn = body.parentElement; // the motion.button — hosts the perspective
-    const band1 = root.querySelector<HTMLElement>(".iri-tpl-band1");
-    const band2 = root.querySelector<HTMLElement>(".iri-tpl-band2");
-    const glare = root.querySelector<HTMLElement>(".iri-tpl-glare");
+    const band1 = root.querySelector<HTMLElement>(`.${skin}-tpl-band1`);
+    const band2 = root.querySelector<HTMLElement>(`.${skin}-tpl-band2`);
+    const glare = root.querySelector<HTMLElement>(`.${skin}-tpl-glare`);
     // reduced motion: only the static sheen
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
@@ -96,18 +98,60 @@ export function IriTemplateHolo() {
       settle();
       if (btn) btn.style.perspective = "";
     };
-  }, []);
+  }, [skin]);
+
+  // sakura: a few petals drifting down the card. Everything is random per card and per
+  // petal (how many, where, how big, how fast, when): each petal falls once in a long
+  // cycle and then rests, and starts after its own pause, so they don't all show at
+  // once and no two cards look alike.
+  const petals = useMemo(() => {
+    if (skin !== "sak") return null;
+    const rnd = (a: number, b: number) => a + Math.random() * (b - a);
+    const count = 2 + Math.floor(Math.random() * 4); // 2-5
+    return Array.from({ length: count }, (_, i) => {
+      const cycle = rnd(14, 32); // the fall takes the first ~55% (sak-tpl-fall)
+      const delay = rnd(0, 26);
+      const size = rnd(6, 11);
+      const sway = rnd(2.4, 4.8);
+      return (
+        <span
+          key={i}
+          className="sak-tpl-petal"
+          style={{
+            left: `${rnd(2, 94).toFixed(1)}%`,
+            animation: `sak-tpl-fall ${cycle.toFixed(2)}s linear ${delay.toFixed(2)}s infinite`,
+            ["--drift" as string]: `${rnd(-18, 18).toFixed(0)}px`,
+          }}
+        >
+          <span
+            style={{
+              animation: `micoll-sak-sway ${sway.toFixed(2)}s ease-in-out ${(-rnd(0, sway)).toFixed(2)}s infinite alternate`,
+            }}
+          >
+            <span
+              style={{
+                width: `${size.toFixed(1)}px`,
+                height: `${(size * 1.3).toFixed(1)}px`,
+                opacity: rnd(0.55, 1).toFixed(2),
+              }}
+            />
+          </span>
+        </span>
+      );
+    });
+  }, [skin]);
 
   return (
-    <div ref={rootRef} aria-hidden className="iri-tpl-holo pointer-events-none absolute inset-0 z-10">
+    <div ref={rootRef} aria-hidden className={`${skin}-tpl-holo pointer-events-none absolute inset-0 z-10`}>
       {/* broad holo bands */}
-      <div className="iri-tpl-band1 absolute inset-0" />
+      <div className={`${skin}-tpl-band1 absolute inset-0`} />
       {/* finer bands at the opposite angle */}
-      <div className="iri-tpl-band2 absolute inset-0" />
+      <div className={`${skin}-tpl-band2 absolute inset-0`} />
+      {petals && <div className="sak-tpl-petals absolute inset-0">{petals}</div>}
       {/* glare following the mouse (hover only) */}
-      <div className="iri-tpl-glare absolute inset-0" />
-      {/* thin inner line (the outer edge is .iri-edge) */}
-      <div className="iri-tpl-inner absolute" />
+      <div className={`${skin}-tpl-glare absolute inset-0`} />
+      {/* thin inner line (the outer edge is .iri-edge / .sak-edge) */}
+      <div className={`${skin}-tpl-inner absolute`} />
     </div>
   );
 }

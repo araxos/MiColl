@@ -382,8 +382,8 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     const isLocked = !premium;
     const on = { label: t("Turn off the card frame"), icon: <SquareDashed className="h-4 w-4" /> };
     const off = { label: t("Card frame on the dashboard"), icon: <SquareDashed className="h-4 w-4" /> };
-    // only iridescent and cyberpunk have a display font
-    const hasFace = key === "iridescent" || key === "cyberpunk";
+    // the premium themes each have a display font for template cards
+    const hasFace = key === "iridescent" || key === "cyberpunk" || key === "sakura";
     const fontOn = { label: t("Turn off the template font"), icon: <Type className="h-4 w-4" /> };
     const fontOff = { label: t("Template font on card names"), icon: <Type className="h-4 w-4" /> };
     openMenu(e, [
@@ -407,7 +407,9 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
               label:
                 key === "iridescent"
                   ? "Creator cards with a template write their name in KDA. Off puts them back in the theme's normal font — and brings the verified check back."
-                  : "Creator cards with a template write their name in MiColl Cut. Off puts them back in the theme's normal font — and brings the verified check back.",
+                  : key === "sakura"
+                    ? "Creator cards with a template write their name in Kaisei Decol. Off puts them back in the theme's normal font — and brings the verified check back."
+                    : "Creator cards with a template write their name in MiColl Cut. Off puts them back in the theme's normal font — and brings the verified check back.",
               info: true,
             },
           ]
@@ -971,10 +973,12 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
   const iriDashed = "border-white/25 bg-white/5 backdrop-blur-md";
   /** Icon square in a list row (frosted on iridescent). */
   const iriTile = "bg-white/15 text-white ring-1 ring-inset ring-white/20";
-  /** Inline <code> (frosted on iridescent). */
+  /** Inline <code> (frosted on iridescent, rose glass on sakura, see .sak-code). */
   const codeChip = irid
     ? "rounded bg-white/15 text-white ring-1 ring-inset ring-white/20"
-    : "rounded bg-zinc-800 text-zinc-200";
+    : sak
+      ? "sak-code"
+      : "rounded bg-zinc-800 text-zinc-200";
 
   // "Back" sits on the wallpaper, premium themes get a dark glass pill so it's visible
   const premiumAccent =
@@ -2259,7 +2263,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                         key={r.id}
                         className={cn("flex items-center gap-3 rounded-xl border p-3", irid ? iriInner : "glass-box border-zinc-800 bg-zinc-900")}
                       >
-                        <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", irid ? iriTile : "bg-zinc-800 text-zinc-300")}>
+                        <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", irid ? iriTile : sak ? "sak-tile" : "bg-zinc-800 text-zinc-300")}>
                           <HardDrive className="h-4 w-4" />
                         </div>
                         <div className="min-w-0 flex-1">

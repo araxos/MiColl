@@ -364,28 +364,82 @@ function CasualPin() {
   );
 }
 
+/** One cherry blossom (5 notched petals), centred on x/y, size in px. */
+function KanzashiBlossom({ x, y, size, turn }: { x: number; y: number; size: number; turn: number }) {
+  return (
+    <g transform={`translate(${x - size / 2} ${y - size / 2}) scale(${size / 100}) rotate(${turn} 50 50)`}>
+      {[0, 72, 144, 216, 288].map((r) => (
+        <path
+          key={r}
+          d="M50 57 C 38 50, 33 31, 39 12 L 50 21 L 61 12 C 67 31, 62 50, 50 57 Z"
+          transform={`rotate(${r} 50 50)`}
+          fill="url(#micoll-kz-petal)"
+          stroke="#ec6aa8"
+          strokeWidth={2.6}
+          strokeLinejoin="round"
+        />
+      ))}
+      <circle cx={50} cy={50} r={8} fill="#d6418f" />
+      <circle cx={50} cy={50} r={3.5} fill="#fbbf24" />
+    </g>
+  );
+}
+
+/**
+ * Sakura pin: a lacquered kanzashi hairpin stuck through the card corner, a cluster of
+ * blossoms on its head and two gold dangles (bira) swaying off the side.
+ * Drawn around the card corner (0/0 in the viewBox) at 40px (0.625 px per unit); the
+ * negative margins move that point from the wrapper's offset (-right-2 -top-3) onto the
+ * corner itself.
+ */
+function KanzashiPin() {
+  return (
+    <svg
+      viewBox="-38 -30 64 64"
+      className="-mr-[8px] -mt-[7px] block h-10 w-10 drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]"
+    >
+      <defs>
+        <linearGradient id="micoll-kz-petal" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0" stopColor="#fff3f8" />
+          <stop offset="0.55" stopColor="#ffc8e1" />
+          <stop offset="1" stopColor="#f58cbe" />
+        </linearGradient>
+        <linearGradient id="micoll-kz-gold" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#fff1c1" />
+          <stop offset="0.5" stopColor="#e8b04a" />
+          <stop offset="1" stopColor="#a8701c" />
+        </linearGradient>
+        <linearGradient id="micoll-kz-lac" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#b8336f" />
+          <stop offset="1" stopColor="#5c1233" />
+        </linearGradient>
+      </defs>
+      {/* the stick, going into the card, with a gold tip */}
+      <path d="M8 -12 L-34 30" stroke="url(#micoll-kz-lac)" strokeWidth={3.4} strokeLinecap="round" />
+      <path d="M6 -11 L-32 27" stroke="#ffd0e3" strokeOpacity={0.45} strokeWidth={0.8} strokeLinecap="round" />
+      <circle cx={-34} cy={30} r={1.8} fill="url(#micoll-kz-gold)" />
+      {/* gold collar under the head */}
+      <path d="M1 -6 L5 -10" stroke="url(#micoll-kz-gold)" strokeWidth={5} />
+      {/* the dangles, swaying from where they hang */}
+      <g className="sak-kz-bira">
+        <path d="M12 -4 V16 M16 -6 V10" stroke="url(#micoll-kz-gold)" strokeWidth={0.8} />
+        <KanzashiBlossom x={12} y={19} size={7} turn={10} />
+        <KanzashiBlossom x={16} y={12} size={6} turn={-15} />
+      </g>
+      {/* the blossom head */}
+      <KanzashiBlossom x={10} y={-14} size={22} turn={12} />
+      <KanzashiBlossom x={-1} y={-19} size={11} turn={-20} />
+      <KanzashiBlossom x={19} y={-22} size={9} turn={30} />
+    </svg>
+  );
+}
+
 /**
  * The "pinned" marker on the card corner. Pushpin for basic accents,
- * blossom for sakura, glitching neon pin for cyberpunk, crystal for iridescent.
+ * kanzashi hairpin for sakura, glitching neon pin for cyberpunk, crystal for iridescent.
  */
 function CardPin({ accent }: { accent: string }) {
-  if (accent === "sakura") {
-    // cherry blossom
-    return (
-      <svg
-        viewBox="0 0 32 32"
-        className="h-8 w-8 rotate-[8deg] drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]"
-      >
-        {[0, 72, 144, 216, 288].map((a) => (
-          <g key={a} transform={`rotate(${a} 16 16)`}>
-            <ellipse cx="16" cy="8" rx="4.4" ry="6.6" className="fill-[#f9a8d4]" />
-            <ellipse cx="16" cy="9" rx="2.2" ry="3.6" className="fill-[#fbcfe8]" />
-          </g>
-        ))}
-        <circle cx="16" cy="16" r="3" className="fill-[#fde68a]" />
-      </svg>
-    );
-  }
+  if (accent === "sakura") return <KanzashiPin />;
   if (accent === "iridescent") {
     // thin sharp crystal leaning to the right
     return (
@@ -580,32 +634,55 @@ function TypeCorner({
           />
         </>
       ) : sakura ? (
-        <>
-          <div
-            className="absolute inset-0"
-            style={{ clipPath: tri, background: "linear-gradient(225deg,#fbcfe8 0%,#f9a8d4 45%,#ec4899 100%)" }}
-          />
-          {/* soft blossom highlight */}
-          <div
-            className="absolute inset-0"
-            style={{ clipPath: tri, background: "radial-gradient(circle at 82% 14%, rgba(255,255,255,0.85), transparent 46%)" }}
-          />
-        </>
+        // an omikuji (paper fortune slip) hanging from the top edge on a red thread,
+        // its "?" in ink. Sways a little (index.css .sak-omikuji).
+        <svg
+          viewBox="-48 0 48 48"
+          className="absolute inset-0 h-full w-full overflow-visible drop-shadow-[0_2px_3px_rgba(0,0,0,0.45)]"
+        >
+          <defs>
+            <linearGradient id="micoll-omikuji" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor="#fff8fb" />
+              <stop offset="1" stopColor="#f6d7e5" />
+            </linearGradient>
+          </defs>
+          <g className="sak-omikuji">
+            <path d="M-26 -2 V6" stroke="#c81e5b" strokeWidth={1.6} />
+            <g transform="rotate(-8 -26 26)">
+              <rect x={-34} y={6} width={16} height={34} rx={1.5} fill="url(#micoll-omikuji)" stroke="#f9a8d4" strokeWidth={0.7} />
+              <rect x={-34} y={12} width={16} height={5} fill="#c81e5b" />
+              <text
+                x={-26}
+                y={33}
+                textAnchor="middle"
+                fontFamily="'Kaisei Decol', serif"
+                fontWeight={700}
+                fontSize={13}
+                fill="#6e2048"
+              >
+                ?
+              </text>
+            </g>
+          </g>
+        </svg>
       ) : (
         <div
           className="classic-corner absolute inset-0 bg-gradient-to-bl from-brand-400 to-brand-600"
           style={{ clipPath: tri }}
         />
       )}
-      <span
-        className={cn(
-          "pointer-events-none absolute right-3 top-2 text-[13px] font-extrabold leading-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]",
-          qClass,
-          !cyber && !sakura && "classic-corner-q",
-        )}
-      >
-        ?
-      </span>
+      {/* sakura writes its "?" on the slip */}
+      {!sakura && (
+        <span
+          className={cn(
+            "pointer-events-none absolute right-3 top-2 text-[13px] font-extrabold leading-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]",
+            qClass,
+            !cyber && "classic-corner-q",
+          )}
+        >
+          ?
+        </span>
+      )}
     </div>
   );
 }
@@ -716,7 +793,7 @@ function ArtistCardBase({
   const iriFrameSetting = useIriFrame();
   const iriFrame = irid && iriFrameSetting;
   // true if the name uses a display font (template font on AND the accent has one)
-  const displayFace = useTemplateFont() && hasTemplate && (irid || cyber);
+  const displayFace = useTemplateFont() && hasTemplate && (irid || cyber || sak);
   // any frame replaces the edge, so treat them as one flag where it doesn't matter
   const framed = cyberFrame || sakFrame || iriFrame;
   // square corners on iridescent and on framed cards
@@ -1017,8 +1094,9 @@ function ArtistCardBase({
       </div>
 
       {/* holo overlay. Iridescent: template cards get IriTemplateHolo, others IriHoloCard.
-          Cyberpunk: template cards get CyberHoloCard, others the CSS sheen. Other accents:
-          CSS sheen. */}
+          Sakura: template cards get IriTemplateHolo in blossom colours, others a blossom
+          sheen (.micoll-holo). Cyberpunk: template cards get CyberHoloCard, others the CSS
+          sheen. Other accents: none. */}
       {/* framed cards have their own effects instead of the holo */}
       {cyberFrame && vhsFx && (
         <CyberCardScreen tone={hasTemplate ? "yellow" : "cyan"} wave={wave} />
@@ -1035,6 +1113,9 @@ function ArtistCardBase({
           ) : (
             <IriHoloCard hovered={hovered} tier={holoTier} />
           )
+        ) : sak && hasTemplate ? (
+          // sakura template cards: the template holo in blossom colours, with petals
+          <IriTemplateHolo skin="sak" />
         ) : cyber && hasTemplate ? (
           <CyberHoloCard />
         ) : (
@@ -1177,7 +1258,15 @@ function ArtistCardBase({
             // off displayFace)
             // times the size step from Settings (4 = these sizes)
             base={
-              (displayFace && irid ? 10.5 : displayFace && cyber ? 13 : irid ? 13 : 15) *
+              (displayFace && irid
+                ? 10.5
+                : displayFace && cyber
+                  ? 13
+                  : displayFace && sak
+                    ? 16
+                    : irid
+                      ? 13
+                      : 15) *
               cardNameScale(nameSize)
             }
           />

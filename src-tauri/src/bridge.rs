@@ -1029,6 +1029,15 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
                 None => fail(req, 404, "no card image"),
             }
         }
+        // the templates applied in MiColl, the stored file as it is (the phone checks
+        // the signature itself)
+        "/api/templates" => {
+            let found = { let c = sh.src.db().conn(); applied_templates(&c) };
+            match found {
+                Ok(t) => json(req, 200, &serde_json::to_value(t).unwrap_or_default()),
+                Err(e) => fail(req, 500, &e),
+            }
+        }
         // the creator details by lowercased name (the phone copies them on download)
         "/api/meta" => json(req, 200, &serde_json::to_value(meta()).unwrap_or_default()),
         // the gallery is always scanned fresh, nothing to do
@@ -1308,6 +1317,32 @@ fn reward_texts(conn: &rusqlite::Connection, column: &str) -> Result<HashMap<Str
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
         .map_err(map_err)?;
     Ok(rows.flatten().map(|(f, t)| (path_key(Path::new(&f)), t)).collect())
+}
+
+#[derive(Serialize)]
+struct TemplateDto {
+    artist: String,
+    name: String,
+    verified: bool,
+    raw: String,
+}
+
+/// Every applied template that kept its file, by creator and in the order applied.
+fn applied_templates(conn: &rusqlite::Connection) -> Result<Vec<TemplateDto>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT a.name, t.name, t.verified, t.raw FROM applied_templates t
+             JOIN artists a ON a.id = t.artist_id
+             WHERE t.raw IS NOT NULL AND t.raw <> ''
+             ORDER BY lower(a.name), t.applied_at, t.id",
+        )
+        .map_err(map_err)?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(TemplateDto { artist: r.get(0)?, name: r.get(1)?, verified: r.get::<_, i64>(2)? != 0, raw: r.get(3)? })
+        })
+        .map_err(map_err)?;
+    Ok(rows.flatten().collect())
 }
 
 /// How many versions each original has (by path_key).
@@ -2136,7 +2171,7 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute_batch(
             "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
-             CREATE TABLE artists (name TEXT, kind TEXT, tag TEXT, tags TEXT, links TEXT, notes TEXT,
+             CREATE TABLE artists (id INTEGER PRIMARY KEY, name TEXT, kind TEXT, tag TEXT, tags TEXT, links TEXT, notes TEXT,
                                    aliases TEXT, template_verified INTEGER, no_dates INTEGER, tier_list TEXT,
                                    preview_image TEXT);
              CREATE TABLE periods (folder_path TEXT, preview_image TEXT);
@@ -2146,6 +2181,9 @@ mod tests {
              CREATE TABLE image_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, orig_path TEXT,
                                           file_path TEXT, label TEXT, created_at TEXT);
              CREATE TABLE image_active_version (orig_path TEXT PRIMARY KEY, version_id INTEGER);
+             CREATE TABLE applied_templates (id INTEGER PRIMARY KEY, artist_id INTEGER, name TEXT,
+                                             verified INTEGER NOT NULL DEFAULT 0, coverage TEXT, raw TEXT,
+                                             applied_at TEXT DEFAULT (datetime('now')));
              INSERT INTO artists (name, kind) VALUES ('Ahri', 'artist');",
         )
         .unwrap();
@@ -2276,6 +2314,64 @@ mod tests {
         assert_eq!(get(&secret, None), (200, b"hidden bytes".to_vec()));
         assert_eq!(get(&secret, Some("bytes=0-5")), (206, b"hidden".to_vec()));
 
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// /api/templates hands out the stored template files byte for byte, leaves out
+    /// the ones without a file and needs the key like everything else.
+    #[test]
+    fn sends_the_applied_templates() {
+        let base = std::env::temp_dir().join(format!("micoll_bridge_tpl_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("MiColl")).unwrap();
+        let src = TestSource {
+            db: test_db(&base, false),
+            cache: base.join("cache"),
+            versions: base.join("versions"),
+            key: None,
+            arrivals: Arc::default(),
+        };
+        // a signed file: whitespace and all must stay as it is
+        let signed = "{
+  \"name\": \"2026\",
+  \"signature\": \"abc==\"
+}  ";
+        {
+            let c = src.db.lock().unwrap();
+            c.execute("INSERT INTO artists (name, kind) VALUES ('Zed', 'artist')", []).unwrap();
+            let add = |artist: &str, name: &str, verified: i64, raw: Option<&str>| {
+                c.execute(
+                    "INSERT INTO applied_templates (artist_id, name, verified, coverage, raw)
+                     SELECT id, ?2, ?3, '[]', ?4 FROM artists WHERE name = ?1",
+                    rusqlite::params![artist, name, verified, raw],
+                )
+                .unwrap();
+            };
+            add("Zed", "Old", 0, Some("{\"name\":\"Old\"}"));
+            add("Ahri", "2026", 1, Some(signed));
+            add("Ahri", "Lost", 0, None);
+            add("Ahri", "Empty", 0, Some(""));
+        }
+        let shared = Arc::new(Shared::new(Box::new(src), "testkey1234".into(), HashSet::new()));
+        let server = serve(0, shared).unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+
+        let (code, body) = get(&format!("http://127.0.0.1:{port}/k/testkey1234/api/templates"), None);
+        assert_eq!(code, 200);
+        let t: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            t,
+            serde_json::json!([
+                { "artist": "Ahri", "name": "2026", "verified": true, "raw": signed },
+                { "artist": "Zed", "name": "Old", "verified": false, "raw": "{\"name\":\"Old\"}" },
+            ])
+        );
+        assert_eq!(get(&format!("http://127.0.0.1:{port}/k/wrongkey99/api/templates"), None).0, 401);
+
+        for _ in 0..WORKERS {
+            server.unblock();
+        }
+        drop(server);
         let _ = std::fs::remove_dir_all(&base);
     }
 

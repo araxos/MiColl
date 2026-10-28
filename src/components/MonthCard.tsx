@@ -844,10 +844,12 @@ function MonthCardBase({
 
   // ── sakura: cherry blossom foil for template months ──
   if (sakura && tracked) {
+    const sakTier = cpTier; // none | low | mid | max
     return (
+      // rose aura around the card, stronger with completion (index.css .sak-aura)
+      <motion.div layout className={cn("sak-aura", sakTier !== "none" && `sak-${sakTier}`)}>
       <motion.button
         ref={sceneRef}
-        layout
         whileHover={{ y: -3 }}
         whileTap={{ scale: 0.98 }}
         transition={{ type: "spring", stiffness: 400, damping: 28 }}
@@ -928,6 +930,7 @@ function MonthCardBase({
           </div>
         </div>
       </motion.button>
+      </motion.div>
     );
   }
 

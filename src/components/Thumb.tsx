@@ -60,6 +60,7 @@ export function Thumb({
       rounded={rounded}
       showMissingIcon={showMissingIcon}
       irid={accent === "iridescent"}
+      sak={accent === "sakura"}
     />
   );
 }
@@ -70,8 +71,9 @@ const FACE_REF_PX = 180;
 
 /**
  * No image: a gradient with the label, which grows with the tile (softly, see softScale).
- * Iridescent gets the theme's own pearl face (same as the new creator preview), not
- * the per-name gradient of the standard themes.
+ * Iridescent gets the theme's own pearl face (same as the new creator preview), sakura
+ * a rose face with a faint blossom (.sak-face), not the per-name gradient of the
+ * standard themes.
  */
 function ThumbFace({
   seed,
@@ -80,6 +82,7 @@ function ThumbFace({
   rounded,
   showMissingIcon,
   irid,
+  sak,
 }: {
   seed: string;
   label?: string;
@@ -87,6 +90,7 @@ function ThumbFace({
   rounded?: string;
   showMissingIcon: boolean;
   irid: boolean;
+  sak: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [labelPx, setLabelPx] = useState(FACE_LABEL_PX);
@@ -105,12 +109,13 @@ function ThumbFace({
       className={cn(
         "relative flex h-full w-full items-center justify-center overflow-hidden",
         irid && "iri-face",
+        sak && "sak-face",
         rounded,
         className,
       )}
-      style={irid ? undefined : { background: seedGradient(seed) }}
+      style={irid || sak ? undefined : { background: seedGradient(seed) }}
     >
-      {!irid && <div className="absolute inset-0 bg-black/15" />}
+      {!irid && !sak && <div className="absolute inset-0 bg-black/15" />}
       {showMissingIcon ? (
         <ImageOff className={cn("relative h-6 w-6", irid ? "text-zinc-900/60" : "text-white/70")} />
       ) : (
