@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
-import { X, Plus, Check, Trash2, ExternalLink, Link as LinkIcon, RotateCcw, HelpCircle, StickyNote, MonitorPlay } from "lucide-react";
+import { motion, Reorder, useDragControls } from "framer-motion";
+import { X, Plus, Check, Trash2, ExternalLink, Link as LinkIcon, RotateCcw, HelpCircle, StickyNote, MonitorPlay, GripVertical, ArrowLeftRight } from "lucide-react";
 import { Cover } from "@/components/Cover";
 import { artistTags, isNsfwTag, nsfwChipColors } from "@/lib/artistTags";
 import { CREATOR_TYPES, parseKinds } from "@/lib/creatorTypes";
@@ -9,10 +9,77 @@ import { useActions } from "@/actions";
 import { useAccent, toggleOnClass } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { useT, useTf, useTp } from "@/lib/i18n";
-import { tierLabel, tierUsage } from "@/lib/tier";
+import { platformKey, tierLabel, tierUsage, type TierUse } from "@/lib/tier";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import * as api from "@/api/library";
-import type { Artist, ArtistLink } from "@/types";
+import type { Artist, ArtistLink, TierEntry } from "@/types";
+
+/** A tier's key in the Details list (its platform and name, both without case). */
+const tierKey = (e: TierEntry) => `${platformKey(e.platform)}\n${e.name.trim().toLowerCase()}`;
+
+/**
+ * One tier in the Details list: grip to drag it into place, the label with how many
+ * rewards have it, move to another platform, delete.
+ */
+function TierRow({
+  entry,
+  label,
+  usedTitle,
+  rowCls,
+  hintCls,
+  btnCls,
+  disabled,
+  dragTitle,
+  moveTitle,
+  deleteTitle,
+  onDragEnd,
+  onMove,
+  onDelete,
+}: {
+  entry: TierUse;
+  label: string;
+  usedTitle: string;
+  rowCls: string;
+  hintCls: string;
+  btnCls: string;
+  disabled: boolean;
+  dragTitle: string;
+  moveTitle: string;
+  deleteTitle: string;
+  onDragEnd: () => void;
+  onMove: (e: React.MouseEvent) => void;
+  onDelete: () => void;
+}) {
+  // only the grip drags, so the buttons stay clickable
+  const controls = useDragControls();
+  return (
+    <Reorder.Item
+      value={tierKey(entry)}
+      dragListener={false}
+      dragControls={controls}
+      onDragEnd={onDragEnd}
+      title={usedTitle}
+      className={cn("flex items-center gap-1 border py-0.5 pl-0.5 pr-1 text-xs", rowCls)}
+    >
+      <span
+        onPointerDown={(e) => !disabled && controls.start(e)}
+        title={dragTitle}
+        className={cn("cursor-grab touch-none rounded p-0.5 active:cursor-grabbing", btnCls)}
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </span>
+      <span className="min-w-0 flex-1 truncate">
+        {label} <span className={hintCls}>({entry.count})</span>
+      </span>
+      <button onClick={onMove} disabled={disabled} title={moveTitle} className={cn("rounded p-0.5 transition-colors", btnCls)}>
+        <ArrowLeftRight className="h-3 w-3" />
+      </button>
+      <button onClick={onDelete} disabled={disabled} title={deleteTitle} className={cn("rounded p-0.5 transition-colors", btnCls)}>
+        <X className="h-3 w-3" />
+      </button>
+    </Reorder.Item>
+  );
+}
 
 /** Right side panel for an artist: class, types, aliases, tiers, tags, notes and links. */
 export function ArtistSidebar({
@@ -29,28 +96,81 @@ export function ArtistSidebar({
   const tf = useTf();
   const tp = useTp();
   const { backed, refresh } = useData();
-  const { showToast } = useActions();
+  const { showToast, openMenu } = useActions();
   const [name, setName] = useState(artist.name);
-  // tiers: the creator's list with how many rewards use each
-  const tiers = tierUsage(artist);
-  const [tierInput, setTierInput] = useState("");
-  const [tierDelete, setTierDelete] = useState<{ tier: string; count: number } | null>(null);
-  const addTier = async (raw: string) => {
-    const tier = raw.trim().slice(0, 40);
-    setTierInput("");
-    if (!tier || !backed || tiers.some((e) => e.tier.toLowerCase() === tier.toLowerCase())) return;
+  // tiers: the creator's list in their order, each on its platform, with how many rewards
+  // use each. While a row is dragged the new order lives here until it's saved.
+  const [dragged, setDragged] = useState<TierUse[] | null>(null);
+  const tiers = dragged ?? tierUsage(artist);
+  // a group per platform of the creator (also empty ones, to add to), then "any platform"
+  // when it has tiers or the creator has no platform yet
+  const tierPlatforms: string[] = [];
+  for (const p of [...artist.platforms.map((pl) => pl.name), ...tiers.map((e) => e.platform)])
+    if (p && !tierPlatforms.some((n) => platformKey(n) === platformKey(p))) tierPlatforms.push(p);
+  const onPlatform = (e: TierEntry, p: string | null) =>
+    p == null ? e.platform == null : e.platform != null && platformKey(e.platform) === platformKey(p);
+  const tierGroups: { platform: string | null; tiers: TierUse[] }[] = [
+    ...tierPlatforms.map((p) => ({ platform: p, tiers: tiers.filter((e) => onPlatform(e, p)) })),
+    ...(tiers.some((e) => e.platform == null) || !tierPlatforms.length
+      ? [{ platform: null, tiers: tiers.filter((e) => e.platform == null) }]
+      : []),
+  ];
+  const [tierInputs, setTierInputs] = useState<Record<string, string>>({});
+  const [tierDelete, setTierDelete] = useState<TierUse | null>(null);
+  /** Save the list in the order of the groups (each platform's tiers in their order). */
+  const saveTiers = async (groups: { tiers: TierEntry[] }[]) => {
+    if (!backed) return;
     try {
-      await api.setArtistTiers(artist.id, [...tiers.map((e) => e.tier), tier]);
+      await api.setArtistTiers(
+        artist.id,
+        groups.flatMap((g) => g.tiers.map((e) => ({ name: e.name, platform: e.platform }))),
+      );
       await refresh();
     } catch (e) {
       showToast({ tone: "error", title: t("Couldn’t change that"), detail: `${e}` });
+    } finally {
+      setDragged(null);
     }
   };
-  const removeTier = async (tier: string) => {
+  const addTier = async (raw: string, platform: string | null) => {
+    const tier = raw.trim().slice(0, 40);
+    setTierInputs((prev) => ({ ...prev, [platformKey(platform)]: "" }));
+    const group = tierGroups.find((g) => platformKey(g.platform) === platformKey(platform));
+    if (!tier || !group || group.tiers.some((e) => e.name.toLowerCase() === tier.toLowerCase())) return;
+    await saveTiers(
+      tierGroups.map((g) => (g === group ? { tiers: [...g.tiers, { name: tier, platform, count: 0 }] } : g)),
+    );
+  };
+  /** A group's rows were dragged into a new order (saved when the drag ends). */
+  const reorderTiers = (platform: string | null, keys: string[]) => {
+    const byKey = new Map(tiers.map((e) => [tierKey(e), e]));
+    const moved = keys.map((k) => byKey.get(k)).filter((e): e is TierUse => !!e);
+    setDragged(
+      tierGroups.flatMap((g) => (platformKey(g.platform) === platformKey(platform) ? moved : g.tiers)),
+    );
+  };
+  const moveTier = (ev: React.MouseEvent, entry: TierUse) => {
+    const to = (platform: string | null) => {
+      const rest = tierGroups.map((g) => ({ ...g, tiers: g.tiers.filter((e) => e !== entry) }));
+      // a platform that already has it keeps its own
+      const target = rest.find((g) => platformKey(g.platform) === platformKey(platform));
+      if (target && !target.tiers.some((e) => e.name.toLowerCase() === entry.name.toLowerCase()))
+        target.tiers.push({ ...entry, platform });
+      else if (!target) rest.push({ platform, tiers: [{ ...entry, platform }] });
+      void saveTiers(rest);
+    };
+    openMenu(ev, [
+      ...tierPlatforms
+        .filter((p) => !onPlatform(entry, p))
+        .map((p) => ({ label: p, onClick: () => to(p) })),
+      ...(entry.platform != null ? [{ label: t("Any platform"), onClick: () => to(null) }] : []),
+    ]);
+  };
+  const removeTier = async (entry: TierUse) => {
     setTierDelete(null);
     if (!backed) return;
     try {
-      const n = await api.removeArtistTier(artist.id, tier);
+      const n = await api.removeArtistTier(artist.id, entry.name, entry.platform);
       await refresh();
       if (n > 0) showToast({ tone: "success", title: tp("Tier removed from {n} rewards", n) });
     } catch (e) {
@@ -567,61 +687,84 @@ export function ArtistSidebar({
           />
         </div>
 
-        {/* tiers: the creator's list, how many rewards use each; deleting a used one asks */}
+        {/* tiers: one list per platform in the creator's order (drag the grip), how many
+            rewards use each; deleting a used one asks */}
         <div className="mt-5">
           <div className={cn("mb-2", labelCls)}>{t("Tiers")}</div>
-          <div className="flex flex-wrap gap-1.5">
-            {tiers.length === 0 ? (
-              <span className={cn("text-[11px]", hintCls)}>
-                {t("No tiers yet — add the tiers this creator sells (e.g. 1, 2, 3 or Gold).")}
-              </span>
-            ) : (
-              tiers.map((e) => (
-                <span
-                  key={e.tier}
-                  title={tp("Used by {n} rewards", e.count)}
-                  className={cn("inline-flex items-center gap-1 rounded-full border py-1 pl-2.5 pr-1 text-xs", skin.chip)}
-                >
-                  <span>
-                    {tierLabel(e.tier, tf)} <span className={hintCls}>({e.count})</span>
-                  </span>
-                  <button
-                    onClick={() => (e.count > 0 ? setTierDelete(e) : void removeTier(e.tier))}
+          {tiers.length === 0 && (
+            <div className={cn("mb-2 text-[11px]", hintCls)}>
+              {t("No tiers yet — add the tiers this creator sells (e.g. 1, 2, 3 or Gold).")}
+            </div>
+          )}
+          <div className="space-y-2.5">
+            {tierGroups.map((g) => {
+              const k = platformKey(g.platform);
+              const input = tierInputs[k] ?? "";
+              return (
+                <div key={k || "\u0000any"}>
+                  {/* the platform's name only when there's more than one list */}
+                  {tierGroups.length > 1 && (
+                    <div className={cn("mb-1 text-[11px] font-medium", hintCls)}>
+                      {g.platform ?? t("Any platform")}
+                    </div>
+                  )}
+                  {g.tiers.length > 0 && (
+                    <Reorder.Group
+                      axis="y"
+                      values={g.tiers.map(tierKey)}
+                      onReorder={(keys) => reorderTiers(g.platform, keys)}
+                      className="space-y-1"
+                    >
+                      {g.tiers.map((e) => (
+                        <TierRow
+                          key={tierKey(e)}
+                          entry={e}
+                          label={tierLabel(e.name, tf)}
+                          usedTitle={tp("Used by {n} rewards", e.count)}
+                          rowCls={cn(accent === "cyberpunk" ? "rounded-none" : "rounded-md", skin.chip)}
+                          hintCls={hintCls}
+                          btnCls={skin.chipX}
+                          disabled={!backed}
+                          dragTitle={t("Drag to change the order")}
+                          moveTitle={t("Move to another platform")}
+                          deleteTitle={t("Delete tier")}
+                          // the order is saved once the row is let go
+                          onDragEnd={() => dragged && void saveTiers(tierGroups)}
+                          onMove={(ev) => moveTier(ev, e)}
+                          onDelete={() => (e.count > 0 ? setTierDelete(e) : void removeTier(e))}
+                        />
+                      ))}
+                    </Reorder.Group>
+                  )}
+                  <input
+                    value={input}
+                    maxLength={40}
+                    onChange={(e) => setTierInputs((prev) => ({ ...prev, [k]: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void addTier(input, g.platform);
+                      }
+                    }}
+                    onBlur={() => void addTier(input, g.platform)}
+                    placeholder={t("Add a tier…")}
                     disabled={!backed}
-                    title={t("Delete tier")}
-                    className={cn("rounded-full p-0.5 transition-colors", skin.chipX)}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ))
-            )}
+                    className={cn("mt-1 h-7 w-full min-w-0 rounded-md border px-2 text-xs outline-none", fieldCls)}
+                  />
+                </div>
+              );
+            })}
           </div>
-          <input
-            value={tierInput}
-            maxLength={40}
-            onChange={(e) => setTierInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                void addTier(tierInput);
-              }
-            }}
-            onBlur={() => void addTier(tierInput)}
-            placeholder={t("Add a tier…")}
-            disabled={!backed}
-            className={cn("mt-2 h-7 w-full min-w-0 rounded-md border px-2 text-xs outline-none", fieldCls)}
-          />
         </div>
         {tierDelete && (
           <ConfirmDialog
-            title={tf("Delete “{tier}”?", { tier: tierLabel(tierDelete.tier, tf) })}
+            title={tf("Delete “{tier}”?", { tier: tierLabel(tierDelete.name, tf) })}
             body={tp(
               "{n} rewards have this tier. They keep their files, only the tier is taken off them.",
               tierDelete.count,
             )}
             confirmLabel={t("Delete tier")}
-            onConfirm={() => void removeTier(tierDelete.tier)}
+            onConfirm={() => void removeTier(tierDelete)}
             onCancel={() => setTierDelete(null)}
           />
         )}

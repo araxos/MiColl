@@ -30,7 +30,7 @@ import { PLATFORMS } from "@/lib/platforms";
 import { usePlatformOptions, addPlatform as registerPlatform } from "@/lib/platformRegistry";
 import { useData } from "@/store";
 import { TierCombo } from "@/components/TierCombo";
-import { creatorTiers } from "@/lib/tier";
+import { creatorTiers, platformKey } from "@/lib/tier";
 import { useActions } from "@/actions";
 import { useAccent } from "@/lib/theme";
 import { ImportProgress, type ImportStep, type ImportSub } from "@/components/ImportProgress";
@@ -537,16 +537,28 @@ export function ImportReviewTree({
     });
   };
 
-  /** The tiers to offer for a creator: theirs in the library and the ones typed here. */
-  const tiersFor = (creator: string): string[] => {
+  /**
+   * The tiers to offer for a reward: the creator's for its platform (Patreon rewards get
+   * the Patreon tiers) in the creator's order, then the ones typed here on that platform.
+   */
+  const tiersFor = (creator: string, platform: string): string[] => {
     const name = creator.trim().toLowerCase();
-    const out = creatorTiers(artists.find((a) => a.name.trim().toLowerCase() === name));
+    const plat = platformOf(platform);
+    const out = creatorTiers(
+      artists.find((a) => a.name.trim().toLowerCase() === name),
+      plat,
+    );
     for (const row of rows) {
       const t = row.tier?.trim();
-      if (t && row.creator.trim().toLowerCase() === name && !out.some((o) => o.toLowerCase() === t.toLowerCase()))
+      if (
+        t &&
+        row.creator.trim().toLowerCase() === name &&
+        platformKey(platformOf(row.platform)) === platformKey(plat) &&
+        !out.some((o) => o.toLowerCase() === t.toLowerCase())
+      )
         out.push(t);
     }
-    return out.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+    return out;
   };
 
   const patchRow = (folder: string, patch: Partial<DraftRow>) =>
@@ -1440,7 +1452,7 @@ export function ImportReviewTree({
                                     <TierCombo
                                       value={r.tier ?? ""}
                                       onCommit={(v) => patchRow(r.folder, { tier: v })}
-                                      suggestions={tiersFor(r.creator)}
+                                      suggestions={tiersFor(r.creator, r.platform)}
                                       placeholder={t("Tier")}
                                       title={t("Tier (optional) — which of the creator’s tiers this came with, e.g. 2 or Gold")}
                                       className={cn("h-7 w-16", inputCls)}

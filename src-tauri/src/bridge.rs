@@ -141,8 +141,11 @@ struct ArtistDto {
     aliases: Vec<String>,
     verified: bool,
     no_dates: bool,
-    /// the creator's tiers (Details → Tiers)
+    /// the creator's tiers (Details → Tiers), names only
     tiers: Vec<String>,
+    /// the same in the creator's order, each on its platform (null = any platform)
+    #[serde(default)]
+    tier_list: Vec<db::TierEntry>,
     /// the cover picked by hand in MiColl (relative, left out when there's none)
     #[serde(skip_serializing_if = "Option::is_none")]
     chosen_cover: Option<String>,
@@ -164,8 +167,11 @@ struct Meta {
     aliases: Vec<String>,
     verified: bool,
     no_dates: bool,
-    /// the creator's tiers (Details → Tiers)
+    /// the creator's tiers (Details → Tiers), names only
     tiers: Vec<String>,
+    /// the same in the creator's order, each on its platform (null = any platform)
+    #[serde(default)]
+    tier_list: Vec<db::TierEntry>,
 }
 
 /// Creator details by lowercased name (= the creator's folder name).
@@ -195,6 +201,7 @@ fn load_meta(conn: &rusqlite::Connection) -> Result<HashMap<String, Meta>, Strin
         .map_err(map_err)?;
     let mut out = HashMap::new();
     for (name, kind, tag, tags, links, notes, aliases, verified, no_dates, tiers) in rows.flatten() {
+        let tier_list = db::parse_tier_list(tiers.as_deref());
         out.insert(
             name.to_lowercase(),
             Meta {
@@ -206,7 +213,14 @@ fn load_meta(conn: &rusqlite::Connection) -> Result<HashMap<String, Meta>, Strin
                 aliases: list(aliases),
                 verified: verified.unwrap_or(0) != 0,
                 no_dates: no_dates.unwrap_or(0) != 0,
-                tiers: list(tiers),
+                // the names in the creator's order, each once
+                tiers: tier_list.iter().fold(Vec::new(), |mut out: Vec<String>, t| {
+                    if !out.iter().any(|o| o.eq_ignore_ascii_case(&t.name)) {
+                        out.push(t.name.clone());
+                    }
+                    out
+                }),
+                tier_list,
             },
         );
     }
@@ -418,6 +432,7 @@ fn scan(root: &Path) -> Vec<ArtistDto> {
             verified: false,
             no_dates: false,
             tiers: Vec::new(),
+            tier_list: Vec::new(),
             chosen_cover: None,
         });
     }
@@ -967,6 +982,7 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
                     a.verified = m.verified;
                     a.no_dates = m.no_dates;
                     a.tiers = m.tiers;
+                    a.tier_list = m.tier_list;
                 }
             }
             // each reward's tier and notes, by its folder
@@ -2254,7 +2270,11 @@ mod tests {
             {
                 let c = src.db.lock().unwrap();
                 c.execute("INSERT INTO rewards (folder_path, tier, notes) VALUES (?1, '2', 'Bonus PSD missing')", [reward.to_string_lossy()]).unwrap();
-                c.execute("UPDATE artists SET tier_list = '[\"1\",\"2\"]'", []).unwrap();
+                c.execute(
+                    r#"UPDATE artists SET tier_list = '[{"name":"1","platform":"Patreon"},{"name":"2","platform":null},{"name":"1","platform":"Fanbox"}]'"#,
+                    [],
+                )
+                .unwrap();
             }
             let shared = Arc::new(Shared::new(Box::new(src), "testkey1234".into(), HashSet::new()));
             let server = serve(0, shared).unwrap();
@@ -2286,6 +2306,15 @@ mod tests {
         assert_eq!(month["rewards"][0]["tier"], "2");
         assert_eq!(month["rewards"][0]["notes"], "Bonus PSD missing");
         assert_eq!(artists[0]["tiers"], serde_json::json!(["1", "2"]));
+        // with their platforms, in the creator's order
+        assert_eq!(
+            artists[0]["tierList"],
+            serde_json::json!([
+                { "name": "1", "platform": "Patreon" },
+                { "name": "2", "platform": null },
+                { "name": "1", "platform": "Fanbox" },
+            ])
+        );
 
         let (code, body) = get(&format!("{k}/api/thumb?p=Ahri%2FPatreon%2F2026%2F03%2FSet%2Fa.png&s=300"), None);
         assert_eq!(code, 200);

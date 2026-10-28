@@ -13,7 +13,7 @@ import { PLATFORM_ICONS, normalizePlatform } from "@/lib/platformIcons";
 import { useAccent } from "@/lib/theme";
 import { resolveLanguage, useLanguage, useT, useTf } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { tierLabel, tierUsage } from "@/lib/tier";
+import { tierLabel, tierUsage, type TierUse } from "@/lib/tier";
 import { ownRewards, platformStats } from "@/types";
 import type { Artist } from "@/types";
 
@@ -157,6 +157,15 @@ export function CreatorDetails({
 
   const row = (label: string, value: string): [string, string] => [t(label), value];
   const num = (n: number) => n.toLocaleString(active);
+  const tierSummary = (tiers: TierUse[]) => {
+    const list = (es: TierUse[]) => es.map((e) => `${tierLabel(e.name, tf)} (${num(e.count)})`).join(", ");
+    const groups = new Map<string, TierUse[]>();
+    for (const e of tiers) {
+      const k = e.platform ?? t("Any platform");
+      groups.set(k, [...(groups.get(k) ?? []), e]);
+    }
+    return groups.size > 1 ? [...groups].map(([p, es]) => `${p}: ${list(es)}`).join(" · ") : list(tiers);
+  };
 
   const sizeText =
     busy && !size
@@ -195,10 +204,9 @@ export function CreatorDetails({
     ...(stats.borrowed > 0 ? [row("Collabs shown", num(stats.borrowed))] : []),
     row("Release style", t(artist.releaseStyle ?? "monthly")),
     ...(artist.aliases?.length ? [row("Also known as", artist.aliases.join(", "))] : []),
-    // the tiers with how many rewards have each
-    ...(tierUsage(artist).length
-      ? [row("Tiers", tierUsage(artist).map((e) => `${tierLabel(e.tier, tf)} (${num(e.count)})`).join(", "))]
-      : []),
+    // the tiers in the creator's order with how many rewards have each, by platform
+    // when they're on more than one ("Patreon: Tier 1 (3), Tier 2 (1) · Ko-fi: Gold (2)")
+    ...(tierUsage(artist).length ? [row("Tiers", tierSummary(tierUsage(artist)))] : []),
     ...(artist.verified || artist.personalLog
       ? [row("Template", artist.verified ? t("Verified") : t("Personal log"))]
       : []),

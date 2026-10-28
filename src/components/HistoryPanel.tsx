@@ -13,6 +13,7 @@ import {
   Undo2,
   FolderInput,
   Smartphone,
+  Tag,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -26,7 +27,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 const PAGE = 100;
 
-type Filter = "all" | "import" | "phone" | "delete" | "move" | "rename" | "trash";
+type Filter = "all" | "import" | "phone" | "delete" | "move" | "rename" | "mark" | "trash";
 
 /** UTC "YYYY-MM-DD HH:MM:SS" from SQLite -> Date. */
 const parseAt = (at: string) => new Date(at.replace(" ", "T") + "Z");
@@ -181,6 +182,7 @@ export function HistoryPanel({ backed }: { backed: boolean }) {
             {chip("delete", t("Deleted"))}
             {chip("move", t("Moved"))}
             {chip("rename", t("Renamed"))}
+            {chip("mark", t("Changed"))}
             {chip("trash", t("Recycle Bin"))}
             <div className={cn("ml-auto flex h-8 items-center gap-1.5 px-2", dlg.field)}>
               <Search className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
@@ -354,6 +356,8 @@ export function useHistoryText() {
         ? t("Moved")
         : r.action === "rename"
           ? t("Renamed")
+          : r.action === "mark"
+            ? t("Changed")
           : r.action === "merge"
             ? t("Merged")
             : t("To the Recycle Bin");
@@ -366,6 +370,8 @@ export function useHistoryText() {
       ? Trash2
       : r.action === "rename"
         ? PenLine
+        : r.action === "mark"
+          ? Tag
         : r.action === "merge"
           ? Combine
           : MoveRight;
@@ -375,6 +381,11 @@ export function useHistoryText() {
     const first = r.items[0];
     const many = (n: number) =>
       r.kind === "reward" ? tp("{n} rewards", n) : r.kind === "artist" ? tp("{n} creators", n) : tp("{n} files", n);
+    // a mark: what and which value ("Set · Tier", "20 rewards · Tier")
+    if (r.action === "mark") {
+      const subject = r.count > 1 ? many(r.count) : r.kind === "artist" ? tf("Creator “{name}”", { name: first?.name ?? "" }) : (first?.name ?? "");
+      return `${subject} · ${markFieldLabel(first?.field, t)}`;
+    }
     switch (r.kind) {
       case "artist":
         return r.action === "rename" && first?.was
@@ -450,7 +461,36 @@ export function rowReward(r: api.HistoryRow): number | undefined {
 export function rewardLink(r: api.HistoryRow): boolean {
   if (r.kind !== "reward") return false;
   if (r.action === "import") return !r.undone;
-  return r.action === "rename" || r.action === "move";
+  return r.action === "rename" || r.action === "move" || r.action === "mark";
+}
+
+/** What a mark changed, in words. */
+function markFieldLabel(field: string | undefined, t: (s: string) => string): string {
+  return field === "tier"
+    ? t("Tier")
+    : field === "extra"
+      ? t("Extra")
+      : field === "partial"
+        ? t("Partial")
+        : field === "status"
+          ? t("Status")
+          : field === "notes"
+            ? t("Note")
+            : t("Cover");
+}
+
+/** A mark's value as shown ("" = —, flags yes / no, a cover by its file name). */
+function markValueText(field: string | undefined, v: string, t: (s: string) => string): string {
+  if (field === "extra" || field === "partial") return v === "1" ? t("Yes") : t("No");
+  if (field === "status") return v === "missing" ? t("Missing") : v === "owned" ? t("Owned") : v || "—";
+  if (field === "cover") {
+    // a reward cover is "<picked>|<path>": not picked = the automatic one
+    const [picked, path] = v.includes("|") ? v.split(/\|(.*)/s) : ["1", v];
+    if (picked === "0" || !path) return t("Automatic");
+    return path.split(/[\\/]/).pop() ?? path;
+  }
+  if (!v) return "—";
+  return v.length > 60 ? `${v.slice(0, 60)}…` : v;
 }
 
 /** Opens a reward's page (its creator's period) from the history. */
@@ -519,6 +559,14 @@ function HistoryItem({
           </button>
         )}
       </div>
+      {/* a mark: its value before and after */}
+      {item.field && item.before != null && item.after != null && (
+        <div className="mt-0.5 flex flex-wrap items-center gap-1 break-words text-zinc-500">
+          <span>{markValueText(item.field, item.before, t)}</span>
+          <ArrowRight className="h-3 w-3 shrink-0" />
+          <span className="text-zinc-400">{markValueText(item.field, item.after, t)}</span>
+        </div>
+      )}
       {(from || item.to) && (
         <div className="mt-0.5 flex flex-wrap items-center gap-1 break-all text-zinc-500">
           {from && <span>{from}</span>}

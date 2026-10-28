@@ -899,6 +899,8 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
                 ? tf("Import undone: {names}", { names })
                 : done.action === "phone"
                   ? tf("What the phone sent is gone again: {names}", { names })
+                : done.action === "mark"
+                  ? tf("Changed back: {names}", { names })
                 : tf("Moved back: {names}", { names }),
       });
       return true;

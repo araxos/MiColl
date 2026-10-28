@@ -189,6 +189,12 @@ export interface ArtistLink {
   url: string;
 }
 
+/** One of a creator's tiers. platform null = any platform. */
+export interface TierEntry {
+  name: string;
+  platform: string | null;
+}
+
 export interface Artist {
   id: string;
   name: string;
@@ -209,8 +215,11 @@ export interface Artist {
   tags?: string[];
   /** Other names of this creator (old handles etc). Search finds these too. */
   aliases?: string[];
-  /** The creator's tiers (Details → Tiers). Tiers set on rewards are added to it. */
-  tierList?: string[];
+  /**
+   * The creator's tiers in their order (Details → Tiers), each on its platform. Tiers
+   * set on rewards are added to it.
+   */
+  tierList?: TierEntry[];
   /** Creator type: "Cosplayer" | "Artist" | "Animator" | "Model" | null. */
   kind?: string | null;
   /** Social media links. */

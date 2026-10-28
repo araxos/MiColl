@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
+import { downloadDir } from "@tauri-apps/api/path";
+import { INBOX_CHANGED_EVENT } from "@/components/InboxWatcher";
 import {
   ChevronLeft,
   FolderPlus,
@@ -201,7 +203,7 @@ const SECTIONS: NavSection[] = [
     label: "Library",
     Icon: FolderOpen,
     keywords:
-      "folder folders add root roots managed collection organize move rescan reindex health missing files clear database warnings reset drop subfolder keep contents",
+      "folder folders add root roots managed collection organize move rescan reindex health missing files clear database warnings reset drop subfolder keep contents inbox downloads download new import automatic",
   },
   {
     id: "history",
@@ -699,16 +701,18 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
 
   const loadRoots = useCallback(async () => {
     if (!backed) return;
-    const [r, enabled, root, keep] = await Promise.all([
+    const [r, enabled, root, keep, inbox] = await Promise.all([
       api.listRoots(),
       api.getSetting("managed_enabled"),
       api.getSetting("collection_root"),
       api.getSetting(api.KEEP_FOLDERS_KEY),
+      api.getSetting(api.INBOX_FOLDER_KEY),
     ]);
     setRoots(r);
     setManaged(enabled === "true");
     setCollectionRoot(root ?? "");
     setKeepFolders(keep !== "false");
+    setInboxFolder(inbox ?? "");
   }, [backed]);
 
   useEffect(() => {
@@ -720,6 +724,25 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
   const toggleKeepFolders = async (on: boolean) => {
     setKeepFolders(on);
     await api.setSetting(api.KEEP_FOLDERS_KEY, on ? "true" : "false");
+  };
+
+  // the inbox: a folder MiColl looks in for new downloads (InboxWatcher)
+  const [inboxFolder, setInboxFolder] = useState("");
+  const chooseInbox = async () => {
+    const picked = await open({
+      directory: true,
+      multiple: false,
+      title: t("Choose the folder you save your downloads to"),
+      defaultPath: inboxFolder || (await downloadDir().catch(() => undefined)),
+    });
+    if (typeof picked !== "string") return;
+    setInboxFolder(picked);
+    await api.setSetting(api.INBOX_FOLDER_KEY, picked);
+    window.dispatchEvent(new CustomEvent(INBOX_CHANGED_EVENT));
+  };
+  const clearInbox = async () => {
+    setInboxFolder("");
+    await api.setSetting(api.INBOX_FOLDER_KEY, "");
   };
 
   const toggleManaged = async (on: boolean) => {
@@ -2392,6 +2415,37 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                     </p>
                   </div>
                   <Toggle checked={keepFolders} onChange={(v) => void toggleKeepFolders(v)} />
+                </div>
+              </div>
+            )}
+
+            {/* the inbox: new downloads in a folder are offered for import */}
+            {backed && (
+              <div className={cn("glass-box mt-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4", irid && iriInner)}>
+                <h2 className="text-base font-semibold text-zinc-100">{t("Inbox folder")}</h2>
+                <p className="settings-desc mt-0.5 text-sm text-zinc-400">
+                  {t(
+                    "Save your downloads to this folder and MiColl offers to import them — when it starts and whenever you come back to its window. Downloads that aren’t finished yet are left alone.",
+                  )}
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {inboxFolder ? (
+                    <code className={cn("min-w-0 max-w-full truncate px-2 py-1 text-xs", codeChip)} title={inboxFolder}>
+                      {inboxFolder}
+                    </code>
+                  ) : (
+                    <span className="text-xs text-zinc-500">{t("No inbox folder — off")}</span>
+                  )}
+                  <Button variant="outline" size="sm" onClick={() => void chooseInbox()}>
+                    <FolderInput className="h-4 w-4" />
+                    {inboxFolder ? t("Change…") : t("Choose…")}
+                  </Button>
+                  {inboxFolder && (
+                    <Button variant="outline" size="sm" onClick={() => void clearInbox()}>
+                      <X className="h-4 w-4" />
+                      {t("Turn off")}
+                    </Button>
+                  )}
                 </div>
               </div>
             )}

@@ -41,6 +41,13 @@ pub struct Item {
     /// the import made new, so undoing it can remove that creator again).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub into: Option<i64>,
+    /// A mark (see mark_value): which value changed, and what it was before and after.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
 }
 
 impl Item {
@@ -67,7 +74,7 @@ pub enum Files {
 
 /// A new history row.
 pub struct Entry {
-    /// "delete" | "move" | "rename" | "merge" | "trash" | "import" | "phone"
+    /// "delete" | "move" | "rename" | "merge" | "trash" | "import" | "phone" | "mark"
     pub action: &'static str,
     /// "reward" | "image" | "artist" | "period" | "platform" | "version" | "collection" |
     /// "library" | "source"
@@ -217,11 +224,60 @@ pub fn undoable(r: &Row) -> bool {
         ("move", "reward") => all(&|i| i.id.is_some() && i.back.is_some() && i.from.is_some() && i.to.is_some()),
         ("move", "image") => all(&|i| i.back.is_some() && i.into.is_some() && i.from.is_some() && i.to.is_some()),
         ("import", "reward") => all(&|i| i.id.is_some() && i.from.is_some()),
+        // tier, extra, partial, status, notes, covers
+        ("mark", "reward" | "period" | "artist") => {
+            all(&|i| i.id.is_some() && i.field.is_some() && i.before.is_some() && i.after.is_some())
+        }
         // from the phone app (bridge.rs undo_phone)
         ("phone", "image") => all(&|i| i.to.is_some()),
         ("phone", "version") => all(&|i| i.id.is_some()),
         _ => false,
     }
+}
+
+/// A mark's value as text, with the thing's name: a reward's tier, extra, partial,
+/// status, notes and cover, a period's and a creator's cover. "" = none, the flags are
+/// "0" / "1", a reward cover is "<picked 0/1>|<path>" (an automatic one comes back as
+/// it was). None when the thing is gone or the field isn't one.
+pub fn mark_value(conn: &Connection, kind: &str, id: i64, field: &str) -> rusqlite::Result<Option<(String, String)>> {
+    use rusqlite::OptionalExtension;
+    let sql = match (kind, field) {
+        ("reward", "tier") => "SELECT title, coalesce(tier, '') FROM rewards WHERE id = ?1",
+        ("reward", "extra") => "SELECT title, CAST(coalesce(is_extra, 0) AS TEXT) FROM rewards WHERE id = ?1",
+        ("reward", "partial") => "SELECT title, CAST(coalesce(is_partial, 0) AS TEXT) FROM rewards WHERE id = ?1",
+        ("reward", "status") => "SELECT title, coalesce(status, '') FROM rewards WHERE id = ?1",
+        ("reward", "notes") => "SELECT title, coalesce(notes, '') FROM rewards WHERE id = ?1",
+        ("reward", "cover") => {
+            "SELECT title, coalesce(cover_custom, 0) || '|' || coalesce(cover_image, '') FROM rewards WHERE id = ?1"
+        }
+        ("period", "cover") => "SELECT label, coalesce(preview_image, '') FROM periods WHERE id = ?1",
+        ("artist", "cover") => "SELECT name, coalesce(preview_image, '') FROM artists WHERE id = ?1",
+        _ => return Ok(None),
+    };
+    conn.query_row(sql, params![id], |r| Ok((r.get(0)?, r.get(1)?))).optional()
+}
+
+/// Put a mark back to a value from mark_value.
+pub fn set_mark_value(conn: &Connection, kind: &str, id: i64, field: &str, value: &str) -> rusqlite::Result<()> {
+    let flag = || (value == "1") as i64;
+    match (kind, field) {
+        ("reward", "tier") => conn.execute("UPDATE rewards SET tier = nullif(?2, '') WHERE id = ?1", params![id, value]),
+        ("reward", "extra") => conn.execute("UPDATE rewards SET is_extra = ?2 WHERE id = ?1", params![id, flag()]),
+        ("reward", "partial") => conn.execute("UPDATE rewards SET is_partial = ?2 WHERE id = ?1", params![id, flag()]),
+        ("reward", "status") => conn.execute("UPDATE rewards SET status = ?2 WHERE id = ?1", params![id, value]),
+        ("reward", "notes") => conn.execute("UPDATE rewards SET notes = nullif(?2, '') WHERE id = ?1", params![id, value]),
+        ("reward", "cover") => {
+            let (picked, path) = value.split_once('|').unwrap_or(("0", value));
+            conn.execute(
+                "UPDATE rewards SET cover_image = nullif(?2, ''), cover_custom = ?3 WHERE id = ?1",
+                params![id, path, (picked == "1") as i64],
+            )
+        }
+        ("period", "cover") => crate::db::set_period_preview(conn, id, value).map(|_| 1),
+        ("artist", "cover") => crate::db::set_artist_preview(conn, id, value).map(|_| 1),
+        _ => Ok(0),
+    }
+    .map(|_| ())
 }
 
 pub fn get(conn: &Connection, id: i64) -> rusqlite::Result<Option<Row>> {
@@ -527,6 +583,62 @@ mod tests {
         let c = Connection::open_in_memory().unwrap();
         ensure_table(&c).unwrap();
         c
+    }
+
+    /// Marks read and write back as text, a picked and an automatic reward cover both
+    /// come back as they were, and a mark row is undoable only with every value.
+    #[test]
+    fn marks_go_back_to_their_old_value() {
+        let dir = std::env::temp_dir().join(format!("micoll_hist_marks_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let c = crate::db::open(&dir.join("t.db")).unwrap();
+        c.execute("INSERT INTO artists(name) VALUES('Mira')", []).unwrap();
+        let aid = c.last_insert_rowid();
+        c.execute("INSERT INTO periods(artist_id, label, folder_path) VALUES(?1, '08.25', '/m')", [aid]).unwrap();
+        let pid = c.last_insert_rowid();
+        c.execute(
+            "INSERT INTO rewards(period_id, title, folder_path, tier, cover_image) VALUES(?1, 'Set', '/m/Set', '2', '/m/Set/a.png')",
+            [pid],
+        )
+        .unwrap();
+        let rid = c.last_insert_rowid();
+        let val = |kind: &str, id: i64, field: &str| mark_value(&c, kind, id, field).unwrap().unwrap().1;
+
+        assert_eq!(mark_value(&c, "reward", rid, "tier").unwrap(), Some(("Set".into(), "2".into())));
+        assert_eq!(val("reward", rid, "extra"), "0");
+        assert_eq!(val("reward", rid, "notes"), "");
+        // automatic cover: not picked, the path stays
+        let auto = val("reward", rid, "cover");
+        assert_eq!(auto, "0|/m/Set/a.png");
+        crate::db::set_reward_cover(&c, rid, "/m/Set/b.png").unwrap();
+        assert_eq!(val("reward", rid, "cover"), "1|/m/Set/b.png");
+        set_mark_value(&c, "reward", rid, "cover", &auto).unwrap();
+        assert_eq!(val("reward", rid, "cover"), auto);
+
+        for (field, value) in [("tier", ""), ("tier", "Gold"), ("extra", "1"), ("partial", "1"), ("status", "missing"), ("notes", "PSD missing")] {
+            set_mark_value(&c, "reward", rid, field, value).unwrap();
+            assert_eq!(val("reward", rid, field), value, "{field}");
+        }
+        set_mark_value(&c, "period", pid, "cover", "/m/Set/a.png").unwrap();
+        assert_eq!(val("period", pid, "cover"), "/m/Set/a.png");
+        assert!(mark_value(&c, "reward", rid, "nope").unwrap().is_none());
+        assert!(mark_value(&c, "reward", 999, "tier").unwrap().is_none());
+
+        let item = |before: Option<&str>| Item {
+            name: "Set".into(),
+            id: Some(rid),
+            field: Some("tier".into()),
+            before: before.map(String::from),
+            after: Some("Gold".into()),
+            ..Default::default()
+        };
+        log(&c, Entry { action: "mark", kind: "reward", artist: None, place: None, files: Files::None, items: vec![item(Some(""))] });
+        assert!(latest_open(&c).unwrap().unwrap().undoable);
+        log(&c, Entry { action: "mark", kind: "reward", artist: None, place: None, files: Files::None, items: vec![item(None)] });
+        assert!(!latest_open(&c).unwrap().unwrap().undoable, "without the old value it can't go back");
+        drop(c);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
-import { CheckSquare, Pencil, Trash2, X, FolderOpen, RotateCcw, RefreshCw, CopyCheck, MousePointerSquareDashed, Share2, FolderInput, FolderPlus, MonitorPlay, FileQuestion, HardDrive, DatabaseBackup, Users, Unlink, ExternalLink, Info, Layers, StickyNote } from "lucide-react";
+import { CheckSquare, Pencil, Trash2, X, FolderOpen, RotateCcw, RefreshCw, CopyCheck, MousePointerSquareDashed, Share2, FolderInput, FolderPlus, MonitorPlay, FileQuestion, HardDrive, DatabaseBackup, Users, Unlink, ExternalLink, Info, Layers, StickyNote, Tag, Sparkles, Puzzle } from "lucide-react";
 import { openDuplicates } from "@/lib/duplicates";
 import { RewardSlot } from "@/components/RewardSlot";
 import { ImageViewer, type CoverTargets, type ViewerItem } from "@/components/ImageViewer";
@@ -27,7 +27,7 @@ import { useDialogTheme } from "@/lib/dialogTheme";
 import { useAccent } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { useT, useTf, useTp } from "@/lib/i18n";
-import { isVirtualMonthId, type Reward } from "@/types";
+import { isVirtualMonthId, type Artist, type Reward } from "@/types";
 import { CollabPicker } from "@/components/CollabPicker";
 import { TierDialog } from "@/components/TierDialog";
 import { creatorTiers, sortByTier } from "@/lib/tier";
@@ -106,10 +106,31 @@ export function RewardGrid({
   const t = useT();
   const tf = useTf();
   const tp = useTp();
-  // everything below (selection ranges, the viewer, menus) uses this order: numbered
-  // tiers up from Tier 1 (when there are any), extras at the end
-  const items = useMemo(() => extrasLast(sortByTier(itemsIn, (it) => it.reward.tier)), [itemsIn]);
   const { artists, refresh, backed, markRewardSeen } = useData();
+  // each reward's creator and platform (a collab's borrowed copy: its owner's)
+  const owners = useMemo(() => {
+    const m = new Map<string, { artist: Artist; platform: string }>();
+    for (const a of artists)
+      for (const p of a.platforms)
+        for (const mo of p.months)
+          for (const r of mo.rewards) if (!r.collabFrom) m.set(r.id, { artist: a, platform: p.name });
+    return m;
+  }, [artists]);
+  // everything below (selection ranges, the viewer, menus) uses this order: tiers in the
+  // creator's order for the platform (Details → Tiers), else numbered ones up from Tier 1,
+  // extras at the end
+  const items = useMemo(() => {
+    const orders = new Map<string, string[]>();
+    const orderOf = (it: Item) => {
+      const o = owners.get(it.reward.id);
+      if (!o) return [];
+      const k = `${o.artist.id}\n${o.platform}`;
+      let order = orders.get(k);
+      if (!order) orders.set(k, (order = creatorTiers(o.artist, o.platform)));
+      return order;
+    };
+    return extrasLast(sortByTier(itemsIn, (it) => it.reward.tier, orderOf));
+  }, [itemsIn, owners]);
   const { openMenu, reveal, requestDelete, rescanReward, showToast, bringBackFromSd, fillRewardInteractive } =
     useActions();
   const navigate = useNavigate();
@@ -662,6 +683,11 @@ export function RewardGrid({
     artists.find((a) =>
       a.platforms.some((p) => p.months.some((m) => m.rewards.some((r) => ids.includes(r.id)))),
     );
+  /** The platform of the rewards when they're all on one (its tiers are offered). */
+  const tierPlatform = (ids: string[]) => {
+    const names = new Set(ids.map((id) => owners.get(id)?.platform ?? ""));
+    return names.size === 1 ? [...names][0] || null : null;
+  };
   const saveTier = async (tier: string | null) => {
     if (!tierPick) return;
     setTierBusy(true);
@@ -689,6 +715,9 @@ export function RewardGrid({
     }
     return undefined;
   };
+
+  /** The rewards a menu action on `r` goes to: the selection when it's part of one. */
+  const groupIds = (r: Reward) => (selectMode && selected.has(r.id) && selected.size > 1 ? [...selected] : [r.id]);
 
   const rewardMenu = (e: React.MouseEvent, r: Reward, monthId: string) => {
     const srcs = rewardSrcs(r);
@@ -805,22 +834,42 @@ export function RewardGrid({
             },
           ]
         : []),
-      // a selection that includes it: the tier for all of them
+      // "Mark": extra, partial, tier and note in one submenu. Part of a selection: extra,
+      // partial and the tier go for all of them
       ...(backed
         ? [
             {
-              label: r.tier ? t("Change tier…") : t("Set tier…"),
-              icon: <Layers className="h-4 w-4" />,
-              onClick: () =>
-                openTier(selectMode && selected.has(r.id) && selected.size > 1 ? [...selected] : [r.id]),
-            },
-            {
-              label: r.notes ? t("Edit note…") : t("Add note…"),
-              icon: <StickyNote className="h-4 w-4" />,
-              onClick: () => {
-                setNotesFocus(true);
-                setDetails(r);
-              },
+              label: t("Mark"),
+              icon: <Tag className="h-4 w-4" />,
+              children: [
+                ...(r.status !== "missing"
+                  ? [
+                      {
+                        label: r.isExtra ? t("Not an extra") : t("Mark as extra"),
+                        icon: <Sparkles className="h-4 w-4" />,
+                        onClick: () => void markExtra(groupIds(r), !r.isExtra),
+                      },
+                      {
+                        label: r.isPartial ? t("Mark as complete") : t("Mark as partial"),
+                        icon: <Puzzle className="h-4 w-4" />,
+                        onClick: () => void markPartial(groupIds(r), !r.isPartial),
+                      },
+                    ]
+                  : []),
+                {
+                  label: r.tier ? t("Change tier…") : t("Set tier…"),
+                  icon: <Layers className="h-4 w-4" />,
+                  onClick: () => openTier(groupIds(r)),
+                },
+                {
+                  label: r.notes ? t("Edit note…") : t("Add note…"),
+                  icon: <StickyNote className="h-4 w-4" />,
+                  onClick: () => {
+                    setNotesFocus(true);
+                    setDetails(r);
+                  },
+                },
+              ],
             },
           ]
         : []),
@@ -1331,7 +1380,7 @@ export function RewardGrid({
         <TierDialog
           count={tierPick.ids.length}
           current={tierPick.current}
-          suggestions={creatorTiers(tierArtist(tierPick.ids))}
+          suggestions={creatorTiers(tierArtist(tierPick.ids), tierPlatform(tierPick.ids))}
           busy={tierBusy}
           onSave={(tier) => void saveTier(tier)}
           onCancel={() => setTierPick(null)}

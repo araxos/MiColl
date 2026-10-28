@@ -533,6 +533,8 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN is_partial INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN tier TEXT", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN notes TEXT", []);
+    // tier lists from before tiers had a platform: give each one its platform
+    place_legacy_tiers(conn)?;
     let _ = conn.execute(
         "ALTER TABLE artists ADD COLUMN wallpaper_fav INTEGER NOT NULL DEFAULT 0",
         [],
@@ -1499,23 +1501,62 @@ pub fn set_rewards_tier_by_folder(conn: &Connection, items: &[(String, String)])
     Ok(n)
 }
 
-/// A creator's tier list (JSON array in artists.tier_list).
-pub fn artist_tier_list(conn: &Connection, artist_id: i64) -> rusqlite::Result<Vec<String>> {
+/// One tier in a creator's list, in the creator's order (Tier 1 before Tier 2...).
+/// `platform` ties it to a platform: Patreon tiers are only offered for Patreon rewards.
+/// None = any platform.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TierEntry {
+    pub name: String,
+    #[serde(default)]
+    pub platform: Option<String>,
+}
+
+/// A stored entry: { name, platform }, or a plain name (lists from before platforms).
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StoredTier {
+    Name(String),
+    Entry(TierEntry),
+}
+
+/// Platform names compare trimmed and without case, None and "" are the same.
+fn platform_key(p: Option<&str>) -> String {
+    p.map(|p| p.trim().to_lowercase()).unwrap_or_default()
+}
+
+/// artists.tier_list as entries (old plain names come back without a platform).
+pub fn parse_tier_list(raw: Option<&str>) -> Vec<TierEntry> {
+    raw.and_then(|s| serde_json::from_str::<Vec<StoredTier>>(s).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|t| match t {
+            StoredTier::Name(name) => TierEntry { name, platform: None },
+            StoredTier::Entry(e) => e,
+        })
+        .collect()
+}
+
+/// A creator's tier list (JSON array in artists.tier_list), in their order.
+pub fn artist_tier_list(conn: &Connection, artist_id: i64) -> rusqlite::Result<Vec<TierEntry>> {
     let raw: Option<String> = conn
         .query_row("SELECT tier_list FROM artists WHERE id = ?1", params![artist_id], |r| r.get(0))
         .optional()?
         .flatten();
-    Ok(raw.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default())
+    Ok(parse_tier_list(raw.as_deref()))
 }
 
-pub fn set_artist_tier_list(conn: &Connection, artist_id: i64, tiers: &[String]) -> rusqlite::Result<()> {
-    // trimmed, no doubles (case doesn't count)
-    let mut out: Vec<String> = Vec::new();
+pub fn set_artist_tier_list(conn: &Connection, artist_id: i64, tiers: &[TierEntry]) -> rusqlite::Result<()> {
+    // trimmed, no doubles on the same platform (case doesn't count)
+    let mut out: Vec<TierEntry> = Vec::new();
     for t in tiers {
-        if let Some(t) = clean_tier(Some(t)) {
-            if !out.iter().any(|o| o.to_lowercase() == t.to_lowercase()) {
-                out.push(t);
-            }
+        let Some(name) = clean_tier(Some(&t.name)) else { continue };
+        let platform = t.platform.as_deref().map(str::trim).filter(|p| !p.is_empty()).map(String::from);
+        let dupe = out.iter().any(|o| {
+            o.name.to_lowercase() == name.to_lowercase()
+                && platform_key(o.platform.as_deref()) == platform_key(platform.as_deref())
+        });
+        if !dupe {
+            out.push(TierEntry { name, platform });
         }
     }
     let json = serde_json::to_string(&out).unwrap_or_else(|_| "[]".into());
@@ -1523,37 +1564,123 @@ pub fn set_artist_tier_list(conn: &Connection, artist_id: i64, tiers: &[String])
     Ok(())
 }
 
-/// Add a reward's tier to its creator's list (when it isn't there yet).
+/// Add a reward's tier to its creator's list, on the reward's platform (when that
+/// platform, or any platform, doesn't have it yet).
 fn remember_reward_tier(conn: &Connection, reward_id: i64, tier: &str) -> rusqlite::Result<()> {
-    let artist: Option<i64> = conn
+    let found: Option<(i64, Option<String>)> = conn
         .query_row(
-            "SELECT p.artist_id FROM rewards r JOIN periods p ON p.id = r.period_id WHERE r.id = ?1",
+            "SELECT p.artist_id, p.platform FROM rewards r JOIN periods p ON p.id = r.period_id WHERE r.id = ?1",
             params![reward_id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()?;
-    let Some(artist) = artist else { return Ok(()) };
+    let Some((artist, platform)) = found else { return Ok(()) };
     let mut list = artist_tier_list(conn, artist)?;
-    if !list.iter().any(|t| t.to_lowercase() == tier.to_lowercase()) {
-        list.push(tier.to_string());
+    let here = platform_key(platform.as_deref());
+    let known = list.iter().any(|t| {
+        t.name.to_lowercase() == tier.to_lowercase()
+            && (t.platform.is_none() || platform_key(t.platform.as_deref()) == here)
+    });
+    if !known {
+        list.push(TierEntry { name: tier.to_string(), platform });
         set_artist_tier_list(conn, artist, &list)?;
     }
     Ok(())
 }
 
-/// Delete a tier from a creator: out of the list and off all their rewards. Returns how
-/// many rewards had it.
-pub fn remove_artist_tier(conn: &Connection, artist_id: i64, tier: &str) -> rusqlite::Result<u32> {
+/// Delete a tier from a creator: out of the list and off their rewards on that platform
+/// (platform None: on every platform that hasn't its own tier of that name). Returns
+/// how many rewards had it.
+pub fn remove_artist_tier(
+    conn: &Connection,
+    artist_id: i64,
+    tier: &str,
+    platform: Option<&str>,
+) -> rusqlite::Result<u32> {
     let key = tier.trim().to_lowercase();
-    let n = conn.execute(
-        "UPDATE rewards SET tier = NULL
-         WHERE lower(trim(tier)) = ?2
-           AND period_id IN (SELECT id FROM periods WHERE artist_id = ?1)",
-        params![artist_id, key],
-    )? as u32;
-    let list: Vec<String> = artist_tier_list(conn, artist_id)?.into_iter().filter(|t| t.to_lowercase() != key).collect();
+    let target = platform_key(platform);
+    let list = artist_tier_list(conn, artist_id)?;
+    // platforms with their own tier of this name keep theirs when an "any" one goes
+    let own: Vec<String> = list
+        .iter()
+        .filter(|t| t.name.to_lowercase() == key && t.platform.is_some())
+        .map(|t| platform_key(t.platform.as_deref()))
+        .collect();
+    let rewards: Vec<(i64, Option<String>)> = {
+        let mut stmt = conn.prepare(
+            "SELECT r.id, p.platform FROM rewards r JOIN periods p ON p.id = r.period_id
+             WHERE p.artist_id = ?1 AND lower(trim(r.tier)) = ?2",
+        )?;
+        let rows = stmt.query_map(params![artist_id, key], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    let mut n = 0u32;
+    for (id, on) in rewards {
+        let on = platform_key(on.as_deref());
+        let hit = if platform.is_some() { on == target } else { !own.contains(&on) };
+        if hit {
+            n += conn.execute("UPDATE rewards SET tier = NULL WHERE id = ?1", params![id])? as u32;
+        }
+    }
+    let list: Vec<TierEntry> = list
+        .into_iter()
+        .filter(|t| !(t.name.to_lowercase() == key && platform_key(t.platform.as_deref()) == target))
+        .collect();
     set_artist_tier_list(conn, artist_id, &list)?;
     Ok(n)
+}
+
+/// Tier lists from before tiers had a platform (plain names): each name goes to the
+/// platforms its rewards are on (one entry per platform). A name no reward uses goes to
+/// the creator's only platform, or stays on any platform when there are several.
+/// Lists already in the new form are left alone, so a tier the user put on "any
+/// platform" stays there.
+fn place_legacy_tiers(conn: &Connection) -> rusqlite::Result<()> {
+    let old: Vec<(i64, String)> = {
+        let mut stmt = conn.prepare("SELECT id, tier_list FROM artists WHERE tier_list IS NOT NULL")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        rows.flatten()
+            .filter(|(_, raw)| {
+                serde_json::from_str::<Vec<serde_json::Value>>(raw).is_ok_and(|v| v.iter().any(|x| x.is_string()))
+            })
+            .collect()
+    };
+    for (artist, raw) in old {
+        let platforms: Vec<String> = {
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT trim(platform) FROM periods
+                 WHERE artist_id = ?1 AND trim(coalesce(platform, '')) <> ''",
+            )?;
+            let rows = stmt.query_map(params![artist], |r| r.get(0))?;
+            rows.flatten().collect()
+        };
+        let mut out: Vec<TierEntry> = Vec::new();
+        for t in parse_tier_list(Some(&raw)) {
+            if t.platform.is_some() {
+                out.push(t);
+                continue;
+            }
+            let used: Vec<Option<String>> = {
+                let mut stmt = conn.prepare(
+                    "SELECT DISTINCT nullif(trim(coalesce(p.platform, '')), '') FROM rewards r
+                     JOIN periods p ON p.id = r.period_id
+                     WHERE p.artist_id = ?1 AND lower(trim(r.tier)) = lower(trim(?2))",
+                )?;
+                let rows = stmt.query_map(params![artist, t.name], |r| r.get(0))?;
+                rows.flatten().collect()
+            };
+            if used.is_empty() {
+                let only = (platforms.len() == 1).then(|| platforms[0].clone());
+                out.push(TierEntry { name: t.name, platform: only });
+            } else {
+                for platform in used {
+                    out.push(TierEntry { name: t.name.clone(), platform });
+                }
+            }
+        }
+        set_artist_tier_list(conn, artist, &out)?;
+    }
+    Ok(())
 }
 
 /// Remove the "new" badge (when the viewer opens it).
@@ -2952,6 +3079,63 @@ pub fn remap_versions_prefix(conn: &Connection, old_prefix: &str, new_prefix: &s
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Old tier lists (plain names) get the platforms their rewards are on, once.
+    #[test]
+    fn old_tier_lists_get_their_platforms() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        let n = std::cell::Cell::new(0);
+        let reward_on = |artist: &str, platform: &str, tier: Option<&str>| -> i64 {
+            n.set(n.get() + 1);
+            let aid: i64 = conn
+                .query_row("SELECT id FROM artists WHERE name = ?1", [artist], |r| r.get(0))
+                .optional()
+                .unwrap()
+                .unwrap_or_else(|| {
+                    conn.execute("INSERT INTO artists(name) VALUES(?1)", [artist]).unwrap();
+                    conn.last_insert_rowid()
+                });
+            conn.execute(
+                "INSERT INTO periods(artist_id, platform, label, folder_path) VALUES(?1, ?2, 'm', ?3)",
+                params![aid, platform, format!("{artist}/{platform}/{}", n.get())],
+            )
+            .unwrap();
+            let pid = conn.last_insert_rowid();
+            conn.execute(
+                "INSERT INTO rewards(period_id, title, folder_path, image_count, tier) VALUES(?1, 'r', ?2, 0, ?3)",
+                params![pid, format!("{artist}/{platform}/{}/r", n.get()), tier],
+            )
+            .unwrap();
+            aid
+        };
+        // one creator on Patreon and Ko-fi, one only on Patreon
+        let both = reward_on("Both", "Patreon", Some("1"));
+        reward_on("Both", "Ko-fi", Some("1"));
+        reward_on("Both", "Ko-fi", Some("Gold"));
+        let one = reward_on("One", "Patreon", Some("2"));
+        let set = |aid: i64, raw: &str| {
+            conn.execute("UPDATE artists SET tier_list = ?2 WHERE id = ?1", params![aid, raw]).unwrap();
+        };
+        set(both, r#"["1","Gold","Unused"]"#);
+        set(one, r#"["Unused","2"]"#);
+        migrate(&conn).unwrap();
+        let on = |name: &str, platform: Option<&str>| TierEntry { name: name.into(), platform: platform.map(String::from) };
+        let mut got = artist_tier_list(&conn, both).unwrap();
+        // the platforms of one name come back in any order
+        got[..2].sort_by(|a, b| a.platform.cmp(&b.platform));
+        assert_eq!(got, [on("1", Some("Ko-fi")), on("1", Some("Patreon")), on("Gold", Some("Ko-fi")), on("Unused", None)]);
+        // one platform only: even the unused one goes there, the order stays
+        assert_eq!(artist_tier_list(&conn, one).unwrap(), [on("Unused", Some("Patreon")), on("2", Some("Patreon"))]);
+        // the new form is left alone: "any platform" picked by hand stays
+        set(one, r#"[{"name":"Unused","platform":null}]"#);
+        migrate(&conn).unwrap();
+        assert_eq!(artist_tier_list(&conn, one).unwrap(), [on("Unused", None)]);
+        // removing an "any platform" tier spares platforms with their own of that name
+        set(both, r#"[{"name":"1","platform":null},{"name":"1","platform":"Ko-fi"}]"#);
+        assert_eq!(remove_artist_tier(&conn, both, "1", None).unwrap(), 1);
+        assert_eq!(artist_tier_list(&conn, both).unwrap(), [on("1", Some("Ko-fi"))]);
+    }
 
     /// The heart list counts only Favourites: no Fav. Wallpaper, no own collections, no
     /// marks whose file left the library. Videos count but aren't the thumbnail.

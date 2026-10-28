@@ -18,6 +18,7 @@ mod template;
 mod thumbs;
 mod transfer;
 mod history;
+mod inbox;
 mod winstate;
 mod wshare;
 
@@ -1188,7 +1189,7 @@ fn artist_images(app: AppHandle, db: State<Db>, artist_id: i64) -> Result<Vec<db
 #[tauri::command]
 fn set_reward_status(db: State<Db>, reward_id: i64, status: String) -> Result<(), String> {
     let conn = db.conn();
-    db::set_reward_status(&conn, reward_id, &status).map_err(map_err)
+    logged_marks(&conn, "reward", "status", &[reward_id], || db::set_reward_status(&conn, reward_id, &status))
 }
 
 /// Credit a reward to collab creators (replaces the list, empty clears it).
@@ -1227,7 +1228,7 @@ fn reset_missing_covers(db: State<Db>) -> Result<usize, String> {
 #[tauri::command]
 fn set_artist_preview(db: State<Db>, artist_id: i64, image: String) -> Result<(), String> {
     let conn = db.conn();
-    db::set_artist_preview(&conn, artist_id, &image).map_err(map_err)
+    logged_marks(&conn, "artist", "cover", &[artist_id], || db::set_artist_preview(&conn, artist_id, &image))
 }
 
 #[tauri::command]
@@ -1239,7 +1240,7 @@ fn set_reward_cover(
     image: String,
 ) -> Result<(), String> {
     let conn = db.conn();
-    db::set_reward_cover(&conn, reward_id, &image).map_err(map_err)?;
+    logged_marks(&conn, "reward", "cover", &[reward_id], || db::set_reward_cover(&conn, reward_id, &image))?;
     // a reward on the MiSD disk: save the new cover's offline preview now (disk is
     // connected)
     let offloaded = conn
@@ -1275,7 +1276,7 @@ fn fill_sd_previews(
 #[tauri::command]
 fn set_period_preview(db: State<Db>, period_id: i64, image: String) -> Result<(), String> {
     let conn = db.conn();
-    db::set_period_preview(&conn, period_id, &image).map_err(map_err)
+    logged_marks(&conn, "period", "cover", &[period_id], || db::set_period_preview(&conn, period_id, &image))
 }
 
 /// Set how many months a period covers.
@@ -1494,6 +1495,48 @@ fn reward_place(conn: &rusqlite::Connection, reward_id: i64) -> (Option<String>,
         }
         None => (None, None),
     }
+}
+
+/// Run a change of a mark (tier, extra, partial, status, notes, cover) and log each
+/// thing's value before and after, so Ctrl+Z takes back exactly that. Things it didn't
+/// change aren't logged. kind: "reward" | "period" | "artist" (see history::mark_value).
+fn logged_marks<T>(
+    conn: &rusqlite::Connection,
+    kind: &'static str,
+    field: &str,
+    ids: &[i64],
+    change: impl FnOnce() -> rusqlite::Result<T>,
+) -> Result<T, String> {
+    let before: Vec<(i64, String, String)> = ids
+        .iter()
+        .filter_map(|id| history::mark_value(conn, kind, *id, field).ok().flatten().map(|(n, v)| (*id, n, v)))
+        .collect();
+    let done = change().map_err(map_err)?;
+    let items: Vec<history::Item> = before
+        .into_iter()
+        .filter_map(|(id, name, was)| {
+            let now = history::mark_value(conn, kind, id, field).ok().flatten()?.1;
+            (now != was).then(|| history::Item {
+                name,
+                id: Some(id),
+                field: Some(field.to_string()),
+                before: Some(was),
+                after: Some(now),
+                ..Default::default()
+            })
+        })
+        .collect();
+    if let Some(first) = items.first().and_then(|i| i.id) {
+        let (artist, place) = match kind {
+            "reward" => reward_place(conn, first),
+            "period" => period_place(conn, first),
+            _ => (items.first().map(|i| i.name.clone()), None),
+        };
+        // the place only for one thing, several may be all over
+        let place = if items.len() == 1 { place } else { None };
+        history::log(conn, history::Entry { action: "mark", kind, artist, place, files: history::Files::None, items });
+    }
+    Ok(done)
 }
 
 /// The rewards as history items (title + folder), read before they go.
@@ -3306,16 +3349,51 @@ fn set_artist_aliases(db: State<Db>, artist_id: i64, aliases: String) -> Result<
 
 /// A creator's tier list (Details), as a JSON array.
 #[tauri::command]
-fn set_artist_tiers(db: State<Db>, artist_id: i64, tiers: Vec<String>) -> Result<(), String> {
+fn set_artist_tiers(db: State<Db>, artist_id: i64, tiers: Vec<db::TierEntry>) -> Result<(), String> {
     let conn = db.conn();
     db::set_artist_tier_list(&conn, artist_id, &tiers).map_err(map_err)
 }
 
+/// What's new in the inbox folder (Settings → Library → Inbox), oldest first. Empty
+/// when no inbox is set or it's gone.
+#[tauri::command]
+async fn inbox_scan(db: State<'_, Db>) -> Result<Vec<inbox::InboxItem>, String> {
+    let (dir, seen, known) = {
+        let conn = db.conn();
+        let dir = db::get_setting(&conn, inbox::FOLDER_KEY).map_err(map_err)?.filter(|d| !d.trim().is_empty());
+        let Some(dir) = dir else { return Ok(Vec::new()) };
+        // the library's folders inside the inbox (imported in place)
+        let inside = format!("{}\\%", norm_path(std::path::Path::new(&dir)));
+        let known: Vec<std::path::PathBuf> = conn
+            .prepare(
+                r"SELECT path FROM roots WHERE lower(replace(path, '/', '\')) LIKE ?1
+                 UNION ALL SELECT folder_path FROM periods WHERE lower(replace(folder_path, '/', '\')) LIKE ?1
+                 UNION ALL SELECT folder_path FROM rewards WHERE lower(replace(folder_path, '/', '\')) LIKE ?1",
+            )
+            .and_then(|mut st| st.query_map([&inside], |r| r.get::<_, String>(0)).map(|rows| rows.flatten().map(Into::into).collect()))
+            .map_err(map_err)?;
+        (dir, inbox::load_seen(&conn), known)
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        inbox::scan(std::path::Path::new(&dir), &seen, &known, std::time::SystemTime::now())
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Remember inbox items as imported, so they aren't offered again.
+#[tauri::command]
+fn inbox_mark_seen(db: State<Db>, keys: Vec<String>) -> Result<(), String> {
+    let conn = db.conn();
+    let dir = db::get_setting(&conn, inbox::FOLDER_KEY).ok().flatten().filter(|d| !d.trim().is_empty());
+    inbox::mark_seen(&conn, dir.as_deref().map(std::path::Path::new), &keys).map_err(map_err)
+}
+
 /// Delete a tier from a creator: from the list and from every reward that has it.
 #[tauri::command]
-fn remove_artist_tier(db: State<Db>, artist_id: i64, tier: String) -> Result<u32, String> {
+fn remove_artist_tier(db: State<Db>, artist_id: i64, tier: String, platform: Option<String>) -> Result<u32, String> {
     let conn = db.conn();
-    let n = db::remove_artist_tier(&conn, artist_id, &tier).map_err(map_err)?;
+    let n = db::remove_artist_tier(&conn, artist_id, &tier, platform.as_deref()).map_err(map_err)?;
     db::checkpoint(&conn);
     Ok(n)
 }
@@ -5710,6 +5788,21 @@ fn undo_history(
                 return Err(changed(&it.name));
             }
             db::rename_collection(&conn, id, it.was.as_deref().unwrap_or_default()).map_err(map_err)?;
+        }
+        // a mark: only when each still has the value it was given, then all go back
+        ("mark", kind) => {
+            for it in &row.items {
+                let (id, field) = (it.id.unwrap_or_default(), it.field.as_deref().unwrap_or_default());
+                let now = history::mark_value(&conn, kind, id, field).map_err(map_err)?.ok_or_else(|| changed(&it.name))?;
+                if Some(&now.1) != it.after.as_ref() {
+                    return Err(changed(&it.name));
+                }
+            }
+            for it in &row.items {
+                let (id, field) = (it.id.unwrap_or_default(), it.field.as_deref().unwrap_or_default());
+                history::set_mark_value(&conn, kind, id, field, it.before.as_deref().unwrap_or_default())
+                    .map_err(map_err)?;
+            }
         }
         ("move", "reward") => {
             for it in &row.items {
@@ -9833,7 +9926,7 @@ async fn sd_backup_now(app: AppHandle, db: State<'_, Db>) -> Result<sd::SdSummar
 #[tauri::command]
 fn set_rewards_extra(db: State<Db>, reward_ids: Vec<i64>, extra: bool) -> Result<u32, String> {
     let conn = db.conn();
-    let n = db::set_rewards_extra(&conn, &reward_ids, extra).map_err(map_err)?;
+    let n = logged_marks(&conn, "reward", "extra", &reward_ids, || db::set_rewards_extra(&conn, &reward_ids, extra))?;
     db::checkpoint(&conn);
     Ok(n)
 }
@@ -9842,22 +9935,23 @@ fn set_rewards_extra(db: State<Db>, reward_ids: Vec<i64>, extra: bool) -> Result
 #[tauri::command]
 fn set_rewards_partial(db: State<Db>, reward_ids: Vec<i64>, partial: bool) -> Result<u32, String> {
     let conn = db.conn();
-    let n = db::set_rewards_partial(&conn, &reward_ids, partial).map_err(map_err)?;
+    let n = logged_marks(&conn, "reward", "partial", &reward_ids, || db::set_rewards_partial(&conn, &reward_ids, partial))?;
     db::checkpoint(&conn);
     Ok(n)
 }
 
-/// Set or remove (None / empty) the tier of rewards.
 /// A reward's notes (Details), blank clears them.
 #[tauri::command]
 fn set_reward_notes(db: State<Db>, reward_id: i64, notes: Option<String>) -> Result<(), String> {
-    db::set_reward_notes(&db.conn(), reward_id, notes.as_deref()).map_err(map_err)
+    let conn = db.conn();
+    logged_marks(&conn, "reward", "notes", &[reward_id], || db::set_reward_notes(&conn, reward_id, notes.as_deref()))
 }
 
+/// Set or remove (None / empty) the tier of rewards.
 #[tauri::command]
 fn set_rewards_tier(db: State<Db>, reward_ids: Vec<i64>, tier: Option<String>) -> Result<u32, String> {
     let conn = db.conn();
-    let n = db::set_rewards_tier(&conn, &reward_ids, tier.as_deref()).map_err(map_err)?;
+    let n = logged_marks(&conn, "reward", "tier", &reward_ids, || db::set_rewards_tier(&conn, &reward_ids, tier.as_deref()))?;
     db::checkpoint(&conn);
     Ok(n)
 }
@@ -10781,6 +10875,8 @@ pub fn run() {
             set_reward_notes,
             set_artist_tiers,
             remove_artist_tier,
+            inbox_scan,
+            inbox_mark_seen,
             rescan_reward,
             scan_file_count,
             scan_cancel,

@@ -2656,12 +2656,27 @@ pub(crate) mod tests {
         let artist: i64 = conn
             .query_row("SELECT p.artist_id FROM rewards r JOIN periods p ON p.id = r.period_id WHERE r.id = ?1", [id], |r| r.get(0))
             .unwrap();
-        assert_eq!(db::artist_tier_list(&conn, artist).unwrap(), ["Gold", "2"]);
-        db::set_artist_tier_list(&conn, artist, &["Gold".into(), "2".into(), " gold ".into(), "Platinum".into()]).unwrap();
-        assert_eq!(db::artist_tier_list(&conn, artist).unwrap(), ["Gold", "2", "Platinum"]);
-        assert_eq!(db::remove_artist_tier(&conn, artist, " 2 ").unwrap(), 1);
+        let platform: Option<String> = conn
+            .query_row("SELECT p.platform FROM rewards r JOIN periods p ON p.id = r.period_id WHERE r.id = ?1", [id], |r| r.get(0))
+            .unwrap();
+        let on = |name: &str, platform: Option<&str>| db::TierEntry { name: name.into(), platform: platform.map(String::from) };
+        let names = || db::artist_tier_list(&conn, artist).unwrap().into_iter().map(|t| t.name).collect::<Vec<_>>();
+        // remembered on the reward's own platform
+        assert_eq!(db::artist_tier_list(&conn, artist).unwrap(), [on("Gold", platform.as_deref()), on("2", platform.as_deref())]);
+        db::set_artist_tier_list(
+            &conn,
+            artist,
+            &[on("Gold", platform.as_deref()), on("2", platform.as_deref()), on(" gold ", platform.as_deref()), on("Platinum", None), on("Gold", Some("Elsewhere"))],
+        )
+        .unwrap();
+        // no doubles on one platform, the same name on another platform is its own tier
+        assert_eq!(names(), ["Gold", "2", "Platinum", "Gold"]);
+        assert_eq!(db::remove_artist_tier(&conn, artist, " 2 ", platform.as_deref()).unwrap(), 1);
         assert_eq!(tier_of(id), None);
-        assert_eq!(db::artist_tier_list(&conn, artist).unwrap(), ["Gold", "Platinum"]);
+        assert_eq!(names(), ["Gold", "Platinum", "Gold"]);
+        // the reorder the Details panel saves comes back as saved
+        db::set_artist_tier_list(&conn, artist, &[on("Platinum", None), on("Gold", Some("Elsewhere")), on("Gold", platform.as_deref())]).unwrap();
+        assert_eq!(db::artist_tier_list(&conn, artist).unwrap()[1], on("Gold", Some("Elsewhere")));
 
         let _ = std::fs::remove_dir_all(&base);
     }

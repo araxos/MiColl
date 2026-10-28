@@ -67,6 +67,10 @@ export async function initAppLog(): Promise<void> {
   window.addEventListener("unhandledrejection", (e) => {
     logLine("error", `Unhandled promise rejection: ${describe(e.reason)}`);
   });
+  // something the window's security policy (csp in tauri.conf.json) blocked
+  document.addEventListener("securitypolicyviolation", (e) => {
+    logLine("warn", `Blocked by the CSP (${e.effectiveDirective}): ${e.blockedURI || "inline"} in ${e.sourceFile || "?"}:${e.lineNumber}`);
+  });
 }
 
 export function logEnabled(): boolean {

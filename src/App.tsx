@@ -3,6 +3,7 @@ import { AnimatePresence } from "framer-motion";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { DataProvider } from "@/store";
 import { CoverCropMigration } from "@/components/CoverCropMigration";
+import { InboxWatcher } from "@/components/InboxWatcher";
 import { UpdatePrompt } from "@/components/UpdatePrompt";
 import { OverlayScrollManager } from "@/components/OverlayScrollManager";
 import { ActionsProvider } from "@/actions";
@@ -313,6 +314,7 @@ export default function App() {
             <DropZone />
             <CoverCropMigration active={booted && !locked && !safe} />
             <UpdatePrompt active={booted && !locked && !safe} />
+            <InboxWatcher active={booted && !locked && !safe} />
             <PhoneUploads />
             {/* the floating scrollbar of every panel, dialog and list */}
             <OverlayScrollManager />

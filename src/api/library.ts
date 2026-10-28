@@ -14,6 +14,7 @@ import type {
   Reward,
   RewardImage,
   Collection,
+  TierEntry,
 } from "@/types";
 
 /* ---- backend types (serde already camelCases the fields) ---- */
@@ -374,11 +375,19 @@ function mapArtist(a: BArtist): Artist {
     }
   }
 
-  let tierList: string[] = [];
+  // { name, platform } entries; plain names are lists from before tiers had a platform
+  let tierList: TierEntry[] = [];
   if (a.tierList) {
     try {
-      const parsed = JSON.parse(a.tierList);
-      if (Array.isArray(parsed)) tierList = parsed.filter((t): t is string => typeof t === "string");
+      const parsed: unknown = JSON.parse(a.tierList);
+      if (Array.isArray(parsed))
+        tierList = parsed.flatMap((t): TierEntry[] =>
+          typeof t === "string"
+            ? [{ name: t, platform: null }]
+            : t && typeof t === "object" && typeof t.name === "string"
+              ? [{ name: t.name, platform: typeof t.platform === "string" ? t.platform : null }]
+              : [],
+        );
     } catch {
       tierList = [];
     }
@@ -681,13 +690,38 @@ export async function markAllRewardsSeen(): Promise<number> {
   return invoke<number>("mark_all_rewards_seen");
 }
 
-/** A creator's tier list (Details → Tiers). */
-export async function setArtistTiers(artistId: string, tiers: string[]): Promise<void> {
+/** The inbox folder setting (Settings → Library → Inbox), "" = off. */
+export const INBOX_FOLDER_KEY = "inbox_folder";
+
+/** A new download in the inbox folder (inbox.rs InboxItem). */
+export interface InboxItem {
+  path: string;
+  name: string;
+  /** What it's remembered by once imported. */
+  key: string;
+  isDir: boolean;
+}
+
+/** What's new in the inbox folder, oldest first (empty when none is set). */
+export async function inboxScan(): Promise<InboxItem[]> {
+  return invoke<InboxItem[]>("inbox_scan");
+}
+
+/** Remember inbox items as imported, so they aren't offered again. */
+export async function inboxMarkSeen(keys: string[]): Promise<void> {
+  await invoke("inbox_mark_seen", { keys });
+}
+
+/** A creator's tier list (Details → Tiers), in their order. */
+export async function setArtistTiers(artistId: string, tiers: TierEntry[]): Promise<void> {
   await invoke("set_artist_tiers", { artistId: Number(artistId), tiers });
 }
-/** Delete a tier: from the creator's list and from all their rewards. Returns how many had it. */
-export async function removeArtistTier(artistId: string, tier: string): Promise<number> {
-  return invoke<number>("remove_artist_tier", { artistId: Number(artistId), tier });
+/**
+ * Delete a tier: from the creator's list and from their rewards on that platform (null:
+ * every platform without its own tier of that name). Returns how many had it.
+ */
+export async function removeArtistTier(artistId: string, tier: string, platform: string | null): Promise<number> {
+  return invoke<number>("remove_artist_tier", { artistId: Number(artistId), tier, platform });
 }
 
 export async function setArtistAliases(artistId: string, aliases: string[]): Promise<void> {
@@ -1303,6 +1337,13 @@ export interface HistoryItem {
   id?: number;
   /** From the phone: the reward the file landed in. */
   back?: number;
+  /**
+   * A mark (tier, extra, partial, status, notes, cover): which one, and its value before
+   * and after ("" = none, flags "0" / "1", a reward cover "<picked 0/1>|<path>").
+   */
+  field?: string;
+  before?: string;
+  after?: string;
 }
 
 /** One row of the activity history (history.rs Row). */
@@ -1310,7 +1351,7 @@ export interface HistoryRow {
   id: number;
   /** UTC "YYYY-MM-DD HH:MM:SS" */
   at: string;
-  action: "delete" | "move" | "rename" | "merge" | "trash" | "import" | "phone";
+  action: "delete" | "move" | "rename" | "merge" | "trash" | "import" | "phone" | "mark";
   kind: string;
   artist: string | null;
   place: string | null;
