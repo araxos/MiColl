@@ -1007,6 +1007,11 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
             });
           }
         }
+        // a dropped folder: its rewards are in the collection now, the empty folders
+        // around them go too (anything that wasn't imported stays)
+        if (org.failed === 0 && org.errors.length === 0 && looseDropped.current.length === 0 && importSource) {
+          await api.clearImportSource(importSource).catch(() => false);
+        }
         if (org.failed > 0 || org.errors.length > 0) {
           archiveSafe = false;
           showToast({

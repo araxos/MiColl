@@ -42,6 +42,43 @@ fn bin_source(src: &Path) {
     let _ = std::fs::remove_dir_all(src);
 }
 
+/// Files Windows (or a Mac) leaves in a folder by itself. A folder with only these in it
+/// counts as empty.
+const JUNK: &[&str] = &["thumbs.db", "ehthumbs.db", "desktop.ini", ".ds_store"];
+
+/// What an import from a dropped folder leaves behind once its rewards are filed into
+/// the collection: folders that are empty now, or hold only Windows' own files. Those go
+/// (empty ones removed, the others to the Recycle Bin), from the bottom up. Anything with
+/// a real file in it stays: something that wasn't imported. True if `dir` itself is gone.
+pub fn clear_left_over(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else { return false };
+    let mut junk_only = true;
+    for e in entries.flatten() {
+        let p = e.path();
+        let Ok(ft) = e.file_type() else {
+            junk_only = false;
+            continue;
+        };
+        if ft.is_dir() {
+            if !clear_left_over(&p) {
+                junk_only = false;
+            }
+        } else {
+            let name = e.file_name().to_string_lossy().to_lowercase();
+            if !JUNK.contains(&name.as_str()) {
+                junk_only = false;
+            }
+        }
+    }
+    if !junk_only {
+        return false;
+    }
+    if std::fs::remove_dir(dir).is_err() {
+        bin_source(dir);
+    }
+    !dir.exists()
+}
+
 /// Replace characters that aren't allowed in Windows paths.
 fn sanitize(s: &str) -> String {
     let cleaned: String = s
@@ -505,6 +542,26 @@ mod tests {
         assert!(src.join("01.jpg").is_file(), "and the original is still there");
 
         drop(held);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn only_empty_left_overs_are_cleared() {
+        let base = std::env::temp_dir().join(format!("micoll_leftover_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        // the rewards moved out: empty folders and Windows' files are left
+        std::fs::create_dir_all(base.join("2025-06").join("Beach Set")).unwrap();
+        std::fs::write(base.join("2025-06").join("Thumbs.db"), b"x").unwrap();
+        std::fs::write(base.join("desktop.ini"), b"x").unwrap();
+        assert!(clear_left_over(&base));
+        assert!(!base.exists());
+
+        // something that wasn't imported stays, with the folders it's in
+        std::fs::create_dir_all(base.join("Empty")).unwrap();
+        touch(&base.join("Skipped").join("keep.png"));
+        assert!(!clear_left_over(&base));
+        assert!(base.join("Skipped").join("keep.png").exists());
+        assert!(!base.join("Empty").exists());
         let _ = std::fs::remove_dir_all(&base);
     }
 

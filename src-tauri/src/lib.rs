@@ -4787,6 +4787,40 @@ async fn organize_collection(app: AppHandle, db: State<'_, Db>) -> Result<Organi
     Ok(summary)
 }
 
+/// After an import into the managed collection: clear what's left of the dropped folder
+/// (empty folders, Windows' own files). Never the collection, the inbox folder, a
+/// library folder or a drive itself, and nothing inside the collection (Organize keeps
+/// that tidy). True if the folder is gone.
+#[tauri::command]
+fn clear_import_source(db: State<Db>, path: String) -> Result<bool, String> {
+    let dir = std::path::PathBuf::from(&path);
+    if !dir.is_dir() || dir.parent().is_none() {
+        return Ok(false);
+    }
+    let (collection, keep) = {
+        let conn = db.conn();
+        let setting = |k: &str| db::get_setting(&conn, k).ok().flatten().filter(|v| !v.trim().is_empty());
+        let collection = setting("collection_root");
+        let mut keep: Vec<String> = collection.iter().chain(setting(inbox::FOLDER_KEY).iter()).cloned().collect();
+        keep.extend(db::list_roots(&conn).map_err(map_err)?.into_iter().map(|r| r.path));
+        (collection, keep)
+    };
+    let here = norm_path(&dir);
+    let inside = |outer: &str| here.starts_with(&format!("{outer}\\"));
+    // inside the collection: Organize looks after that
+    if collection.is_some_and(|c| inside(&norm_path(std::path::Path::new(&c)))) {
+        return Ok(false);
+    }
+    // a protected folder itself, or one of them inside it
+    for k in keep {
+        let k = norm_path(std::path::Path::new(&k));
+        if here == k || k.starts_with(&format!("{here}\\")) {
+            return Ok(false);
+        }
+    }
+    Ok(organize::clear_left_over(&dir))
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MoveCollectionSummary {
@@ -10873,6 +10907,7 @@ pub fn run() {
             import_clashes,
             commit_import,
             organize_collection,
+            clear_import_source,
             move_collection,
             show_in_explorer,
             reveal_artist,

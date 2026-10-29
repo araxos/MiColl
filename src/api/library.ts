@@ -1345,6 +1345,14 @@ export async function discardExtracted(path: string): Promise<void> {
   await invoke("discard_extracted", { path });
 }
 
+/**
+ * After an import into the managed collection: clear what's left of the dropped folder
+ * (folders that are empty now or hold only Windows' own files). Real files stay.
+ */
+export async function clearImportSource(path: string): Promise<boolean> {
+  return invoke<boolean>("clear_import_source", { path });
+}
+
 /** Send a file/folder to the OS recycle bin. */
 export async function trashPath(path: string, reason?: "import"): Promise<void> {
   // "import" = the dropped archive after its import, the history logs it
