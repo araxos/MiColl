@@ -41,6 +41,12 @@ const manual = [
     "licenses/Apache-2.0.txt",
   ],
   ["KDA font by Bryan Torres (CC BY-SA 4.0)", "https://ko-fi.com/brylark", "licenses/KDA-Font-CC-BY-SA-4.0.txt"],
+  [
+    "Simple Icons 16.35.0 (CC0 1.0)",
+    "https://simpleicons.org
+The brand marks on creator links (src/lib/brandIcons.ts).",
+    "licenses/SimpleIcons-CC0-1.0.txt",
+  ],
 ].map(([title, sub, file]) => block(title, sub, read(file)));
 
 // 2. npm packages that end up in the app

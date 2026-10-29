@@ -1192,6 +1192,10 @@ export function StartPage({ onLock }: { onLock: () => void }) {
               // straight into that creator's Favourites (see ArtistPage)
               navigate(`/artist/${id}?favs=1`);
             }}
+            onShowAll={() => {
+              setFavsOpen(false);
+              navigate("/favorites");
+            }}
           />
         )}
       </AnimatePresence>

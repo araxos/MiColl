@@ -613,7 +613,6 @@ function MonthCardBase({
     const cupStyle = irid ? { animation: "micoll-iri-mark 6s ease-in-out infinite" } : undefined;
     return (
       <motion.button
-        layout
         whileHover={{ y: -3 }}
         whileTap={{ scale: 0.98 }}
         transition={{ type: "spring", stiffness: 400, damping: 28 }}
@@ -643,7 +642,6 @@ function MonthCardBase({
   if (cyber && tracked) {
     return (
       <motion.div
-        layout
         className={cn("cp-aura cyber-fx", cpTier !== "none" && `cp-${cpTier}`)}
         style={{ "--cp-glow": CP.glow, "--cp-spin": CP.spin } as React.CSSProperties}
       >
@@ -756,7 +754,6 @@ function MonthCardBase({
     const iriTier = cpTier; // none | low | mid | max
     return (
       <motion.div
-        layout
         className={cn("iri-aura", iriTier !== "none" && `iri-${iriTier}`)}
       >
         <motion.button
@@ -847,7 +844,7 @@ function MonthCardBase({
     const sakTier = cpTier; // none | low | mid | max
     return (
       // rose aura around the card, stronger with completion (index.css .sak-aura)
-      <motion.div layout className={cn("sak-aura", sakTier !== "none" && `sak-${sakTier}`)}>
+      <motion.div className={cn("sak-aura", sakTier !== "none" && `sak-${sakTier}`)}>
       <motion.button
         ref={sceneRef}
         whileHover={{ y: -3 }}
@@ -940,7 +937,6 @@ function MonthCardBase({
   if (cyber) {
     return (
       <motion.button
-        layout
         whileHover={{ y: -3 }}
         whileTap={{ scale: 0.98 }}
         transition={{ type: "spring", stiffness: 400, damping: 28 }}
@@ -993,7 +989,6 @@ function MonthCardBase({
   if (irid) {
     return (
       <motion.button
-        layout
         whileHover={{ y: -3 }}
         whileTap={{ scale: 0.98 }}
         transition={{ type: "spring", stiffness: 400, damping: 28 }}
@@ -1045,7 +1040,6 @@ function MonthCardBase({
   if (sakura) {
     return (
       <motion.button
-        layout
         whileHover={{ y: -3 }}
         whileTap={{ scale: 0.98 }}
         transition={{ type: "spring", stiffness: 400, damping: 28 }}
@@ -1093,7 +1087,6 @@ function MonthCardBase({
 
   return (
     <motion.button
-      layout
       whileHover={{ y: -3 }}
       whileTap={{ scale: 0.98 }}
       transition={{ type: "spring", stiffness: 400, damping: 28 }}

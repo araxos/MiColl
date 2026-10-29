@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ArtistLink } from "@/types";
 import * as api from "@/api/library";
 import { cn } from "@/lib/utils";
 import { useTf } from "@/lib/i18n";
+import { knownLinkIcon, siteIcon, type LinkIcon } from "@/lib/linkIcons";
 
 /**
  * Hostname of a link without www (also works without https://). Empty if it's not a URL.
@@ -17,8 +18,28 @@ function hostOf(url: string): string {
 }
 
 /**
+ * The link's icon: our own logo for known platforms, else the site's own icon (fetched
+ * once by the backend, never through a third party). null while it loads or if none.
+ */
+function useLinkIcon(host: string): LinkIcon | null {
+  const known = host ? knownLinkIcon(host) : null;
+  const isKnown = !!known;
+  const [fetched, setFetched] = useState<{ host: string; src: string | null } | null>(null);
+  useEffect(() => {
+    if (!host || isKnown) return;
+    let alive = true;
+    void siteIcon(host).then((src) => alive && setFetched({ host, src }));
+    return () => {
+      alive = false;
+    };
+  }, [host, isKnown]);
+  if (known) return known;
+  return fetched?.host === host && fetched.src ? { kind: "img", src: fetched.src } : null;
+}
+
+/**
  * One link as a logo button. Name shows on hover, colored border
- * (cyan on cyberpunk, blue elsewhere). First letter if there's no favicon.
+ * (cyan on cyberpunk, blue elsewhere). First letter if there's no icon.
  */
 function LinkChip({ link, cyber }: { link: ArtistLink; cyber: boolean }) {
   const tf = useTf();
@@ -27,9 +48,7 @@ function LinkChip({ link, cyber }: { link: ArtistLink; cyber: boolean }) {
   const host = hostOf(url);
   const text = link.label.trim() || host || url;
   const letter = text.charAt(0).toUpperCase() || "?";
-  const favicon = host
-    ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`
-    : "";
+  const icon = useLinkIcon(host);
   return (
     <button
       type="button"
@@ -43,13 +62,17 @@ function LinkChip({ link, cyber }: { link: ArtistLink; cyber: boolean }) {
       )}
     >
       <span className="grid h-5 w-5 shrink-0 place-items-center">
-        {favicon && !broken ? (
+        {icon?.kind === "brand" ? (
+          <svg viewBox="0 0 24 24" aria-hidden className="h-3.5 w-3.5" fill={icon.color}>
+            <path d={icon.path} />
+          </svg>
+        ) : icon && !broken ? (
           <img
-            src={favicon}
+            src={icon.src}
             alt=""
             width={16}
             height={16}
-            className="h-4 w-4 rounded-sm"
+            className="h-4 w-4 rounded-sm object-contain"
             onError={() => setBroken(true)}
           />
         ) : (

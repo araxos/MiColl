@@ -17,6 +17,7 @@ export function RewardSlot({
   onContextMenu,
   isNew,
   aspect = "aspect-square",
+  layoutKey,
 }: {
   reward: Reward;
   index: number;
@@ -28,6 +29,11 @@ export function RewardSlot({
   isNew?: boolean;
   /** Tile shape, passed down by the grid so 200 tiles don't each subscribe. */
   aspect?: string;
+  /**
+   * Changes only when the tiles move (new order, other shape or size). framer-motion
+   * measures the tile only then, not on every render (select, cover loaded, NEW gone).
+   */
+  layoutKey: string;
 }) {
   const owned = reward.status === "owned";
   const skipped = reward.status === "skipped";
@@ -74,7 +80,7 @@ export function RewardSlot({
   const sdState = rewardSdState(reward);
 
   return (
-    <motion.div layout className="group relative" onContextMenu={onContextMenu}>
+    <motion.div layout layoutDependency={layoutKey} className="group relative" onContextMenu={onContextMenu}>
       <button
         onClick={owned ? onOpen : canAdd ? onAdd : undefined}
         data-kbd-tile
@@ -279,8 +285,9 @@ export function RewardSlot({
             </span>
           </div>
           {canAdd && (
-            // dark frosted overlay so "Add files" is readable on hover
-            <span className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 bg-zinc-950/80 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100">
+            // dark frosted overlay so "Add files" is readable on hover. The blur only on
+            // hover: an invisible backdrop-filter still costs a GPU layer per missing tile
+            <span className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 bg-zinc-950/80 opacity-0 transition-opacity group-hover:opacity-100 group-hover:backdrop-blur-sm">
               <FolderPlus className="h-6 w-6 text-brand-200" />
               <span className="text-[11px] font-semibold uppercase tracking-wide text-brand-100">
                 {t("Add files")}

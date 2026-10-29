@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { X, Heart, Loader2 } from "lucide-react";
+import { X, Heart, Loader2, LayoutGrid } from "lucide-react";
 import { Cover } from "@/components/Cover";
 import { favoriteCounts, type FavoriteCount } from "@/api/library";
 import { useT, useTp } from "@/lib/i18n";
@@ -14,11 +14,14 @@ import type { Artist } from "@/types";
 export function FavoritesPanel({
   artists,
   onPick,
+  onShowAll,
   onClose,
 }: {
   /** The creators the start page may show (SFW, hidden, graveyard already applied). */
   artists: Artist[];
   onPick: (id: string) => void;
+  /** Open the page with every creator's favourites in one gallery. */
+  onShowAll: () => void;
   onClose: () => void;
 }) {
   const t = useT();
@@ -101,6 +104,17 @@ export function FavoritesPanel({
             ))
           )}
         </div>
+        {rows.length > 0 && (
+          <div className="border-t border-brand-500/20 p-2">
+            <button
+              onClick={onShowAll}
+              className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-brand-100 transition-colors hover:bg-brand-500/10"
+            >
+              <LayoutGrid className="h-4 w-4" />
+              {t("All favourites in one gallery")}
+            </button>
+          </div>
+        )}
       </motion.aside>
     </>
   );

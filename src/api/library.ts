@@ -712,6 +712,14 @@ export async function inboxMarkSeen(keys: string[]): Promise<void> {
   await invoke("inbox_mark_seen", { keys });
 }
 
+/**
+ * A creator link's site icon as a data: URL, null if the site has none (or can't be
+ * reached). Fetched from the site itself once, then kept in the library.
+ */
+export async function siteIcon(host: string): Promise<string | null> {
+  return invoke<string | null>("site_icon", { host });
+}
+
 /** A creator's tier list (Details → Tiers), in their order. */
 export async function setArtistTiers(artistId: string, tiers: TierEntry[]): Promise<void> {
   await invoke("set_artist_tiers", { artistId: Number(artistId), tiers });
@@ -866,6 +874,23 @@ export interface FavoriteCount {
 export async function favoriteCounts(): Promise<FavoriteCount[]> {
   const rows = await invoke<{ artistId: number; count: number; preview: string | null }[]>("favorite_counts");
   return rows.map((r) => ({ ...r, artistId: String(r.artistId) }));
+}
+
+/** One file in Favourites and where it lives (the "All favourites" page). */
+export interface FavoriteImage {
+  artistId: string;
+  rewardId: string;
+  image: RewardImage;
+}
+
+/** Every file in Favourites over all creators, each once. */
+export async function favoriteImages(): Promise<FavoriteImage[]> {
+  const rows = await invoke<{ artistId: number; rewardId: number; image: BImage }[]>("favorite_images");
+  return rows.map((r) => ({
+    artistId: String(r.artistId),
+    rewardId: String(r.rewardId),
+    image: mapImage(r.image),
+  }));
 }
 
 /* ---- User-made collections (the "+" tabs on a creator's page) ------------- */
@@ -1832,6 +1857,19 @@ export interface ImportStats {
 }
 export async function importStats(folders: string[]): Promise<ImportStats> {
   return invoke<ImportStats>("import_stats", { folders });
+}
+
+/**
+ * The review's preview of one reward folder: its pictures and videos (without the
+ * subfolders in `skip`, which are rewards of their own), at most `limit`, and the total.
+ */
+export async function previewMedia(
+  folder: string,
+  skip: string[],
+  limit: number,
+): Promise<{ files: string[]; total: number }> {
+  const [files, total] = await invoke<[string[], number]>("preview_media", { folder, skip, limit });
+  return { files, total };
 }
 
 /** Per-file size (bytes) + last-modified (ms) — for the viewer's sort by size/date. */

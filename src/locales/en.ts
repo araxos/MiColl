@@ -15,6 +15,8 @@ export const dict: Dict = {
   "{n} months#other": "{n} months",
   "{n} rewards#one": "{n} reward",
   "{n} new downloads in your inbox#one": "{n} new download in your inbox",
+  "{n} more downloads from your inbox come after this one#one": "{n} more download from your inbox comes after this one",
+  "{n} downloads in your inbox — import them one after the other#one": "{n} download in your inbox — import it",
   "{n} rewards#other": "{n} rewards",
   "{n} more#one": "{n} more",
   "{n} more#other": "{n} more",

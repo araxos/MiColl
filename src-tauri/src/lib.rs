@@ -19,6 +19,7 @@ mod thumbs;
 mod transfer;
 mod history;
 mod inbox;
+mod siteicon;
 mod winstate;
 mod wshare;
 
@@ -1809,6 +1810,15 @@ async fn import_stats(folders: Vec<String>) -> Result<indexer::ImportStats, Stri
         .map_err(|e| e.to_string())
 }
 
+/// The review's preview of one reward folder: its pictures and videos (not the ones in
+/// `skip`, subfolders that are rewards of their own), at most `limit`, and the total.
+#[tauri::command]
+async fn preview_media(folder: String, skip: Vec<String>, limit: usize) -> Result<(Vec<String>, usize), String> {
+    tauri::async_runtime::spawn_blocking(move || indexer::preview_media(&folder, &skip, limit))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Stat files for the viewer's size/date sort. Missing files give zeros.
 /// Only metadata, no decrypting (encrypted size keeps the order).
 #[tauri::command]
@@ -3381,6 +3391,33 @@ async fn inbox_scan(db: State<'_, Db>) -> Result<Vec<inbox::InboxItem>, String> 
     .map_err(|e| e.to_string())
 }
 
+/// A creator link's site icon as a data: URL (None = the site has none). Saved after the
+/// first fetch, which goes to the site itself, so it shows offline and no third party
+/// sees the link's domain.
+#[tauri::command]
+async fn site_icon(db: State<'_, Db>, host: String) -> Result<Option<String>, String> {
+    let host = host.trim().to_ascii_lowercase();
+    if !siteicon::valid_host(&host) {
+        return Ok(None);
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let hit = siteicon::cached(&db.conn(), &host, now);
+    if let Some(hit) = hit {
+        return Ok(hit);
+    }
+    let h = host.clone();
+    let got = tauri::async_runtime::spawn_blocking(move || siteicon::fetch(&h))
+        .await
+        .map_err(|e| e.to_string())?;
+    // unreachable (offline): nothing saved, asked again next time
+    let Ok(icon) = got else { return Ok(None) };
+    siteicon::store(&db.conn(), &host, icon.as_ref(), now).map_err(map_err)?;
+    Ok(siteicon::cached(&db.conn(), &host, now).flatten())
+}
+
 /// Remember inbox items as imported, so they aren't offered again.
 #[tauri::command]
 fn inbox_mark_seen(db: State<Db>, keys: Vec<String>) -> Result<(), String> {
@@ -3556,6 +3593,19 @@ fn set_image_favorite(db: State<Db>, path: String, fav: bool) -> Result<(), Stri
 #[tauri::command]
 fn favorite_counts(db: State<Db>) -> Result<Vec<db::FavoriteCount>, String> {
     db::favorite_counts(&db.conn()).map_err(map_err)
+}
+
+/// Every file in Favourites over all creators (the "All favourites" page).
+#[tauri::command]
+fn favorite_images(app: AppHandle, db: State<Db>) -> Result<Vec<db::FavoriteImage>, String> {
+    let conn = db.conn();
+    // make the roots servable so the URLs load
+    if let Ok(roots) = db::list_roots(&conn) {
+        for r in roots {
+            allow_asset_dir(&app, &r.path);
+        }
+    }
+    db::favorite_images(&conn).map_err(map_err)
 }
 
 /* ---- User-made collections (the "+" tabs on a creator's page) ------------- */
@@ -10766,6 +10816,7 @@ pub fn run() {
             merge_rewards,
             media_stats,
             import_stats,
+            preview_media,
             read_file_props,
             write_file_props,
             summarize_file_props,
@@ -10810,6 +10861,7 @@ pub fn run() {
             set_image_wallpaper_fav,
             set_image_favorite,
             favorite_counts,
+            favorite_images,
             list_collections,
             create_collection,
             rename_collection,
@@ -10876,6 +10928,7 @@ pub fn run() {
             set_artist_tiers,
             remove_artist_tier,
             inbox_scan,
+            site_icon,
             inbox_mark_seen,
             rescan_reward,
             scan_file_count,

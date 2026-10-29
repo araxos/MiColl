@@ -399,6 +399,11 @@ export function RewardGrid({
   // Ctrl+wheel resizes the tiles, the shape is the page's setting
   const tiles = useCardSize("micoll.rewardSize", 170, 110, 320);
   const shape = useTileShapeFor(shapeScope, shapeKey);
+  // the tiles glide only when they move: new order, tiles added or gone, other shape or size
+  const layoutKey = useMemo(
+    () => `${items.map((x) => x.reward.id).join("|")}#${shape.aspect}#${tiles.size}`,
+    [items, shape.aspect, tiles.size],
+  );
   const setGridNode = useCallback(
     (node: HTMLDivElement | null) => {
       gridRef.current = node;
@@ -1224,6 +1229,7 @@ export function RewardGrid({
               reward={reward}
               index={i}
               aspect={shape.aspect}
+              layoutKey={layoutKey}
               onOpen={() => openReward(reward, monthId)}
               onAdd={backed && !borrowed ? () => void addToReward(reward) : undefined}
               onContextMenu={(e) => rewardMenu(e, reward, monthId)}

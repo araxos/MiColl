@@ -17,6 +17,7 @@ import { DuplicatesPanel } from "@/components/DuplicatesPanel";
 import { DUPLICATES_EVENT, type DuplicateScope } from "@/lib/duplicates";
 import { StartPage } from "@/pages/StartPage";
 import { WishlistPage } from "@/pages/WishlistPage";
+import { FavoritesPage } from "@/pages/FavoritesPage";
 import { ArtistPage } from "@/pages/ArtistPage";
 import { MonthDetailPage } from "@/pages/MonthDetailPage";
 import { SettingsPage } from "@/pages/SettingsPage";
@@ -344,6 +345,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<StartPage onLock={lockNow} />} />
               <Route path="/wishlist" element={<WishlistPage onLock={lockNow} />} />
+              <Route path="/favorites" element={<FavoritesPage onLock={lockNow} />} />
               <Route path="/artist/:artistId" element={<ArtistPage onLock={lockNow} />} />
               <Route
                 path="/artist/:artistId/month/:monthId"

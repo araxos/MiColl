@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import { cn } from "@/lib/utils";
 import { OverlayScrollbar } from "@/components/OverlayScrollbar";
 import { Button } from "@/components/ui/Button";
-import { Lock, Search, Settings, Tv, TvMinimal, Gift, Eye, EyeOff, History } from "lucide-react";
+import { Lock, Search, Settings, Tv, TvMinimal, Gift, Eye, EyeOff, History, Inbox } from "lucide-react";
 import { GlobeSearchIcon } from "@/lib/globeSearchIcon";
 import { BrandMark } from "@/components/BrandMark";
 import { CyberLogo } from "@/components/CyberLogo";
@@ -16,7 +16,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { isTauri } from "@/lib/tauri";
 import { useAccent } from "@/lib/theme";
 import { useSfwMode, toggleSfwMode, getHomeDblToggle } from "@/lib/contentMode";
-import { useT, useTf } from "@/lib/i18n";
+import { useT, useTf, useTp } from "@/lib/i18n";
 import { useSafeMode } from "@/lib/safeMode";
 import { useMinimal, toggleMinimal } from "@/lib/minimal";
 import { useCinemaButton, setCinemaButton } from "@/lib/cinemaButton";
@@ -25,6 +25,7 @@ import { useActions } from "@/actions";
 import { useData } from "@/store";
 import { useShowHidden, toggleShowHidden } from "@/lib/showHidden";
 import { useWishlistButton, setWishlistButton } from "@/lib/wishlistButton";
+import { useInboxCount, startInboxImports } from "@/components/InboxWatcher";
 import { useHistoryButton, setHistoryButton } from "@/lib/historyButton";
 import {
   useGraveyardButton,
@@ -106,7 +107,10 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
   const sfw = useSfwMode();
   const t = useT();
   const tf = useTf();
+  const tp = useTp();
   const safe = useSafeMode();
+  // downloads waiting in the inbox folder (Settings → Library → Inbox)
+  const inboxCount = useInboxCount();
   const minimal = useMinimal();
   const cinemaButton = useCinemaButton();
   const passwordSet = usePasswordSet();
@@ -414,6 +418,19 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
               }
             >
               <History className="h-4 w-4" />
+            </Button>
+          )}
+          {/* only while the inbox folder has downloads to import: imports them one by one */}
+          {!safe && inboxCount > 0 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={startInboxImports}
+              title={tp("{n} downloads in your inbox — import them one after the other", inboxCount)}
+              className="relative hover:bg-brand-500/15 hover:text-brand-200"
+            >
+              <Inbox className="h-4 w-4" />
+              <span className="inbox-count">{inboxCount > 99 ? "99+" : inboxCount}</span>
             </Button>
           )}
           {/* safe mode: no settings gear (the route is guarded too) */}

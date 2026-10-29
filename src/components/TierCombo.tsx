@@ -18,6 +18,8 @@ export function TierCombo({
   placeholder,
   title,
   className,
+  autoFocus,
+  onLeave,
 }: {
   value: string;
   onCommit: (v: string) => void;
@@ -25,6 +27,10 @@ export function TierCombo({
   placeholder?: string;
   title?: string;
   className?: string;
+  /** Focus it when it appears (opened by the tier icon). */
+  autoFocus?: boolean;
+  /** The field lost the focus, with what it holds now. */
+  onLeave?: (v: string) => void;
 }) {
   const tf = useTf();
   const dlg = useDialogTheme();
@@ -71,7 +77,14 @@ export function TierCombo({
     const next = v.trim().slice(0, 40);
     setDraft(next);
     if (next !== value) onCommit(next);
+    return next;
   };
+
+  useEffect(() => {
+    if (autoFocus) ref.current?.focus();
+    // only when it appears
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <>
@@ -79,14 +92,17 @@ export function TierCombo({
         ref={ref}
         value={draft}
         maxLength={40}
+        // Enter saves the tier, it doesn't start the import (the review's Enter skips it)
+        data-enter-local
         placeholder={placeholder}
         title={title}
         onChange={(e) => setDraft(e.target.value)}
         onFocus={() => setOpen(true)}
         onBlur={() => {
           setOpen(false);
-          commit(picked.current ?? draft);
+          const left = commit(picked.current ?? draft);
           picked.current = null;
+          onLeave?.(left);
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {

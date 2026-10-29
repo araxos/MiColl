@@ -666,6 +666,30 @@ pub fn import_stats(folders: &[String]) -> ImportStats {
     st
 }
 
+/// The pictures and videos of a folder about to be imported, for the review's preview:
+/// everything inside, except what's under `skip` (subfolders imported as their own
+/// rewards). In folder order, at most `limit`. Also how many there are in all.
+pub fn preview_media(folder: &str, skip: &[String], limit: usize) -> (Vec<String>, usize) {
+    let skip: Vec<PathBuf> = skip.iter().map(PathBuf::from).collect();
+    let mut out = Vec::new();
+    let mut total = 0;
+    let walk = WalkDir::new(folder)
+        .sort_by(|a, b| a.file_name().to_ascii_lowercase().cmp(&b.file_name().to_ascii_lowercase()))
+        .into_iter()
+        .filter_entry(|e| !skip.iter().any(|s| e.path() == s));
+    for entry in walk.flatten() {
+        let p = entry.path();
+        if !entry.file_type().is_file() || !(is_image(p) || is_video(p)) {
+            continue;
+        }
+        total += 1;
+        if out.len() < limit {
+            out.push(p.to_string_lossy().into_owned());
+        }
+    }
+    (out, total)
+}
+
 /* ---- DB upserts ------------------------------------------------------ */
 
 pub fn upsert_artist(conn: &Connection, name: &str) -> rusqlite::Result<i64> {
@@ -1685,6 +1709,26 @@ fn mark_bundled_rewards(conn: &Connection) -> rusqlite::Result<()> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn preview_shows_the_rewards_own_media() {
+        let d = std::env::temp_dir().join(format!("micoll-preview-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("Own")).unwrap();
+        std::fs::create_dir_all(d.join("Child")).unwrap();
+        for f in ["b.png", "a.jpg", "notes.txt", "Own/c.mp4", "Child/x.png"] {
+            std::fs::write(d.join(f), b"x").unwrap();
+        }
+        let skip = [d.join("Child").to_string_lossy().into_owned()];
+        let (files, total) = preview_media(&d.to_string_lossy(), &skip, 2);
+        let names: Vec<String> = files
+            .iter()
+            .map(|f| Path::new(f).file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(total, 3);
+        assert_eq!(names, ["a.jpg", "b.png"]);
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn parses_date_tokens() {

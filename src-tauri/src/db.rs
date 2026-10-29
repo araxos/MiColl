@@ -446,6 +446,14 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             UNIQUE(artist_id, name)
         );
 
+        -- icons of creator-link sites (siteicon.rs); data NULL = the site has none
+        CREATE TABLE IF NOT EXISTS site_icons (
+            host       TEXT PRIMARY KEY,
+            mime       TEXT,
+            data       BLOB,
+            fetched_at INTEGER NOT NULL
+        );
+
         -- Per-platform "posts without dates" overrides. When a row is present it
         -- wins over the artist-level `no_dates` default for that one platform, so an
         -- artist can keep dated months on (say) Patreon while a gallery platform
@@ -993,6 +1001,67 @@ pub fn favorite_counts(conn: &Connection) -> rusqlite::Result<Vec<FavoriteCount>
         c.count += 1;
         if c.preview.is_none() && crate::dup::is_image(&path) {
             c.preview = Some(path);
+        }
+    }
+    Ok(out)
+}
+
+/// One file in Favourites, with the reward it belongs to (the gallery over all creators).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FavoriteImage {
+    pub artist_id: i64,
+    pub reward_id: i64,
+    pub image: ImageItem,
+}
+
+/// Every file in Favourites, over all creators, each once (at its owner's reward, not at
+/// collab copies). The page puts them in the creators' own order.
+pub fn favorite_images(conn: &Connection) -> rusqlite::Result<Vec<FavoriteImage>> {
+    let mut stmt = conn.prepare(
+        "SELECT p.artist_id, i.reward_id, i.id, i.file_path, i.rel_name,
+                (wf.file_path IS NOT NULL) AS fav_wp,
+                COALESCE(v.file_path, i.file_path) AS display_path,
+                (SELECT COUNT(*) FROM image_versions ivc WHERE ivc.orig_path = i.file_path) AS version_count,
+                (av.version_id IS NULL) AS on_original,
+                (SELECT GROUP_CONCAT(ci.collection_id)
+                   FROM collection_items ci WHERE ci.file_path = i.file_path) AS colls
+         FROM favorites f
+         JOIN images  i ON i.file_path = f.file_path
+         JOIN rewards r ON r.id = i.reward_id
+         JOIN periods p ON p.id = r.period_id
+         LEFT JOIN wallpaper_favs wf ON wf.file_path = i.file_path
+         LEFT JOIN image_active_version av ON av.orig_path = i.file_path
+         LEFT JOIN image_versions       v  ON v.id = av.version_id
+         ORDER BY p.artist_id, i.reward_id, i.sort, i.rel_name",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(FavoriteImage {
+            artist_id: r.get(0)?,
+            reward_id: r.get(1)?,
+            image: ImageItem {
+                id: r.get(2)?,
+                file_path: r.get(3)?,
+                display_path: r.get(6)?,
+                version_count: r.get::<_, i64>(7)?,
+                on_original: r.get::<_, i64>(8)? != 0,
+                rel_name: r.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                fav_wallpaper: r.get::<_, i64>(5)? != 0,
+                favorite: true,
+                collections: r
+                    .get::<_, Option<String>>(9)?
+                    .map(|s| s.split(',').filter_map(|p| p.trim().parse::<i64>().ok()).collect())
+                    .unwrap_or_default(),
+            },
+        })
+    })?;
+    // the same file can sit in two image rows (two rewards): show it once
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for row in rows {
+        let f = row?;
+        if seen.insert(f.image.file_path.clone()) {
+            out.push(f);
         }
     }
     Ok(out)
@@ -3186,6 +3255,12 @@ mod tests {
         assert_eq!(got[0].artist_id, ids[0]);
         assert_eq!(got[0].count, 2);
         assert_eq!(got[0].preview.as_deref(), Some("A/Pack/c.png"));
+
+        // the gallery over all creators: the same two files, in folder order
+        let all = favorite_images(&conn).unwrap();
+        let paths: Vec<&str> = all.iter().map(|f| f.image.file_path.as_str()).collect();
+        assert_eq!(paths, ["A/Pack/a.mp4", "A/Pack/c.png"]);
+        assert!(all.iter().all(|f| f.artist_id == ids[0] && f.image.favorite));
     }
 
     /// A command that panics while holding the DB must not lock everyone else out.

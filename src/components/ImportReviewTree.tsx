@@ -16,6 +16,8 @@ import {
   FolderTree,
   ArrowUpRight,
   RotateCcw,
+  Tag,
+  Eye,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
@@ -30,6 +32,8 @@ import { PLATFORMS } from "@/lib/platforms";
 import { usePlatformOptions, addPlatform as registerPlatform } from "@/lib/platformRegistry";
 import { useData } from "@/store";
 import { TierCombo } from "@/components/TierCombo";
+import { ImportPreviewDialog, type PreviewReward } from "@/components/ImportPreviewDialog";
+import { noteImportReview, useInboxWaiting } from "@/components/InboxWatcher";
 import { creatorTiers, platformKey } from "@/lib/tier";
 import { useActions } from "@/actions";
 import { useAccent } from "@/lib/theme";
@@ -416,6 +420,15 @@ export function ImportReviewTree({
     const s = plan.artists?.find((a) => a.name === origArtist)?.proposedStyle as ReleaseStyle | undefined;
     return s && s !== "none" ? s : null;
   };
+
+  // rows whose tier field was opened by its icon (the creator has no tiers yet)
+  const [tierOpen, setTierOpen] = useState<Set<string>>(() => new Set());
+  // the period whose pictures are shown in the small preview window
+  const [preview, setPreview] = useState<{ label: string; rewards: PreviewReward[] } | null>(null);
+  // downloads from the inbox that come after this import ("+n" by the title). The inbox
+  // run goes on (or stops) when this closes.
+  const inboxWaiting = useInboxWaiting();
+  useEffect(() => noteImportReview(), []);
 
   const [rows, setRows] = useState<DraftRow[]>(() => {
     const initial: DraftRow[] = plan.rewards.map((r) => {
@@ -1043,6 +1056,17 @@ export function ImportReviewTree({
             <div>
               <h2 className="text-base font-semibold text-zinc-100">
                 {lockedArtist ? tf("Add rewards to {name}", { name: lockedArtist }) : t("Review import")}
+                {inboxWaiting > 0 && (
+                  <span
+                    title={tp("{n} more downloads from your inbox come after this one", inboxWaiting)}
+                    className={cn(
+                      "ml-2 inline-flex items-center rounded-full border border-white/15 px-1.5 py-0.5 align-middle text-[11px] font-semibold",
+                      dlg.accentText,
+                    )}
+                  >
+                    +{inboxWaiting}
+                  </span>
+                )}
               </h2>
               <p className="text-xs text-zinc-400">
                 {tp("{n} rewards", outCount)}
@@ -1274,7 +1298,7 @@ export function ImportReviewTree({
                             };
                             return (
                             <div key={period.key}>
-                              {(node.style !== "none" || canBundle) && (
+                              {/* the date (or drop), how many rewards, a peek at their pictures */}
                                 <div className="mb-1 flex items-center gap-2 text-xs text-zinc-400">
                                   {node.style !== "none" && (
                                     <span
@@ -1297,6 +1321,26 @@ export function ImportReviewTree({
                                   <span className="text-zinc-600">
                                     {tp("{n} rewards", period.rows.length)}
                                   </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setPreview({
+                                        label: node.style !== "none" ? `${node.creator} · ${period.label}` : node.creator,
+                                        rewards: period.rows.map((r) => ({
+                                          folder: r.folder,
+                                          title: r.root ? period.label : r.title || baseName(r.folder),
+                                          // subfolders imported as their own rewards show there
+                                          skip: childRowsOf(r.folder)
+                                            .filter((c) => c.mergedInto === null)
+                                            .map((c) => c.folder),
+                                        })),
+                                      })
+                                    }
+                                    title={t("Preview — small pictures of these rewards, to see what they are")}
+                                    className="rounded-md p-1 text-zinc-500 micoll-hover hover:text-zinc-200"
+                                  >
+                                    <Eye className="h-3.5 w-3.5" />
+                                  </button>
                                   {canBundle && (
                                     <button
                                       onClick={doBundle}
@@ -1321,7 +1365,6 @@ export function ImportReviewTree({
                                     </button>
                                   )}
                                 </div>
-                              )}
                               <div className="space-y-1 pl-3">
                                 {period.rows.map((r) => {
                                   const kids = childRowsOf(r.folder);
@@ -1449,14 +1492,41 @@ export function ImportReviewTree({
                                     >
                                       <Sparkles className="h-3.5 w-3.5" />
                                     </button>
-                                    <TierCombo
-                                      value={r.tier ?? ""}
-                                      onCommit={(v) => patchRow(r.folder, { tier: v })}
-                                      suggestions={tiersFor(r.creator, r.platform)}
-                                      placeholder={t("Tier")}
-                                      title={t("Tier (optional) — which of the creator’s tiers this came with, e.g. 2 or Gold")}
-                                      className={cn("h-7 w-16", inputCls)}
-                                    />
+                                    {(() => {
+                                      const tiers = tiersFor(r.creator, r.platform);
+                                      // a creator without tiers: just an icon, the field opens on click
+                                      if (!tiers.length && !r.tier && !tierOpen.has(r.folder))
+                                        return (
+                                          <button
+                                            type="button"
+                                            onClick={() => setTierOpen((o) => new Set(o).add(r.folder))}
+                                            title={t("Add a tier (optional) — which of the creator’s tiers this came with, e.g. 2 or Gold")}
+                                            className="rounded-md p-1 text-zinc-500 micoll-hover hover:text-zinc-200"
+                                          >
+                                            <Tag className="h-3.5 w-3.5" />
+                                          </button>
+                                        );
+                                      return (
+                                        <TierCombo
+                                          value={r.tier ?? ""}
+                                          onCommit={(v) => patchRow(r.folder, { tier: v })}
+                                          suggestions={tiers}
+                                          placeholder={t("Tier")}
+                                          title={t("Tier (optional) — which of the creator’s tiers this came with, e.g. 2 or Gold")}
+                                          className={cn("h-7 w-16", inputCls)}
+                                          autoFocus={tierOpen.has(r.folder) && !r.tier}
+                                          onLeave={(v) => {
+                                            // left empty: back to the icon
+                                            if (!v && tierOpen.has(r.folder))
+                                              setTierOpen((o) => {
+                                                const n = new Set(o);
+                                                n.delete(r.folder);
+                                                return n;
+                                              });
+                                          }}
+                                        />
+                                      );
+                                    })()}
                                     {!isLocked &&
                                       (r.promotedFrom ? (
                                         <button
@@ -1644,6 +1714,10 @@ export function ImportReviewTree({
           onRename={renameClash}
           onCancelAll={cancelForClash}
         />
+      )}
+
+      {preview && (
+        <ImportPreviewDialog label={preview.label} rewards={preview.rewards} onClose={() => setPreview(null)} />
       )}
     </>
   );
