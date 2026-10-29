@@ -687,6 +687,11 @@ fn hold_edge_colour_x(canvas: &mut RgbaImage, img: &RgbaImage, ox: u32, side: u3
         // the edge colour right at the seam and leave a stripe of the old colour there
         let rw = x1 - x0;
         let low = box_blur(&image::imageops::crop_imm(canvas, x0, 0, rw, h).to_image(), r);
+        // the shift towards the edge colour, per pixel. Worked out row by row it changes
+        // from one row to the next wherever the edge does (a busy-ish backdrop): applied
+        // like that it drew the edge out sideways as horizontal stripes over the whole
+        // border. So it's smoothed top to bottom first.
+        let mut shift = vec![[0f32; 3]; (rw * h) as usize];
         for y in 0..h {
             let (e, std) = edge[y as usize];
             let plain = (1.0 - std / EDGE_BUSY).clamp(0.0, 1.0);
@@ -697,17 +702,30 @@ fn hold_edge_colour_x(canvas: &mut RgbaImage, img: &RgbaImage, ox: u32, side: u3
             let tol = le * EDGE_TOLERANCE + 0.3;
             let full = le * EDGE_FULL + 1.0;
             for x in x0..x1 {
-                let l = low[(y * rw + x - x0) as usize];
+                let at = (y * rw + x - x0) as usize;
+                let l = low[at];
                 let off = (0..3).map(|i| (l[i] - e[i]).abs()).fold(0f32, f32::max);
                 if off <= tol {
                     continue;
                 }
                 // none within the tolerance, all the way to the edge colour from full on
                 let s = ((off - tol) / (full - tol)).clamp(0.0, 1.0) * plain * weight(x);
+                for i in 0..3 {
+                    shift[at][i] = s * (e[i] - l[i]);
+                }
+            }
+        }
+        // twice: a soft (triangle) falloff instead of a box's steps
+        let rs = (r * 2).max((h as f32 * 0.04).round() as u32);
+        for _ in 0..2 {
+            blur_columns(&mut shift, rw as usize, h as usize, rs as usize);
+        }
+        for y in 0..h {
+            for x in x0..x1 {
+                let d = shift[(y * rw + x - x0) as usize];
                 let p = canvas.get_pixel_mut(x, y);
                 for i in 0..3 {
-                    let v = p[i] as f32 + s * (e[i] - l[i]);
-                    p[i] = v.round().clamp(0.0, 255.0) as u8;
+                    p[i] = (p[i] as f32 + d[i]).round().clamp(0.0, 255.0) as u8;
                 }
             }
         }
@@ -718,10 +736,19 @@ fn hold_edge_colour_x(canvas: &mut RgbaImage, img: &RgbaImage, ox: u32, side: u3
         // photo's grain is mostly brightness), on plain rows only: on busy ones the
         // measure is the detail, not the grain
         let fill_grain = grain_rows(canvas, f0, f1, rv);
+        // how much grain per row, smoothed top to bottom like the colour (no rows of
+        // grainier and smoother border)
+        let mut adds: Vec<[f32; 3]> = (0..h as usize)
+            .map(|y| {
+                let plain = (1.0 - edge[y].1 / EDGE_BUSY).clamp(0.0, 1.0);
+                let (g, f) = (edge_grain[y], fill_grain[y]);
+                let a = (g * g - f * f - GRAIN_ROUNDING).max(0.0).sqrt() / GRAIN_HP * plain;
+                [a, 0.0, 0.0]
+            })
+            .collect();
+        blur_columns(&mut adds, 1, h as usize, rs as usize);
         for y in 0..h {
-            let plain = (1.0 - edge[y as usize].1 / EDGE_BUSY).clamp(0.0, 1.0);
-            let (g, f) = (edge_grain[y as usize], fill_grain[y as usize]);
-            let add = (g * g - f * f - GRAIN_ROUNDING).max(0.0).sqrt() / GRAIN_HP * plain;
+            let add = adds[y as usize][0];
             if add < 0.05 {
                 continue;
             }
@@ -732,6 +759,30 @@ fn hold_edge_colour_x(canvas: &mut RgbaImage, img: &RgbaImage, ox: u32, side: u3
                     p[i] = (p[i] as f32 + n).round().clamp(0.0, 255.0) as u8;
                 }
             }
+        }
+    }
+}
+
+/// Box blur of a w x h field, top to bottom only (radius r, clamped at the ends).
+fn blur_columns(field: &mut [[f32; 3]], w: usize, h: usize, r: usize) {
+    let mut sum = vec![[0f32; 3]; h + 1];
+    let mut col = vec![[0f32; 3]; h];
+    for x in 0..w {
+        for y in 0..h {
+            let v = field[y * w + x];
+            for c in 0..3 {
+                sum[y + 1][c] = sum[y][c] + v[c];
+            }
+        }
+        for (y, out) in col.iter_mut().enumerate() {
+            let (a, b) = (y.saturating_sub(r), (y + r + 1).min(h));
+            let n = (b - a) as f32;
+            for c in 0..3 {
+                out[c] = (sum[b][c] - sum[a][c]) / n;
+            }
+        }
+        for y in 0..h {
+            field[y * w + x] = col[y];
         }
     }
 }
@@ -1167,6 +1218,48 @@ fn square_window(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A picture 200 wide in a 600 wide canvas, the border filled grey.
+    fn edge_case(colour: impl Fn(u32) -> [u8; 3]) -> (RgbaImage, RgbaImage) {
+        let h = 400;
+        let img = RgbaImage::from_fn(200, h, |_, y| {
+            let c = colour(y);
+            image::Rgba([c[0], c[1], c[2], 255])
+        });
+        let mut canvas = RgbaImage::from_pixel(600, h, image::Rgba([40, 40, 40, 255]));
+        image::imageops::replace(&mut canvas, &img, 200, 0);
+        (canvas, img)
+    }
+
+    #[test]
+    fn a_plain_dark_backdrop_keeps_its_colour_in_the_border() {
+        let (mut canvas, img) = edge_case(|_| [22, 12, 30]);
+        hold_edge_colour(&mut canvas, &img, 200, 0, 0);
+        for (x, y) in [(195, 200), (100, 200), (5, 30), (595, 370)] {
+            let p = canvas.get_pixel(x, y);
+            let off = [22i32, 12, 30].iter().zip(p.0).map(|(a, b)| (a - b as i32).abs()).max().unwrap();
+            assert!(off <= 3, "({x}, {y}) is {:?}", p.0);
+        }
+    }
+
+    #[test]
+    fn an_edge_that_changes_by_row_leaves_no_stripes() {
+        // bands of rows in two shades, plain within each: the border used to take them on
+        // row by row as stripes over its whole width
+        let (mut canvas, img) = edge_case(|y| if (y / 40) % 2 == 0 { [30, 20, 20] } else { [60, 45, 40] });
+        hold_edge_colour(&mut canvas, &img, 200, 0, 0);
+        // each row's mean over a side's border (the added grain averages out)
+        let lum = |p: &image::Rgba<u8>| 0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32;
+        let mut worst = 0f32;
+        for xs in [0..200, 400..600] {
+            let row = |y: u32| xs.clone().map(|x| lum(canvas.get_pixel(x, y))).sum::<f32>() / 200.0;
+            for y in 1..400 {
+                worst = worst.max((row(y) - row(y - 1)).abs());
+            }
+        }
+        // a soft gradient between the shades now (it jumped by about 4 in one row)
+        assert!(worst <= 1.5, "rows jump by {worst}");
+    }
 
     #[test]
     fn window_is_square_inside_image_and_contains_bbox() {
