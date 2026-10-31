@@ -418,6 +418,15 @@ pub fn available(conn: &Connection) -> bool {
     status(conn).map(|s| s.available).unwrap_or(false)
 }
 
+/// The disk's folder when it's connected right now. Doesn't fix a changed drive
+/// letter (preheal does that first, without holding the lock) and counts nothing,
+/// for the phone bridge that asks often.
+pub fn connected_root(conn: &Connection) -> Option<String> {
+    let root = setting(conn, "sd_root")?;
+    let id = setting(conn, "sd_id")?;
+    read_marker(Path::new(&root)).filter(|m| m.id == id).map(|_| root)
+}
+
 /* ---- marking ------------------------------------------------------------ */
 
 /// The filter every mark statement uses (?1 = mode).
