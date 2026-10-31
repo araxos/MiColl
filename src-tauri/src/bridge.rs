@@ -95,6 +95,10 @@ struct RewardDto {
     /// the cover picked by hand in MiColl (relative, left out when there's none)
     #[serde(skip_serializing_if = "Option::is_none")]
     chosen_cover: Option<String>,
+    /// size in bytes of a picked cover outside the collection (a crop in covers/), the
+    /// phone gets it from /api/own-cover (left out otherwise)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    own_cover: Option<u64>,
 }
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -117,6 +121,13 @@ struct MonthDto {
     /// the cover picked by hand in MiColl (relative, left out when there's none)
     #[serde(skip_serializing_if = "Option::is_none")]
     chosen_cover: Option<String>,
+    /// size in bytes of a picked cover outside the collection (a crop in covers/), the
+    /// phone gets it from /api/own-cover (left out otherwise)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    own_cover: Option<u64>,
+    /// the release number set in MiColl (periods.number, left out when there's none)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    number: Option<i64>,
 }
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -152,6 +163,9 @@ struct ArtistDto {
     /// pinned to the top of the desktop's dashboard (left out when it isn't)
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pinned: bool,
+    /// in the graveyard folder, its paths start with it (left out when it isn't)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    graveyard: bool,
 }
 #[derive(Serialize, serde::Deserialize, Clone)]
 struct LinkDto {
@@ -362,6 +376,7 @@ fn make_reward(root: &Path, dir: &Path, title: &str, recursive: bool) -> Option<
         tier: None,
         notes: None,
         chosen_cover: None,
+        own_cover: None,
     })
 }
 
@@ -375,9 +390,18 @@ fn rewards_in(root: &Path, month_dir: &Path) -> Vec<RewardDto> {
     out
 }
 
+/// A month folder marked as a pause in MiColl.
+fn has_skip_marker(dir: &Path) -> bool {
+    std::fs::read_dir(dir)
+        .map(|rd| rd.flatten().any(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(db::SKIP_MARKER)))
+        .unwrap_or(false)
+}
+
 fn month_dto(root: &Path, dir: &Path, year: Option<i32>, month: Option<u32>, label: String, platform: &str) -> Option<MonthDto> {
     let rewards = rewards_in(root, dir);
-    if rewards.is_empty() {
+    // a pause goes along as a month without rewards, any other empty folder doesn't
+    let skipped = rewards.is_empty() && has_skip_marker(dir);
+    if rewards.is_empty() && !skipped {
         return None;
     }
     Some(MonthDto {
@@ -386,7 +410,7 @@ fn month_dto(root: &Path, dir: &Path, year: Option<i32>, month: Option<u32>, lab
         year,
         label,
         span: 1,
-        skipped: false,
+        skipped,
         verified: false,
         preview_path: String::new(),
         cover_image: None,
@@ -397,6 +421,8 @@ fn month_dto(root: &Path, dir: &Path, year: Option<i32>, month: Option<u32>, lab
         needs_review: false,
         folder_path: rel(root, dir),
         chosen_cover: None,
+        own_cover: None,
+        number: None,
     })
 }
 
@@ -406,9 +432,21 @@ fn is_artist_dir(p: &Path) -> bool {
     !n.eq_ignore_ascii_case(indexer::GRAVEYARD_DIR) && !n.starts_with('.') && !n.starts_with('_')
 }
 
+/// The creators on top, then the graveyard's (a name that's on top too is left out there).
 fn scan(root: &Path) -> Vec<ArtistDto> {
+    let mut artists = scan_dir(root, root, false);
+    let grave = subdirs(root).into_iter().find(|d| name_of(d).eq_ignore_ascii_case(indexer::GRAVEYARD_DIR));
+    if let Some(grave) = grave {
+        let top: HashSet<String> = artists.iter().map(|a| a.name.to_lowercase()).collect();
+        artists.extend(scan_dir(root, &grave, true).into_iter().filter(|a| !top.contains(&a.name.to_lowercase())));
+    }
+    artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    artists
+}
+
+fn scan_dir(root: &Path, dir: &Path, graveyard: bool) -> Vec<ArtistDto> {
     let mut artists = Vec::new();
-    for adir in subdirs(root).into_iter().filter(|d| is_artist_dir(d)) {
+    for adir in subdirs(dir).into_iter().filter(|d| is_artist_dir(d)) {
         let mut platforms = Vec::new();
         for pdir in subdirs(&adir) {
             let pname = name_of(&pdir);
@@ -464,9 +502,9 @@ fn scan(root: &Path) -> Vec<ArtistDto> {
             tier_list: Vec::new(),
             chosen_cover: None,
             pinned: false,
+            graveyard,
         });
     }
-    artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     artists
 }
 
@@ -909,6 +947,19 @@ fn safe_path(root: &Path, token: &str) -> Option<PathBuf> {
     (out != root).then_some(out)
 }
 
+/// safe_path, or the same one level down in the graveyard. For reading only, nothing
+/// is uploaded into the graveyard.
+fn readable_path(root: &Path, token: &str) -> Option<PathBuf> {
+    safe_path(root, token).or_else(|| {
+        let token = token.replace('\\', "/");
+        let (first, rest) = token.split_once('/')?;
+        if !first.eq_ignore_ascii_case(indexer::GRAVEYARD_DIR) {
+            return None;
+        }
+        safe_path(&root.join(indexer::GRAVEYARD_DIR), rest)
+    })
+}
+
 fn query_param(url: &str, key: &str) -> Option<String> {
     let q = url.split_once('?')?.1;
     q.split('&').find_map(|pair| {
@@ -1034,7 +1085,9 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
             }
             // the covers picked by hand, also as the shown cover
             let covers = { let c = sh.src.db().conn(); chosen_covers(&c) }.unwrap_or_default();
+            let numbers = { let c = sh.src.db().conn(); period_numbers(&c) }.unwrap_or_default();
             let pick = |map: &HashMap<String, String>, key: &str| map.get(key).and_then(|abs| rel_inside(&root, Path::new(abs)));
+            let own = |map: &HashMap<String, String>, key: &str| map.get(key).and_then(|abs| own_cover_file(&root, abs)).map(|(_, size)| size);
             let folder_key = |folder: &str| path_key(&folder.split('/').fold(root.clone(), |p, part| p.join(part)));
             for a in &mut artists {
                 if let Some(r) = pick(&covers.artists, &a.name.to_lowercase()) {
@@ -1042,15 +1095,20 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
                     a.chosen_cover = Some(r);
                 }
                 for m in a.platforms.iter_mut().flat_map(|p| &mut p.months) {
-                    if let Some(r) = pick(&covers.periods, &folder_key(&m.folder_path)) {
+                    let key = folder_key(&m.folder_path);
+                    if let Some(r) = pick(&covers.periods, &key) {
                         m.cover_image = Some(r.clone());
                         m.chosen_cover = Some(r);
                     }
+                    m.own_cover = own(&covers.periods, &key);
+                    m.number = numbers.get(&key).copied();
                     for rw in &mut m.rewards {
-                        if let Some(r) = pick(&covers.rewards, &folder_key(&rw.folder_path)) {
+                        let key = folder_key(&rw.folder_path);
+                        if let Some(r) = pick(&covers.rewards, &key) {
                             rw.cover = r.clone();
                             rw.chosen_cover = Some(r);
                         }
+                        rw.own_cover = own(&covers.rewards, &key);
                     }
                 }
             }
@@ -1077,6 +1135,22 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
                 None => fail(req, 404, "no card image"),
             }
         }
+        // a month's or reward's picked cover when it's outside the collection (a crop in
+        // covers/), by the folder as the gallery names it; the month is looked up first
+        "/api/own-cover" => {
+            let Some(folder) = query_param(&url, "f").and_then(|f| readable_path(&root, &f)) else {
+                return fail(req, 400, "bad folder");
+            };
+            let covers = { let c = sh.src.db().conn(); chosen_covers(&c) }.unwrap_or_default();
+            let want = path_key(&folder);
+            let found = [&covers.periods, &covers.rewards]
+                .into_iter()
+                .find_map(|map| map.get(&want).and_then(|abs| own_cover_file(&root, abs)));
+            match found {
+                Some((f, _)) => serve_file(req, &f, key),
+                None => fail(req, 404, "no own cover"),
+            }
+        }
         // the templates applied in MiColl, the stored file as it is (the phone checks
         // the signature itself)
         "/api/templates" => {
@@ -1091,7 +1165,7 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
         // the gallery is always scanned fresh, nothing to do
         "/api/rescan" => json(req, 200, &serde_json::json!({ "ok": true })),
         "/api/thumb" => {
-            let Some(full) = query_param(&url, "p").and_then(|p| safe_path(&root, &p)) else {
+            let Some(full) = query_param(&url, "p").and_then(|p| readable_path(&root, &p)) else {
                 return fail(req, 400, "bad path");
             };
             if !full.is_file() {
@@ -1120,7 +1194,7 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
             }
         }
         "/api/file" => {
-            let Some(full) = query_param(&url, "p").and_then(|p| safe_path(&root, &p)) else {
+            let Some(full) = query_param(&url, "p").and_then(|p| readable_path(&root, &p)) else {
                 return fail(req, 400, "bad path");
             };
             if !full.is_file() {
@@ -1132,7 +1206,7 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
         "/api/version" => add_version(req, sh, &root, &url),
         "/api/check" => check(req, sh, &root),
         "/api/versions" => {
-            let Some(full) = query_param(&url, "p").and_then(|p| safe_path(&root, &p)) else {
+            let Some(full) = query_param(&url, "p").and_then(|p| readable_path(&root, &p)) else {
                 return fail(req, 400, "bad path");
             };
             let Some(orig) = full.is_file().then(|| known_original(sh, &full)).flatten() else {
@@ -1351,8 +1425,30 @@ fn rel_inside(root: &Path, file: &Path) -> Option<String> {
     }
     let rel: Vec<String> = parts.map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
     let rel = rel.join("/");
-    let full = safe_path(root, &rel)?;
+    let full = readable_path(root, &rel)?;
     full.is_file().then_some(rel)
+}
+
+/// The months' release numbers set in MiColl, by path_key of their folder.
+fn period_numbers(conn: &rusqlite::Connection) -> Result<HashMap<String, i64>, String> {
+    let mut stmt = conn
+        .prepare("SELECT folder_path, number FROM periods WHERE number IS NOT NULL")
+        .map_err(map_err)?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+        .map_err(map_err)?;
+    Ok(rows.flatten().map(|(f, n)| (path_key(Path::new(&f)), n)).collect())
+}
+
+/// A picked cover that's a file outside the served folder (a crop in covers/), with its
+/// size in bytes. None when it's in the collection or gone.
+fn own_cover_file(root: &Path, abs: &str) -> Option<(PathBuf, u64)> {
+    let f = PathBuf::from(abs);
+    if rel_inside(root, &f).is_some() {
+        return None;
+    }
+    let size = std::fs::metadata(&f).ok().filter(|m| m.is_file())?.len();
+    Some((f, size))
 }
 
 /// A text column of every reward that has it set, by path_key of its folder (`tier`,
@@ -2222,7 +2318,7 @@ mod tests {
              CREATE TABLE artists (id INTEGER PRIMARY KEY, name TEXT, kind TEXT, tag TEXT, tags TEXT, links TEXT, notes TEXT,
                                    aliases TEXT, template_verified INTEGER, no_dates INTEGER, tier_list TEXT,
                                    preview_image TEXT);
-             CREATE TABLE periods (folder_path TEXT, preview_image TEXT);
+             CREATE TABLE periods (folder_path TEXT, preview_image TEXT, number INTEGER);
              CREATE TABLE rewards (folder_path TEXT, tier TEXT, cover_image TEXT, cover_custom INTEGER NOT NULL DEFAULT 0,
                                    notes TEXT);
              CREATE TABLE images (file_path TEXT);
@@ -2301,6 +2397,14 @@ mod tests {
         std::fs::create_dir_all(&reward).unwrap();
         std::fs::create_dir_all(root.join(indexer::GRAVEYARD_DIR).join("Old").join("Patreon").join("2025").join("01").join("R")).unwrap();
         std::fs::write(root.join(indexer::GRAVEYARD_DIR).join("Old").join("Patreon").join("2025").join("01").join("R").join("x.png"), b"x").unwrap();
+        // a name that's on top too: the one on top wins
+        std::fs::create_dir_all(root.join(indexer::GRAVEYARD_DIR).join("ahri").join("Patreon").join("2024").join("01").join("R")).unwrap();
+        std::fs::write(root.join(indexer::GRAVEYARD_DIR).join("ahri").join("Patreon").join("2024").join("01").join("R").join("y.png"), b"y").unwrap();
+        // a pause month (marker, no media) and an empty month (left out)
+        let pause = root.join("Ahri").join("Patreon").join("2026").join("02");
+        std::fs::create_dir_all(&pause).unwrap();
+        std::fs::write(pause.join(db::SKIP_MARKER), b"skipped").unwrap();
+        std::fs::create_dir_all(root.join("Ahri").join("Patreon").join("2026").join("01")).unwrap();
         image::RgbImage::from_pixel(64, 48, image::Rgb([200, 40, 90])).save(reward.join("a.png")).unwrap();
         std::fs::write(reward.join("clip.mp4"), b"0123456789").unwrap();
         let dek = crypto::generate_dek();
@@ -2318,6 +2422,9 @@ mod tests {
             {
                 let c = src.db.lock().unwrap();
                 c.execute("INSERT INTO rewards (folder_path, tier, notes) VALUES (?1, '2', 'Bonus PSD missing')", [reward.to_string_lossy()]).unwrap();
+                // a release number on the month, in another spelling of the folder
+                let month = reward.parent().unwrap().to_string_lossy().to_uppercase();
+                c.execute("INSERT INTO periods (folder_path, preview_image, number) VALUES (?1, '', 42)", [month]).unwrap();
                 c.execute(
                     r#"UPDATE artists SET tier_list = '[{"name":"1","platform":"Patreon"},{"name":"2","platform":null},{"name":"1","platform":"Fanbox"}]'"#,
                     [],
@@ -2344,12 +2451,26 @@ mod tests {
         assert_eq!(code, 200);
         let g: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let artists = g.as_array().unwrap();
-        // the graveyard isn't a creator
-        assert_eq!(artists.len(), 1);
+        // the graveyard's creators come along, marked; a name on top wins
+        assert_eq!(artists.len(), 2);
         assert_eq!(artists[0]["name"], "Ahri");
         assert_eq!(artists[0]["kind"], "artist");
-        let month = &artists[0]["platforms"][0]["months"][0];
+        assert!(artists[0].get("graveyard").is_none());
+        assert_eq!(artists[1]["name"], "Old");
+        assert_eq!(artists[1]["graveyard"], true);
+        let grave = indexer::GRAVEYARD_DIR;
+        assert_eq!(artists[1]["platforms"][0]["months"][0]["rewards"][0]["cover"], format!("{grave}/Old/Patreon/2025/01/R/x.png"));
+        let months = artists[0]["platforms"][0]["months"].as_array().unwrap();
+        // the pause goes along without rewards, the empty folder doesn't
+        assert_eq!(months.len(), 2);
+        assert_eq!(months[1]["label"], "02.26");
+        assert_eq!(months[1]["skipped"], true);
+        assert_eq!(months[1]["rewards"], serde_json::json!([]));
+        assert!(months[1].get("number").is_none());
+        let month = &months[0];
         assert_eq!(month["label"], "03.26");
+        assert_eq!(month["skipped"], false);
+        assert_eq!(month["number"], 42);
         assert_eq!(month["rewards"][0]["images"].as_array().unwrap().len(), 3);
         assert_eq!(month["rewards"][0]["cover"], "Ahri/Patreon/2026/03/Set/a.png");
         // the tier goes along, and the creator's list
@@ -2376,9 +2497,13 @@ mod tests {
         assert_eq!(get(&clip, Some("bytes=2-5")), (206, b"2345".to_vec()));
         assert_eq!(get(&format!("{k}/api/file?p=..%2F..%2Fsecret.txt"), None).0, 400);
         assert_eq!(get(&format!("{k}/api/file?p=Ahri/none.jpg"), None).0, 404);
-        // the graveyard and hidden folders aren't served
+        // the graveyard is served like the top, hidden folders aren't
         let grave = urlencoding::encode(indexer::GRAVEYARD_DIR);
-        assert_eq!(get(&format!("{k}/api/file?p={grave}/Old/Patreon/2025/01/R/x.png"), None).0, 400);
+        assert_eq!(get(&format!("{k}/api/file?p={grave}/Old/Patreon/2025/01/R/x.png"), None), (200, b"x".to_vec()));
+        assert_eq!(get(&format!("{k}/api/thumb?p={grave}%2FOld%2FPatreon%2F2025%2F01%2FR%2Fx.png"), None).0, 500, "not a real png, but the path is accepted");
+        assert_eq!(get(&format!("{k}/api/file?p={grave}/.hidden/x.png"), None).0, 400);
+        assert_eq!(get(&format!("{k}/api/file?p={grave}/{grave}/Old/x.png"), None).0, 400);
+        assert_eq!(get(&format!("{k}/api/file?p={grave}/../Ahri/Patreon/2026/03/Set/clip.mp4"), None).0, 400);
         assert_eq!(get(&format!("{k}/api/file?p=Ahri/.hidden/x.png"), None).0, 400);
 
         // encrypted: nothing while locked
@@ -2485,7 +2610,7 @@ mod tests {
             let c = src.db.lock().unwrap();
             // the database may spell the folder in another case and with backslashes
             let shout = |p: &Path| p.to_string_lossy().replace("MiColl", "MICOLL").replace('/', "\\");
-            c.execute("INSERT INTO periods VALUES (?1, ?2)", [shout(&month), shout(&set.join("b.png"))]).unwrap();
+            c.execute("INSERT INTO periods (folder_path, preview_image) VALUES (?1, ?2)", [shout(&month), shout(&set.join("b.png"))]).unwrap();
             c.execute("INSERT INTO rewards (folder_path, cover_image, cover_custom) VALUES (?1, ?2, 1)", [shout(&set), shout(&set.join("b.png"))]).unwrap();
             // picked automatically: not sent
             c.execute("INSERT INTO rewards (folder_path, cover_image, cover_custom) VALUES (?1, ?2, 0)", [shout(&other), shout(&other.join("c.png"))]).unwrap();
@@ -2528,6 +2653,42 @@ mod tests {
         let (_, body) = get(&format!("{k}/api/gallery"), None);
         let g: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(g[0].get("chosenCover").is_none());
+
+        // covers inside the collection: no ownCover, /api/own-cover has nothing
+        let m = &g[0]["platforms"][0]["months"][0];
+        assert!(m.get("ownCover").is_none());
+        assert_eq!(get(&format!("{k}/api/own-cover?f=Ahri/Patreon/2026/03"), None).0, 404);
+
+        // crops in covers/: the size goes along, the file comes from /api/own-cover,
+        // the month before the reward
+        let crop = |name: &str, bytes: &[u8]| {
+            let f = base.join("covers").join(name);
+            std::fs::write(&f, bytes).unwrap();
+            f.to_string_lossy().into_owned()
+        };
+        {
+            let c = shared.src.db().conn();
+            c.execute("UPDATE periods SET preview_image = ?1", [crop("month.jpg", b"month crop")]).unwrap();
+            c.execute("UPDATE rewards SET cover_image = ?1 WHERE cover_custom = 1", [crop("set.jpg", b"set crop!!")]).unwrap();
+            // picked automatically: still not sent
+            c.execute("UPDATE rewards SET cover_image = ?1 WHERE cover_custom = 0", [crop("other.jpg", b"x")]).unwrap();
+        }
+        let (_, body) = get(&format!("{k}/api/gallery"), None);
+        let g: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let m = &g[0]["platforms"][0]["months"][0];
+        assert_eq!(m["ownCover"], 10);
+        assert!(m.get("chosenCover").is_none());
+        let rewards = m["rewards"].as_array().unwrap();
+        let by_title = |t: &str| rewards.iter().find(|r| r["title"] == t).unwrap();
+        assert_eq!(by_title("Set")["ownCover"], 10);
+        assert!(by_title("Other").get("ownCover").is_none());
+        assert_eq!(get(&format!("{k}/api/own-cover?f=Ahri/Patreon/2026/03"), None), (200, b"month crop".to_vec()));
+        assert_eq!(get(&format!("{k}/api/own-cover?f=Ahri%2FPatreon%2F2026%2F03%2FSet"), None), (200, b"set crop!!".to_vec()));
+        assert_eq!(get(&format!("{k}/api/own-cover?f=Ahri/Patreon/2026/03/Other"), None).0, 404);
+        assert_eq!(get(&format!("{k}/api/own-cover?f=../covers"), None).0, 400);
+        assert_eq!(get(&format!("{k}/api/own-cover"), None).0, 400);
+        let wrong = k.replace("testkey1234", "wrongkey99");
+        assert_eq!(get(&format!("{wrong}/api/own-cover?f=Ahri/Patreon/2026/03"), None).0, 401);
 
         for _ in 0..WORKERS {
             server.unblock();
