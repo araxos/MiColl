@@ -26,6 +26,11 @@ export interface MenuItem {
   quick?: number;
   /** Keep the menu open after clicking (for toggles). */
   keepOpen?: boolean;
+  /**
+   * The folder or file this row is about: with Shift held while right-clicking, a
+   * "Copy path" row follows it (see openMenu in actions.tsx).
+   */
+  copyPath?: () => string | null | undefined | Promise<string | null | undefined>;
   /** With keepOpen: how the item looks after it was clicked. */
   toggled?: { label: string; icon?: React.ReactNode };
 }

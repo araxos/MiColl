@@ -51,6 +51,7 @@ import { useActions } from "@/actions";
 import { useLibraryActions } from "@/store";
 import {
   revealArtist,
+  folderPathOf,
   setArtistKind,
   sdMark,
   sdBackupDrop,
@@ -901,6 +902,7 @@ function ArtistCardBase({
         label: t("Show in Explorer"),
         icon: <FolderOpen className="h-4 w-4" />,
         onClick: () => void revealArtist(artist.id),
+        copyPath: () => folderPathOf("artist", artist.id),
       },
       {
         label: pinned ? t("Unpin from top") : t("Pin to top"),

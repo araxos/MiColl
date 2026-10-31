@@ -18,6 +18,7 @@ import {
   setPeriodPreview,
   setPeriodSkipped,
   revealPeriod,
+  folderPathOf,
   sdMark,
   sdBackupDrop,
 } from "@/api/library";
@@ -460,6 +461,7 @@ function MonthCardBase({
         onClick: () => {
           if (backed) void revealPeriod(month.id);
         },
+        copyPath: () => folderPathOf("period", month.id),
       },
       // reset cover only for a real month
       ...(!skipped

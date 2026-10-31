@@ -4830,38 +4830,49 @@ struct MoveCollectionSummary {
     images: u32,
     /// The new collection root.
     new_root: String,
+    /// Everything arrived, but the old folder couldn't be removed completely (a file
+    /// was in use): it's left for the user to delete.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    left_behind: Option<String>,
+}
+
+/// Asked to stop move_collection's copy (the Cancel button of its progress window).
+static MOVE_COLLECTION_STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Stop a running move_collection. Its copy so far is taken back, the collection stays
+/// where it was.
+#[tauri::command]
+fn cancel_move_collection() {
+    MOVE_COLLECTION_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// Move the WHOLE managed collection to a new root (<old>/MiColl -> <new>/MiColl),
 /// update all paths and save collection_root. Without an existing folder it just
 /// saves the setting. Different from organize_collection.
+/// To another disk it's a copy: that runs off the main thread (the window stays alive)
+/// with "collection-move-progress" events, and can be cancelled.
 #[tauri::command]
-fn move_collection(app: AppHandle, db: State<Db>, new_root: String) -> Result<MoveCollectionSummary, String> {
+async fn move_collection(app: AppHandle, db: State<'_, Db>, new_root: String) -> Result<MoveCollectionSummary, String> {
     let new_root = new_root.trim().to_string();
     if new_root.is_empty() {
         return Err("Pick a destination folder.".into());
     }
-    let conn = db.conn();
-    let old_root = db::get_setting(&conn, "collection_root")
-        .map_err(map_err)?
-        .filter(|s| !s.trim().is_empty());
-
     let new_managed = std::path::Path::new(&new_root).join("MiColl");
-
-    // no old collection -> just save the new root
-    let old_managed = match &old_root {
-        Some(r) => std::path::Path::new(r).join("MiColl"),
-        None => {
-            db::set_setting(&conn, "collection_root", &new_root).map_err(map_err)?;
-            return Ok(MoveCollectionSummary { moved: false, images: 0, new_root });
+    let old_managed = {
+        let conn = db.conn();
+        let old_root = db::get_setting(&conn, "collection_root")
+            .map_err(map_err)?
+            .filter(|s| !s.trim().is_empty());
+        let old_managed = old_root.map(|r| std::path::Path::new(&r).join("MiColl"));
+        // no old collection, the same place, or nothing to move: just save the new root
+        match old_managed {
+            Some(old) if old != new_managed && old.is_dir() => old,
+            _ => {
+                db::set_setting(&conn, "collection_root", &new_root).map_err(map_err)?;
+                return Ok(MoveCollectionSummary { moved: false, images: 0, new_root, left_behind: None });
+            }
         }
     };
-
-    // same place or nothing to move -> just update the setting
-    if old_managed == new_managed || !old_managed.is_dir() {
-        db::set_setting(&conn, "collection_root", &new_root).map_err(map_err)?;
-        return Ok(MoveCollectionSummary { moved: false, images: 0, new_root });
-    }
 
     // don't overwrite an existing collection at the target
     if new_managed.exists() {
@@ -4871,13 +4882,29 @@ fn move_collection(app: AppHandle, db: State<Db>, new_root: String) -> Result<Mo
         ));
     }
 
-    // move the whole folder at once
-    if let Some(parent) = new_managed.parent() {
-        std::fs::create_dir_all(parent).map_err(map_err)?;
-    }
-    move_tree(&old_managed, &new_managed).map_err(map_err)?;
+    // the move itself, without holding the database (that would stall everything else)
+    MOVE_COLLECTION_STOP.store(false, std::sync::atomic::Ordering::SeqCst);
+    let left_behind = {
+        let (src, dst, app) = (old_managed.clone(), new_managed.clone(), app.clone());
+        tauri::async_runtime::spawn_blocking(move || {
+            use tauri::Emitter;
+            let report = |phase: &str, files: u64, total_files: u64, bytes: u64, total_bytes: u64| {
+                let _ = app.emit(
+                    "collection-move-progress",
+                    serde_json::json!({
+                        "phase": phase, "files": files, "totalFiles": total_files,
+                        "bytes": bytes, "totalBytes": total_bytes,
+                    }),
+                );
+            };
+            move_tree_with(&src, &dst, &report)
+        })
+        .await
+        .map_err(|e| e.to_string())??
+    };
 
     // update all paths under the old root
+    let conn = db.conn();
     let old_prefix = old_managed.to_string_lossy().to_string();
     let new_prefix = new_managed.to_string_lossy().to_string();
     let images = db::relink_prefix(&conn, &old_prefix, &new_prefix).map_err(map_err)?;
@@ -4885,8 +4912,7 @@ fn move_collection(app: AppHandle, db: State<Db>, new_root: String) -> Result<Mo
     // sd_origin is a local folder too, so update it here
     // (relink_prefix doesn't touch it, it also runs during transports)
     conn.execute(
-        "UPDATE rewards SET sd_origin = ?2 || substr(sd_origin, length(?1)+1) \
-         WHERE substr(sd_origin,1,length(?1)) = ?1",
+        "UPDATE rewards SET sd_origin = ?2 || substr(sd_origin, length(?1)+1)          WHERE substr(sd_origin,1,length(?1)) = ?1",
         rusqlite::params![&old_prefix, &new_prefix],
     )
     .map_err(map_err)?;
@@ -4904,7 +4930,64 @@ fn move_collection(app: AppHandle, db: State<Db>, new_root: String) -> Result<Mo
             items: vec![history::Item::moved("MiColl", old_prefix.clone(), new_prefix.clone())],
         },
     );
-    Ok(MoveCollectionSummary { moved: true, images, new_root })
+    db::checkpoint(&conn);
+    Ok(MoveCollectionSummary { moved: true, images, new_root, left_behind })
+}
+
+/// move_tree for the whole collection: progress per file (phase "copy", then "check" and
+/// "clean" with no numbers), and MOVE_COLLECTION_STOP ends the copy, taking it back.
+/// Some(path): all of it arrived, but the old folder couldn't be removed completely.
+fn move_tree_with(
+    src: &std::path::Path,
+    dst: &std::path::Path,
+    report: &dyn Fn(&str, u64, u64, u64, u64),
+) -> Result<Option<String>, String> {
+    if dst.starts_with(src) {
+        return Err("The new place is inside the collection itself.".into());
+    }
+    if let Some(parent) = dst.parent() {
+        std::fs::create_dir_all(parent).map_err(map_err)?;
+    }
+    // same disk: one rename, instant
+    if std::fs::rename(src, dst).is_ok() {
+        return Ok(None);
+    }
+    // another disk: copy, check every file, and only then remove the source
+    let (total_files, total_bytes) = walkdir::WalkDir::new(src)
+        .into_iter()
+        .flatten()
+        .filter(|e| e.file_type().is_file())
+        .fold((0u64, 0u64), |(n, b), e| (n + 1, b + e.metadata().map(|m| m.len()).unwrap_or(0)));
+    let (mut files, mut bytes) = (0u64, 0u64);
+    let mut last = std::time::Instant::now();
+    report("copy", 0, total_files, 0, total_bytes);
+    let copied = transfer::copy_tree_with(src, dst, &|_| false, &mut |n| {
+        files += 1;
+        bytes += n;
+        // a few times a second is enough for the bar
+        if last.elapsed().as_millis() >= 150 || files == total_files {
+            last = std::time::Instant::now();
+            report("copy", files, total_files, bytes, total_bytes);
+        }
+        !MOVE_COLLECTION_STOP.load(std::sync::atomic::Ordering::SeqCst)
+    })
+    .map_err(|e| {
+        if e == transfer::CANCELLED {
+            "Stopped. The collection stays where it was, the partial copy was removed.".to_string()
+        } else {
+            e
+        }
+    })?;
+    report("check", total_files, total_files, total_bytes, total_bytes);
+    if let Err(e) = transfer::all_arrived(src, &copied.arrived, &|_| false) {
+        copied.undo();
+        return Err(e);
+    }
+    report("clean", total_files, total_files, total_bytes, total_bytes);
+    // every file is at the destination now: a source that won't go away completely isn't
+    // a reason to stay on it (the paths have to follow the files)
+    let _ = std::fs::remove_dir_all(src);
+    Ok(src.exists().then(|| src.to_string_lossy().into_owned()))
 }
 
 /// Cached thumbnail as base64 data URL.
@@ -5033,6 +5116,29 @@ fn artist_dir_on_disk(
             .map(|c| managed_artist_dir(conn, &c, name));
     }
     None
+}
+
+/// The folder behind a card, for "Copy path" (Shift + right-click): a creator's, a
+/// month's, or with no id the collection's (else the first library folder).
+#[tauri::command]
+fn folder_path_of(db: State<Db>, kind: String, id: Option<i64>) -> Result<String, String> {
+    let conn = db.conn();
+    let dir = match (kind.as_str(), id) {
+        ("artist", Some(id)) => {
+            let (name, _) = db::artist_info(&conn, id).map_err(map_err)?.ok_or("Creator not found.")?;
+            artist_dir_on_disk(&conn, id, &name)
+        }
+        ("period", Some(id)) => period_month_dir(&conn, id),
+        _ => match db::get_setting(&conn, "collection_root").map_err(map_err)?.filter(|s| !s.trim().is_empty()) {
+            Some(root) => {
+                let inner = std::path::Path::new(&root).join("MiColl");
+                Some(if inner.is_dir() { inner } else { root.into() })
+            }
+            None => db::list_roots(&conn).map_err(map_err)?.into_iter().next().map(|r| r.path.into()),
+        },
+    };
+    dir.map(|d| d.to_string_lossy().replace('/', "\\"))
+        .ok_or_else(|| "Couldn't find this folder.".into())
 }
 
 /// Rename a creator. In managed mode the folder is renamed too and all paths updated.
@@ -7781,6 +7887,9 @@ struct BackupInfo {
     bytes: u64,
     /// Has a WAL file, restoring must take it too.
     has_wal: bool,
+    /// Copy of the library made right before a restore (unix secs), not a daily one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    before_restore: Option<u64>,
 }
 
 fn backups_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -7867,6 +7976,10 @@ fn list_backups(app: AppHandle) -> Result<Vec<BackupInfo>, String> {
                 stem
             };
             Some(BackupInfo {
+                before_restore: name
+                    .strip_prefix(db::BEFORE_RESTORE_PREFIX)
+                    .and_then(|s| s.strip_suffix(".db"))
+                    .and_then(|s| s.parse().ok()),
                 has_wal: dir.join(format!("{name}-wal")).is_file(),
                 bytes: e.metadata().map(|m| m.len()).unwrap_or(0),
                 name,
@@ -8002,22 +8115,10 @@ fn swap_in_database(
     src_wal: Option<&std::path::Path>,
 ) -> Result<(), String> {
     let path = db_path(app)?;
+    let keep_dir = backups_dir(app)?;
     let mut guard = db.conn();
-    // swap in a dummy connection to release the file locks (needed on Windows)
-    let placeholder = rusqlite::Connection::open_in_memory().map_err(map_err)?;
-    let old = std::mem::replace(&mut *guard, placeholder);
-    drop(old);
-    let wal = std::path::PathBuf::from(format!("{}-wal", path.to_string_lossy()));
-    let shm = std::path::PathBuf::from(format!("{}-shm", path.to_string_lossy()));
-    let _ = std::fs::remove_file(&wal);
-    let _ = std::fs::remove_file(&shm);
-    std::fs::copy(src_db, &path).map_err(map_err)?;
-    // the WAL must be in place before reopening so db::open folds it in
-    if let Some(w) = src_wal.filter(|w| w.is_file()) {
-        std::fs::copy(w, &wal).map_err(map_err)?;
-    }
-    // reopen (runs migrations) and use it
-    *guard = db::open(&path).map_err(map_err)?;
+    // checked temp copy, safety copy of the live db, rollback on failure (db::restore_into)
+    db::restore_into(&mut guard, &path, src_db, src_wal, &keep_dir)?;
     drop(guard);
     // lock the session
     if let Ok(mut d) = dek_state.lock() {
@@ -9495,8 +9596,10 @@ struct ShrinkResult {
 /// The original is kept as <name>.orig so it can be undone (restore_template_covers).
 /// Signed templates: shrinking breaks the signature, your own ones are re-signed,
 /// someone else's are refused.
+/// Async, so it runs off the main thread: re-encoding big covers takes a while and the
+/// window would stop answering meanwhile.
 #[tauri::command]
-fn shrink_template_covers(app: AppHandle, file_name: String, max_px: u32) -> Result<ShrinkResult, String> {
+async fn shrink_template_covers(app: AppHandle, file_name: String, max_px: u32) -> Result<ShrinkResult, String> {
     let path = template_file_path(&app, &file_name)?;
     let raw = std::fs::read_to_string(&path).map_err(|e| format!("Couldn't read {file_name}: {e}"))?;
     let before = raw.len() as u64;
@@ -10183,11 +10286,12 @@ fn reconcile_dropped_rewards(
 }
 
 /// Apply a template: artist + verified, "missing" rewards, period totals,
-/// optionally folders, then rescan so existing files match up.
+/// optionally folders, then rescan so existing files match up. Async, so the rescan of a
+/// big creator runs off the main thread (the window stays alive).
 #[tauri::command]
-fn apply_template(
+async fn apply_template(
     app: AppHandle,
-    db: State<Db>,
+    db: State<'_, Db>,
     json: String,
     create_folders: bool,
     base_dir: Option<String>,
@@ -10909,8 +11013,10 @@ pub fn run() {
             organize_collection,
             clear_import_source,
             move_collection,
+            cancel_move_collection,
             show_in_explorer,
             reveal_artist,
+            folder_path_of,
             rename_artist,
             delete_rewards,
             import_wish_cover,

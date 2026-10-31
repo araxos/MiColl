@@ -1631,6 +1631,7 @@ export function ImageViewer({
         label: t("Show in Explorer"),
         icon: <FolderOpen className="h-4 w-4" />,
         onClick: () => reveal(target.path),
+        copyPath: () => target.path,
       },
     ];
     if (target.path && isTauri()) {

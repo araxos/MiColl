@@ -28,6 +28,7 @@ const SYNCED = [
   "micoll.cardSize",
   "micoll.rewardSize",
   "micoll.monthSize",
+  "micoll.favoriteSize",
   "micoll.sortField",
   "micoll.sortDir",
   "micoll.wallpaper",
@@ -84,6 +85,8 @@ const SYNCED_PREFIXES = ["micoll.tileShape.for."] as const;
 
 /* Not synced on purpose:
      · sfwMode - per device on purpose
+     · phoneBridge - a restored backup or a portable copy mustn't open the collection to
+       the network by itself (phoneBridge.ts)
      · premiumUnlocked, licensee, trialUntil - come from the licence in the DB anyway
      · needsReviewDismissed, quickImportWarned, iridSnapshot - one-time stuff
    micoll.tileShape (old key, migrated once) and micoll.viewerGrid (removed) aren't

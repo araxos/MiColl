@@ -8,7 +8,7 @@ import { useData } from "@/store";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { useAccent, toggleOnClass } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-import { useT, useTf, useTp } from "@/lib/i18n";
+import { resolveLanguage, useLanguage, useT, useTf, useTp } from "@/lib/i18n";
 import * as api from "@/api/library";
 
 const MB = (n: number) => (n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`);
@@ -30,6 +30,7 @@ export function BackupPanel({ backed, onLock }: { backed: boolean; onLock?: () =
   const t = useT();
   const tf = useTf();
   const tp = useTp();
+  const locale = resolveLanguage(useLanguage());
   const { showToast } = useActions();
   const { refresh } = useData();
   const [busy, setBusy] = useState(false);
@@ -51,6 +52,21 @@ export function BackupPanel({ backed, onLock }: { backed: boolean; onLock?: () =
       /* just show nothing */
     }
   }, [backed]);
+
+  // the copy made before a restore is named by its time, not a day
+  const shown = snaps.map((s2) =>
+    s2.beforeRestore
+      ? {
+          ...s2,
+          day: tf("{when}, before a restore", {
+            when: new Date(s2.beforeRestore * 1000).toLocaleString(locale, {
+              dateStyle: "medium",
+              timeStyle: "short",
+            }),
+          }),
+        }
+      : s2,
+  );
 
   useEffect(() => {
     void loadSnaps();
@@ -197,7 +213,7 @@ export function BackupPanel({ backed, onLock }: { backed: boolean; onLock?: () =
                   </button>
                 </div>
                 <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto">
-                  {snaps.map((s2) => (
+                  {shown.map((s2) => (
                     <li
                       key={s2.name}
                       className={cn(

@@ -149,6 +149,9 @@ struct ArtistDto {
     /// the cover picked by hand in MiColl (relative, left out when there's none)
     #[serde(skip_serializing_if = "Option::is_none")]
     chosen_cover: Option<String>,
+    /// pinned to the top of the desktop's dashboard (left out when it isn't)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pinned: bool,
 }
 #[derive(Serialize, serde::Deserialize, Clone)]
 struct LinkDto {
@@ -225,6 +228,32 @@ fn load_meta(conn: &rusqlite::Connection) -> Result<HashMap<String, Meta>, Strin
         );
     }
     Ok(out)
+}
+
+/// The pinned creators' names, lowercased. The pins are the desktop's UI prefs
+/// (settings.ui_prefs, key "micoll.pins": a JSON list of artist ids, stored as text).
+fn pinned_names(conn: &rusqlite::Connection) -> HashSet<String> {
+    let prefs: Option<serde_json::Value> = crate::db::get_setting(conn, "ui_prefs")
+        .ok()
+        .flatten()
+        .and_then(|s| serde_json::from_str(&s).ok());
+    let ids: Vec<String> = match prefs.as_ref().and_then(|p| p.get("micoll.pins")) {
+        Some(serde_json::Value::String(s)) => serde_json::from_str(s).unwrap_or_default(),
+        Some(v @ serde_json::Value::Array(_)) => serde_json::from_value(v.clone()).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    if ids.is_empty() {
+        return HashSet::new();
+    }
+    let Ok(mut stmt) = conn.prepare("SELECT id, name FROM artists") else { return HashSet::new() };
+    stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+        .map(|rows| {
+            rows.flatten()
+                .filter(|(id, _)| ids.iter().any(|p| p.trim() == id.to_string()))
+                .map(|(_, name)| name.to_lowercase())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /* ---- scanning the folder ----------------------------------------------- */
@@ -434,6 +463,7 @@ fn scan(root: &Path) -> Vec<ArtistDto> {
             tiers: Vec::new(),
             tier_list: Vec::new(),
             chosen_cover: None,
+            pinned: false,
         });
     }
     artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -971,7 +1001,9 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
                 }
             }
             let meta = meta();
+            let pins = { let c = sh.src.db().conn(); pinned_names(&c) };
             for a in &mut artists {
+                a.pinned = pins.contains(&a.name.to_lowercase());
                 if let Some(m) = meta.get(&a.name.to_lowercase()).cloned() {
                     a.kind = m.kind;
                     a.tag = m.tag;
@@ -2245,6 +2277,22 @@ mod tests {
     /// The whole server over real http: key check, gallery, thumbnail, ranges,
     /// path traversal and encrypted files (locked and unlocked).
     #[test]
+    fn pins_are_read_by_name() {
+        let db = test_db(Path::new("unused"), false);
+        let c = db.lock().unwrap();
+        c.execute("INSERT INTO artists (name, kind) VALUES ('Mira Lune', 'artist')", []).unwrap();
+        // nothing pinned, or no prefs at all
+        assert!(pinned_names(&c).is_empty());
+        db::set_setting(&c, "ui_prefs", r#"{"micoll.pins":"[\"2\"]"}"#).unwrap();
+        assert_eq!(pinned_names(&c), HashSet::from(["mira lune".to_string()]));
+        // a plain list works too, broken prefs pin nothing
+        db::set_setting(&c, "ui_prefs", r#"{"micoll.pins":["1","2"]}"#).unwrap();
+        assert_eq!(pinned_names(&c).len(), 2);
+        db::set_setting(&c, "ui_prefs", "not json").unwrap();
+        assert!(pinned_names(&c).is_empty());
+    }
+
+    #[test]
     fn serves_only_with_the_key() {
         let base = std::env::temp_dir().join(format!("micoll_bridge_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
@@ -2275,6 +2323,8 @@ mod tests {
                     [],
                 )
                 .unwrap();
+                // pinned on the desktop (Ahri is id 1, 7 doesn't exist)
+                db::set_setting(&c, "ui_prefs", r#"{"micoll.pins":"[\"1\",\"7\"]","micoll.accent":"sakura"}"#).unwrap();
             }
             let shared = Arc::new(Shared::new(Box::new(src), "testkey1234".into(), HashSet::new()));
             let server = serve(0, shared).unwrap();
@@ -2306,6 +2356,7 @@ mod tests {
         assert_eq!(month["rewards"][0]["tier"], "2");
         assert_eq!(month["rewards"][0]["notes"], "Bonus PSD missing");
         assert_eq!(artists[0]["tiers"], serde_json::json!(["1", "2"]));
+        assert_eq!(artists[0]["pinned"], true);
         // with their platforms, in the creator's order
         assert_eq!(
             artists[0]["tierList"],

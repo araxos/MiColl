@@ -258,6 +258,14 @@ pub fn backup_rotate(data_dir: &Path) -> std::io::Result<()> {
     if !db.is_file() {
         return Ok(()); // first launch — nothing to back up yet
     }
+    // a damaged db must not push the good backups out, so nothing is copied or deleted
+    // until it passes the check (read-only, the WAL isn't folded yet)
+    let checked = Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| e.to_string())
+        .and_then(|c| quick_check(&c));
+    if let Err(e) = checked {
+        return Err(std::io::Error::other(format!("the database failed its check ({e}), old backups kept")));
+    }
     let dir = data_dir.join("backups");
     std::fs::create_dir_all(&dir)?;
 
@@ -293,11 +301,16 @@ pub fn backup_rotate(data_dir: &Path) -> std::io::Result<()> {
         }
     }
 
-    // keep only the newest BACKUP_KEEP backups (with their WAL files)
+    // keep only the newest BACKUP_KEEP daily backups (with their WAL files), the
+    // before-restore copies have their own limit
     let mut snaps: Vec<String> = std::fs::read_dir(&dir)?
         .flatten()
         .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|n| n.starts_with("micoll-") && n.ends_with(".db"))
+        .filter(|n| {
+            n.strip_prefix("micoll-")
+                .and_then(|s| s.strip_suffix(".db"))
+                .is_some_and(|s| s.len() == 8 && s.bytes().all(|b| b.is_ascii_digit()))
+        })
         .collect();
     snaps.sort();
     for old in snaps.iter().rev().skip(BACKUP_KEEP) {
@@ -305,6 +318,148 @@ pub fn backup_rotate(data_dir: &Path) -> std::io::Result<()> {
         let _ = std::fs::remove_file(dir.join(format!("{old}-wal")));
     }
     Ok(())
+}
+
+/// `PRAGMA quick_check`, Err with SQLite's first complaint.
+pub fn quick_check(conn: &Connection) -> Result<(), String> {
+    let first: String = conn
+        .query_row("PRAGMA quick_check", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    if first == "ok" {
+        Ok(())
+    } else {
+        Err(first)
+    }
+}
+
+/// Copy made of the live db right before a restore: micoll-before-restore-<unix secs>.db.
+pub const BEFORE_RESTORE_PREFIX: &str = "micoll-before-restore-";
+/// How many of those are kept.
+pub const BEFORE_RESTORE_KEEP: usize = 3;
+
+fn sidecars(p: &Path) -> [std::path::PathBuf; 2] {
+    let s = p.to_string_lossy();
+    [format!("{s}-wal").into(), format!("{s}-shm").into()]
+}
+
+/// Put src_db (+ its WAL) in place of the live db at `path` and reopen it into `live`.
+/// The backup is copied to a temp file next to the db, checked and folded there first, so
+/// a bad backup or a failed copy never touches the live db. The live db is saved into
+/// `keep_dir` as micoll-before-restore-….db before it's replaced, and put back if the
+/// restored one won't open. Returns that copy's path.
+pub fn restore_into(
+    live: &mut Connection,
+    path: &Path,
+    src_db: &Path,
+    src_wal: Option<&Path>,
+    keep_dir: &Path,
+) -> Result<std::path::PathBuf, String> {
+    let tmp = path.with_file_name("micoll.db.restoring");
+    let clear_tmp = || {
+        let _ = std::fs::remove_file(&tmp);
+        for f in sidecars(&tmp) {
+            let _ = std::fs::remove_file(f);
+        }
+    };
+    clear_tmp();
+    let staged = (|| -> Result<(), String> {
+        std::fs::copy(src_db, &tmp).map_err(|e| e.to_string())?;
+        if let Some(w) = src_wal.filter(|w| w.is_file()) {
+            std::fs::copy(w, &sidecars(&tmp)[0]).map_err(|e| e.to_string())?;
+        }
+        let conn = Connection::open(&tmp).map_err(|e| e.to_string())?;
+        quick_check(&conn).map_err(|e| format!("That backup is damaged ({e}), nothing was changed."))?;
+        // fold the WAL in, the temp file is then complete on its own
+        conn.query_row("PRAGMA journal_mode=DELETE", [], |_| Ok(()))
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })();
+    if let Err(e) = staged {
+        clear_tmp();
+        return Err(e);
+    }
+    for f in sidecars(&tmp) {
+        let _ = std::fs::remove_file(f);
+    }
+
+    // the safety copy, from the open connection so it has everything in the WAL too
+    std::fs::create_dir_all(keep_dir).map_err(|e| e.to_string())?;
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let keep = keep_dir.join(format!("{BEFORE_RESTORE_PREFIX}{secs}.db"));
+    let _ = std::fs::remove_file(&keep);
+    let vacuumed = live
+        .execute("VACUUM INTO ?1", rusqlite::params![keep.to_string_lossy()])
+        .is_ok();
+    checkpoint(live);
+
+    // release the file locks (needed on Windows)
+    drop(std::mem::replace(live, Connection::open_in_memory().map_err(|e| e.to_string())?));
+    let reopen_old = |live: &mut Connection| {
+        if let Ok(c) = open(path) {
+            *live = c;
+        }
+    };
+    if !vacuumed {
+        // a damaged live db can fail VACUUM, take the raw files then
+        let raw = std::fs::copy(path, &keep).map(|_| ()).and_then(|_| {
+            let [wal, _] = sidecars(path);
+            if wal.is_file() {
+                std::fs::copy(&wal, &sidecars(&keep)[0])?;
+            }
+            Ok(())
+        });
+        if let Err(e) = raw {
+            clear_tmp();
+            reopen_old(live);
+            return Err(format!("Couldn’t save a copy of the current library first ({e}), nothing was changed."));
+        }
+    }
+    for f in sidecars(path) {
+        let _ = std::fs::remove_file(f);
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        clear_tmp();
+        reopen_old(live);
+        return Err(format!("Couldn’t put the backup in place ({e}), nothing was changed."));
+    }
+    match open(path) {
+        Ok(c) => *live = c,
+        Err(e) => {
+            // back to how it was
+            for f in sidecars(path) {
+                let _ = std::fs::remove_file(f);
+            }
+            let _ = std::fs::copy(&keep, path);
+            let [keep_wal, _] = sidecars(&keep);
+            if keep_wal.is_file() {
+                let _ = std::fs::copy(&keep_wal, &sidecars(path)[0]);
+            }
+            reopen_old(live);
+            return Err(format!("The backup didn’t open ({e}), your library was put back."));
+        }
+    }
+
+    // only the newest few before-restore copies
+    let mut copies: Vec<(u64, String)> = std::fs::read_dir(keep_dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter_map(|n| {
+                    let secs = n.strip_prefix(BEFORE_RESTORE_PREFIX)?.strip_suffix(".db")?.parse().ok()?;
+                    Some((secs, n))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    copies.sort();
+    for (_, old) in copies.iter().rev().skip(BEFORE_RESTORE_KEEP) {
+        let _ = std::fs::remove_file(keep_dir.join(old));
+        let _ = std::fs::remove_file(keep_dir.join(format!("{old}-wal")));
+    }
+    Ok(keep)
 }
 
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -3622,8 +3777,13 @@ mod tests {
         // no db yet -> nothing happens
         backup_rotate(&data).unwrap();
 
-        std::fs::write(data.join("micoll.db"), b"main").unwrap();
-        std::fs::write(data.join("micoll.db-wal"), b"journal").unwrap();
+        // a real db with changes still in its WAL (like after a crash)
+        let wal_bytes = {
+            let conn = open(&data.join("micoll.db")).unwrap();
+            conn.execute("INSERT INTO settings(key, value) VALUES('k','v')", []).unwrap();
+            std::fs::read(data.join("micoll.db-wal")).unwrap()
+        };
+        std::fs::write(data.join("micoll.db-wal"), wal_bytes).unwrap();
         backup_rotate(&data).unwrap();
 
         let dir = data.join("backups");
@@ -3655,6 +3815,89 @@ mod tests {
         // today's backup must survive
         assert!(dbs.iter().any(|n| !n.starts_with("micoll-2025")));
 
+        // a before-restore copy doesn't count as a daily one
+        std::fs::write(dir.join(format!("{BEFORE_RESTORE_PREFIX}123.db")), b"x").unwrap();
+        backup_rotate(&data).unwrap();
+        assert!(dir.join(format!("{BEFORE_RESTORE_PREFIX}123.db")).is_file());
+
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    /// a damaged db is neither backed up nor allowed to push the good backups out
+    #[test]
+    fn a_damaged_db_keeps_the_old_backups() {
+        let data = std::env::temp_dir().join(format!("micoll_bak_bad_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&data);
+        let dir = data.join("backups");
+        std::fs::create_dir_all(&dir).unwrap();
+        for i in 0..BACKUP_KEEP {
+            std::fs::write(dir.join(format!("micoll-2025010{i}.db")), b"old").unwrap();
+        }
+        std::fs::write(data.join("micoll.db"), vec![7u8; 8192]).unwrap();
+
+        assert!(backup_rotate(&data).is_err());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), BACKUP_KEEP, "nothing added or removed");
+
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    fn setting_in(conn: &Connection) -> Option<String> {
+        conn.query_row("SELECT value FROM settings WHERE key = 'who'", [], |r| r.get(0))
+            .ok()
+    }
+
+    /// a restore keeps a copy of the live db, takes the backup's WAL along and leaves no
+    /// temp files; a damaged backup changes nothing
+    #[test]
+    fn restore_keeps_a_copy_and_refuses_a_damaged_backup() {
+        let data = std::env::temp_dir().join(format!("micoll_restore_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&data);
+        let keep_dir = data.join("backups");
+        std::fs::create_dir_all(&keep_dir).unwrap();
+        let path = data.join("micoll.db");
+
+        // the backup: a daily copy with its last change only in the WAL
+        let src = keep_dir.join("micoll-20260101.db");
+        let src_wal = keep_dir.join("micoll-20260101.db-wal");
+        let wal_bytes = {
+            let conn = open(&src).unwrap();
+            conn.execute("INSERT INTO settings(key, value) VALUES('who', 'backup')", []).unwrap();
+            std::fs::read(&src_wal).unwrap()
+        };
+        std::fs::write(&src_wal, wal_bytes).unwrap();
+
+        let mut live = open(&path).unwrap();
+        live.execute("INSERT INTO settings(key, value) VALUES('who', 'live')", []).unwrap();
+
+        // damaged backup -> error, live db untouched and still in use
+        let bad = data.join("bad.db");
+        std::fs::write(&bad, vec![7u8; 8192]).unwrap();
+        assert!(restore_into(&mut live, &path, &bad, None, &keep_dir).is_err());
+        assert_eq!(setting_in(&live).as_deref(), Some("live"));
+        assert!(!data.join("micoll.db.restoring").exists());
+
+        let kept = restore_into(&mut live, &path, &src, Some(&src_wal), &keep_dir).unwrap();
+        assert_eq!(setting_in(&live).as_deref(), Some("backup"), "the WAL came along");
+        let old = Connection::open(&kept).unwrap();
+        assert_eq!(setting_in(&old).as_deref(), Some("live"), "the copy has the old library");
+        drop(old);
+        assert!(!data.join("micoll.db.restoring").exists());
+        assert!(src_wal.is_file(), "the backup itself isn't changed");
+
+        // only the newest few before-restore copies stay
+        for i in 0..5 {
+            std::fs::write(keep_dir.join(format!("{BEFORE_RESTORE_PREFIX}{i}.db")), b"x").unwrap();
+        }
+        restore_into(&mut live, &path, &src, Some(&src_wal), &keep_dir).unwrap();
+        let copies = std::fs::read_dir(&keep_dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with(BEFORE_RESTORE_PREFIX))
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".db"))
+            .count();
+        assert_eq!(copies, BEFORE_RESTORE_KEEP);
+
+        drop(live);
         let _ = std::fs::remove_dir_all(&data);
     }
 

@@ -3,6 +3,9 @@ import { createPortal } from "react-dom";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
 import { downloadDir } from "@tauri-apps/api/path";
+import { listen } from "@tauri-apps/api/event";
+import { ProgressModal } from "@/components/ProgressModal";
+import { fmtBytes } from "@/components/RewardDetails";
 import { INBOX_CHANGED_EVENT } from "@/components/InboxWatcher";
 import {
   ChevronLeft,
@@ -776,28 +779,41 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     }
   };
 
-  // "Move it here": move the MiColl folder to the new root
+  // "Move it here": move the MiColl folder to the new root. To another disk it's a copy
+  // that takes a while: a progress window with Stop meanwhile.
+  const [moveProgress, setMoveProgress] = useState<api.CollectionMoveProgress | null>(null);
   const doMoveCollection = async () => {
     if (!pendingRoot) return;
+    const target = pendingRoot;
+    setPendingRoot(null);
     setBusy(true);
     setStatus(null);
+    // shown right away: counting a big collection before the copy takes a moment too
+    setMoveProgress({ phase: "copy", files: 0, totalFiles: 0, bytes: 0, totalBytes: 0 });
+    const unlisten = await listen<api.CollectionMoveProgress>("collection-move-progress", (e) =>
+      setMoveProgress(e.payload),
+    ).catch(() => null);
     try {
-      const r = await api.moveCollection(pendingRoot);
+      const r = await api.moveCollection(target);
       setCollectionRoot(r.newRoot);
       await Promise.all([loadRoots(), refresh()]);
       setStatus(
-        r.moved
+        (r.moved
           ? tf("Moved your collection to {path} ({files} re-linked).", {
               path: collectionDir(r.newRoot),
               files: tp("{n} files", r.images),
             })
-          : tf("Collection folder set to {path}.", { path: collectionDir(r.newRoot) }),
+          : tf("Collection folder set to {path}.", { path: collectionDir(r.newRoot) })) +
+          (r.leftBehind
+            ? " " + tf("The old folder {path} couldn’t be removed completely — everything in it is in the new place, delete it yourself.", { path: r.leftBehind })
+            : ""),
       );
     } catch (e) {
       setStatus(tf("Error: {error}", { error: String(e) }));
     } finally {
+      unlisten?.();
+      setMoveProgress(null);
       setBusy(false);
-      setPendingRoot(null);
     }
   };
 
@@ -2550,6 +2566,29 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
         />
       )}
 
+      {moveProgress && (
+        <ProgressModal
+          title={t("Moving your collection…")}
+          detail={
+            moveProgress.phase === "copy"
+              ? moveProgress.totalFiles === 0
+                ? undefined
+                : tf("{done} of {total}", {
+                  done: fmtBytes(moveProgress.bytes),
+                  total: fmtBytes(moveProgress.totalBytes),
+                })
+              : moveProgress.phase === "check"
+                ? t("Checking that every file arrived…")
+                : t("Removing the old folder…")
+          }
+          done={moveProgress.files}
+          total={moveProgress.totalFiles}
+          note={t("To another disk every file is copied and checked first. Stopping removes the copy, your collection stays where it was.")}
+          onCancel={moveProgress.phase === "copy" ? () => void api.cancelMoveCollection() : undefined}
+          cancelLabel={t("Stop")}
+          cancelPendingLabel={t("Stopping…")}
+        />
+      )}
       {pendingRoot && (
         <ConfirmDialog
           title={t("Move your collection here?")}

@@ -1110,6 +1110,23 @@ export interface MoveCollectionSummary {
   images: number;
   /** The new collection root now saved. */
   newRoot: string;
+  /** Everything arrived, but this old folder couldn't be removed completely. */
+  leftBehind?: string;
+}
+
+/** Progress of moveCollection to another disk ("collection-move-progress"). */
+export interface CollectionMoveProgress {
+  /** copy, then check (every file arrived?) and clean (the old folder goes). */
+  phase: "copy" | "check" | "clean";
+  files: number;
+  totalFiles: number;
+  bytes: number;
+  totalBytes: number;
+}
+
+/** Stop a running moveCollection: the copy so far is taken back. */
+export async function cancelMoveCollection(): Promise<void> {
+  await invoke("cancel_move_collection");
 }
 
 /**
@@ -1602,6 +1619,14 @@ export async function megaUploadMedia(
     resize: resize ?? null,
     names: names ?? null,
   });
+}
+
+/**
+ * The folder behind a card, for "Copy path": a creator's, a month's, or (no id) the
+ * collection's.
+ */
+export async function folderPathOf(kind: "artist" | "period" | "collection", id?: string): Promise<string> {
+  return invoke<string>("folder_path_of", { kind, id: id ? Number(id) : null });
 }
 
 /** Open an artist's own folder (its contents) in the file manager. */
@@ -2379,6 +2404,8 @@ export interface BackupInfo {
   bytes: number;
   /** Has a WAL sidecar, which a restore has to take along. */
   hasWal: boolean;
+  /** A copy of the library made right before a restore (unix seconds), not a daily one. */
+  beforeRestore?: number;
 }
 
 /** The daily snapshots MiColl takes at startup, newest first. */

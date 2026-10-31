@@ -86,6 +86,9 @@ pub fn replace_file_checked(src: &Path, dest: &Path) -> Result<u64, String> {
     Ok(n)
 }
 
+/// copy_tree_with's error when it was stopped (nothing went wrong).
+pub const CANCELLED: &str = "cancelled";
+
 /// What copy_tree_checked made, so a move that can't finish takes it back.
 pub struct Copied {
     pub arrived: Arrived,
@@ -110,6 +113,17 @@ impl Copied {
 /// or short copy, a different file in the way) what this call made is removed again and
 /// the error says why. skip leaves paths out (and everything under them).
 pub fn copy_tree_checked(src: &Path, dst: &Path, skip: &dyn Fn(&Path) -> bool) -> Result<Copied, String> {
+    copy_tree_with(src, dst, skip, &mut |_| true)
+}
+
+/// copy_tree_checked that reports each copied file's size to `tick`. When `tick` says
+/// false the copy stops and takes back what it made (the error is CANCELLED).
+pub fn copy_tree_with(
+    src: &Path,
+    dst: &Path,
+    skip: &dyn Fn(&Path) -> bool,
+    tick: &mut dyn FnMut(u64) -> bool,
+) -> Result<Copied, String> {
     let mut out = Copied { arrived: Arrived::new(), files: Vec::new(), dirs: Vec::new() };
     let res = (|| -> Result<(), String> {
         for entry in WalkDir::new(src).into_iter().filter_entry(|e| !skip(e.path())) {
@@ -126,7 +140,11 @@ pub fn copy_tree_checked(src: &Path, dst: &Path, skip: &dyn Fn(&Path) -> bool) -
             }
             if target.exists() {
                 if same_bytes(entry.path(), &target) {
-                    out.arrived.insert(entry.path().to_path_buf(), file_len(&target).unwrap_or(0));
+                    let n = file_len(&target).unwrap_or(0);
+                    out.arrived.insert(entry.path().to_path_buf(), n);
+                    if !tick(n) {
+                        return Err(CANCELLED.into());
+                    }
                     continue;
                 }
                 return Err(format!(
@@ -137,6 +155,9 @@ pub fn copy_tree_checked(src: &Path, dst: &Path, skip: &dyn Fn(&Path) -> bool) -
             let size = copy_file_checked(entry.path(), &target)?;
             out.files.push(target);
             out.arrived.insert(entry.path().to_path_buf(), size);
+            if !tick(size) {
+                return Err(CANCELLED.into());
+            }
         }
         Ok(())
     })();
@@ -170,6 +191,25 @@ pub fn all_arrived(src: &Path, arrived: &Arrived, skip: &dyn Fn(&Path) -> bool) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stopped_copy_takes_back_what_it_made() {
+        let b = std::env::temp_dir().join(format!("micoll_stopcopy_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&b);
+        for f in ["a.png", "b.png", "sub/c.png"] {
+            put(&b.join("src").join(f), b"12345");
+        }
+        let mut n = 0;
+        let err = copy_tree_with(&b.join("src"), &b.join("dst"), &|_| false, &mut |_| {
+            n += 1;
+            n < 2
+        });
+        assert_eq!(err.err().as_deref(), Some(CANCELLED));
+        // nothing of the copy is left, the source is whole
+        assert!(!b.join("dst").exists() || std::fs::read_dir(b.join("dst")).unwrap().next().is_none());
+        assert!(b.join("src").join("sub").join("c.png").exists());
+        let _ = std::fs::remove_dir_all(&b);
+    }
 
     fn put(p: &Path, data: &[u8]) {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();

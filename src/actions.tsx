@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { logLine } from "@/lib/applog";
-import { ArrowLeft, FolderOpen, Info, RefreshCw } from "lucide-react";
+import { ArrowLeft, ClipboardCopy, FolderOpen, Info, RefreshCw } from "lucide-react";
 import { askForPageDetails } from "@/lib/pageDetails";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -360,10 +360,37 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
     setMenu({ x, y, items });
   };
 
+  /** Shift + right-click: a "Copy path" row after each row that knows its path. */
+  const withCopyPath = (items: MenuItem[], shift: boolean): MenuItem[] =>
+    !shift
+      ? items
+      : items.flatMap((it) =>
+          it.copyPath
+            ? [
+                it,
+                {
+                  label: t("Copy path"),
+                  icon: <ClipboardCopy className="h-4 w-4" />,
+                  onClick: () =>
+                    void (async () => {
+                      try {
+                        const path = await it.copyPath!();
+                        if (!path) throw new Error(t("Couldn’t find this folder."));
+                        await navigator.clipboard.writeText(path);
+                        showToast({ tone: "success", title: t("Path copied"), detail: path });
+                      } catch (err) {
+                        showToast({ tone: "error", title: t("Couldn’t copy the path"), detail: `${err}` });
+                      }
+                    })(),
+                },
+              ]
+            : [it],
+        );
+
   const openMenu = (e: React.MouseEvent, items: MenuItem[]) => {
     if (!backed) return;
     e.preventDefault();
-    openMenuAt(e.clientX, e.clientY, items);
+    openMenuAt(e.clientX, e.clientY, withCopyPath(items, e.shiftKey));
   };
 
   const run = async (req: DeleteRequest, alsoFiles: boolean, dontAsk = false) => {
@@ -640,6 +667,12 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
           else if (artistId) void api.revealArtist(artistId);
           else void revealCollectionRoot();
         },
+        copyPath: () =>
+          monthId
+            ? api.folderPathOf("period", monthId)
+            : artistId
+              ? api.folderPathOf("artist", artistId)
+              : api.folderPathOf("collection"),
       },
     ];
     // Details = stats on the dashboard, the creator panel on a creator page.
@@ -668,6 +701,8 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
   bgRef.current = backgroundItems;
   const showRef = useRef(openMenuAt);
   showRef.current = openMenuAt;
+  const copyRef = useRef(withCopyPath);
+  copyRef.current = withCopyPath;
   useEffect(() => {
     const onCtx = (e: MouseEvent) => {
       // cards with their own menu call preventDefault, then we stay out
@@ -677,7 +712,7 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       // browser version has no backend, keep the normal menu there
       if (!backedRef.current) return;
       e.preventDefault();
-      showRef.current(e.clientX, e.clientY, bgRef.current());
+      showRef.current(e.clientX, e.clientY, copyRef.current(bgRef.current(), e.shiftKey));
     };
     document.addEventListener("contextmenu", onCtx);
     return () => document.removeEventListener("contextmenu", onCtx);

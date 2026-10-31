@@ -17,7 +17,7 @@ import { SdNoticeDialog } from "@/components/SdNoticeDialog";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useData } from "@/store";
 import { useActions } from "@/actions";
-import { KEEP_FOLDERS_KEY, setRewardCover, exportFiles, createReward, createMissingReward, ensurePeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, setRewardsTier, setRewardNotes, type SdMode } from "@/api/library";
+import { KEEP_FOLDERS_KEY, folderPathOf, setRewardCover, exportFiles, createReward, createMissingReward, ensurePeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, setRewardsTier, setRewardNotes, type SdMode } from "@/api/library";
 import { isTauri } from "@/lib/tauri";
 import { useCardSize } from "@/lib/useCardSize";
 import { useDragOut } from "@/lib/dragOut";
@@ -312,6 +312,7 @@ export function RewardGrid({
         label: t("New folder here…"),
         icon: <FolderPlus className="h-4 w-4" />,
         onClick: () => setNewFolder({ periodId: singlePeriodId }),
+        copyPath: () => folderPathOf("period", singlePeriodId),
       },
     ]);
   };
@@ -749,6 +750,7 @@ export function RewardGrid({
           label: t("Show in Explorer"),
           icon: <FolderOpen className="h-4 w-4" />,
           onClick: () => reveal(r.folderPath),
+          copyPath: () => r.folderPath,
         },
         {
           label: tf("Go to {name}", { name: from.artistName }),
@@ -806,6 +808,7 @@ export function RewardGrid({
           label: t("Show in Explorer"),
           icon: <FolderOpen className="h-4 w-4" />,
           onClick: () => reveal(r.folderPath),
+          copyPath: () => r.folderPath,
         },
       ...(imgSrcs.length && isTauri()
         ? [
