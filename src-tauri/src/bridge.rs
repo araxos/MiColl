@@ -31,7 +31,7 @@
 use crate::{app_cache, crypto, db, db::DbLock, history, indexer, map_err, media_mime, parse_range, read_window, session_key, Db, DekState, RANGE_CHUNK};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Component, Path, PathBuf};
@@ -99,6 +99,10 @@ struct RewardDto {
     /// phone gets it from /api/own-cover (left out otherwise)
     #[serde(skip_serializing_if = "Option::is_none")]
     own_cover: Option<u64>,
+    /// marked as an extra in MiColl: every reward MiColl has in this folder or below is
+    /// one (left out when it isn't)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    extra: bool,
 }
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -377,6 +381,7 @@ fn make_reward(root: &Path, dir: &Path, title: &str, recursive: bool) -> Option<
         notes: None,
         chosen_cover: None,
         own_cover: None,
+        extra: false,
     })
 }
 
@@ -1083,6 +1088,19 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
                     r.notes = notes.get(&full).cloned();
                 }
             }
+            // extras: MiColl's rewards can sit deeper (Extra/Sketches), so a folder counts
+            // when everything MiColl has in it is an extra; the pictures right in the
+            // month folder only by that folder itself
+            let extras = { let c = sh.src.db().conn(); reward_extras(&c) }.unwrap_or_default();
+            if extras.values().any(|e| *e) {
+                let folder_key = |folder: &str| path_key(&folder.split('/').fold(root.clone(), |p, part| p.join(part)));
+                for m in artists.iter_mut().flat_map(|a| &mut a.platforms).flat_map(|p| &mut p.months) {
+                    for r in &mut m.rewards {
+                        let deep = r.folder_path != m.folder_path;
+                        r.extra = all_extra(&extras, &folder_key(&r.folder_path), deep);
+                    }
+                }
+            }
             // the covers picked by hand, also as the shown cover
             let covers = { let c = sh.src.db().conn(); chosen_covers(&c) }.unwrap_or_default();
             let numbers = { let c = sh.src.db().conn(); period_numbers(&c) }.unwrap_or_default();
@@ -1449,6 +1467,30 @@ fn own_cover_file(root: &Path, abs: &str) -> Option<(PathBuf, u64)> {
     }
     let size = std::fs::metadata(&f).ok().filter(|m| m.is_file())?.len();
     Some((f, size))
+}
+
+/// Every reward's is_extra, by path_key of its folder.
+fn reward_extras(conn: &rusqlite::Connection) -> Result<BTreeMap<String, bool>, String> {
+    let mut stmt = conn.prepare("SELECT folder_path, is_extra FROM rewards").map_err(map_err)?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?)))
+        .map_err(map_err)?;
+    Ok(rows.flatten().map(|(f, e)| (path_key(Path::new(&f)), e.unwrap_or(0) != 0)).collect())
+}
+
+/// The rewards at `folder` (and below it with `deep`) are all extras, and there's one.
+fn all_extra(extras: &BTreeMap<String, bool>, folder: &str, deep: bool) -> bool {
+    let mut any = false;
+    for (k, e) in extras.range(folder.to_string()..).take_while(|(k, _)| k.starts_with(folder)) {
+        let rest = &k[folder.len()..];
+        if rest.is_empty() || (deep && rest.starts_with('\\')) {
+            if !e {
+                return false;
+            }
+            any = true;
+        }
+    }
+    any
 }
 
 /// A text column of every reward that has it set, by path_key of its folder (`tier`,
@@ -2320,7 +2362,7 @@ mod tests {
                                    preview_image TEXT);
              CREATE TABLE periods (folder_path TEXT, preview_image TEXT, number INTEGER);
              CREATE TABLE rewards (folder_path TEXT, tier TEXT, cover_image TEXT, cover_custom INTEGER NOT NULL DEFAULT 0,
-                                   notes TEXT);
+                                   notes TEXT, is_extra INTEGER NOT NULL DEFAULT 0);
              CREATE TABLE images (file_path TEXT);
              CREATE TABLE image_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, orig_path TEXT,
                                           file_path TEXT, label TEXT, created_at TEXT);
@@ -2386,6 +2428,30 @@ mod tests {
         assert_eq!(pinned_names(&c).len(), 2);
         db::set_setting(&c, "ui_prefs", "not json").unwrap();
         assert!(pinned_names(&c).is_empty());
+    }
+
+    /// a folder is an extra when MiColl has rewards there (or below, for a subfolder
+    /// reward) and all of them are extras
+    #[test]
+    fn extras_count_the_rewards_below() {
+        let extras: BTreeMap<String, bool> = [
+            ("c:\\m\\extra\\sketches", true),
+            ("c:\\m\\extra\\wip", true),
+            ("c:\\m\\mixed", false),
+            ("c:\\m\\mixed\\bonus", true),
+            ("c:\\m\\extras2", false),
+            ("c:\\m", true),
+        ]
+        .into_iter()
+        .map(|(k, e)| (k.to_string(), e))
+        .collect();
+        assert!(all_extra(&extras, "c:\\m\\extra", true), "only deeper rewards, all extras");
+        assert!(!all_extra(&extras, "c:\\m\\mixed", true));
+        assert!(!all_extra(&extras, "c:\\m\\none", true), "nothing in MiColl");
+        assert!(!all_extra(&extras, "c:\\m\\extras2", true), "a longer name isn't below");
+        // the pictures right in the month folder: only the folder itself counts
+        assert!(all_extra(&extras, "c:\\m", false));
+        assert!(!all_extra(&extras, "c:\\m\\extra", false));
     }
 
     #[test]
@@ -2687,6 +2753,22 @@ mod tests {
         assert_eq!(get(&format!("{k}/api/own-cover?f=Ahri/Patreon/2026/03/Other"), None).0, 404);
         assert_eq!(get(&format!("{k}/api/own-cover?f=../covers"), None).0, 400);
         assert_eq!(get(&format!("{k}/api/own-cover"), None).0, 400);
+        // extras: all of MiColl's rewards in the folder or below are extras
+        {
+            let c = shared.src.db().conn();
+            let shout = |p: &Path| p.to_string_lossy().to_uppercase();
+            c.execute("UPDATE rewards SET is_extra = 1 WHERE cover_custom = 0", []).unwrap();
+            c.execute("INSERT INTO rewards (folder_path, is_extra) VALUES (?1, 1)", [shout(&other.join("Sketches"))]).unwrap();
+            // one under Set is an extra, Set itself isn't
+            c.execute("INSERT INTO rewards (folder_path, is_extra) VALUES (?1, 1)", [shout(&set.join("Bonus"))]).unwrap();
+        }
+        let (_, body) = get(&format!("{k}/api/gallery"), None);
+        let g: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let rewards = g[0]["platforms"][0]["months"][0]["rewards"].as_array().unwrap();
+        let by_title = |t: &str| rewards.iter().find(|r| r["title"] == t).unwrap();
+        assert_eq!(by_title("Other")["extra"], true);
+        assert!(by_title("Set").get("extra").is_none());
+
         let wrong = k.replace("testkey1234", "wrongkey99");
         assert_eq!(get(&format!("{wrong}/api/own-cover?f=Ahri/Patreon/2026/03"), None).0, 401);
 

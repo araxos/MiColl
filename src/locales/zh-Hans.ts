@@ -2030,4 +2030,7 @@ export const dict: Dict = {
   "To another disk every file is copied and checked first. Stopping removes the copy, your collection stays where it was.": "移到另一个磁盘时，每个文件都会先复制并校验。停止会删除副本，收藏保持原位。",
   "The old folder {path} couldn’t be removed completely — everything in it is in the new place, delete it yourself.": "旧文件夹 {path} 未能完全删除——其中所有内容都已在新位置，请自行删除。",
   "{when}, before a restore": "{when}（恢复前）",
+  "Year details": "年度详情",
+  "Measuring this year’s files…": "正在计算今年的文件…",
+  "On MiSD": "在 MiSD 上",
 };

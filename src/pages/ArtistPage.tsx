@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ChevronLeft, Plus, PanelRight, BadgeCheck, ClipboardList, Trash2, Coffee, CopyCheck, RefreshCw, Star, Heart, Images, Calendar, CalendarOff, Check, FolderPlus, Hash, HardDrive, DatabaseBackup, BellOff } from "lucide-react";
+import { ChevronLeft, Plus, PanelRight, BadgeCheck, ClipboardList, Trash2, Coffee, CopyCheck, RefreshCw, Star, Heart, Images, Calendar, CalendarOff, Check, FolderPlus, Hash, HardDrive, DatabaseBackup, BellOff, Info } from "lucide-react";
 import { SakuraBlossomIcon } from "@/lib/classIcons";
 import { Layout, scrollPageToTop } from "@/components/Layout";
 import { MonthCard } from "@/components/MonthCard";
@@ -44,6 +44,7 @@ import * as api from "@/api/library";
 import { type MenuItem } from "@/components/ContextMenu";
 import { onPageDetails } from "@/lib/pageDetails";
 import { TileGate } from "@/components/TileGate";
+import { YearDetails } from "@/components/YearDetails";
 
 export function ArtistPage({ onLock }: { onLock: () => void }) {
   const { artistId = "" } = useParams();
@@ -1667,8 +1668,10 @@ function YearSection({
     );
   }
 
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const yearMenu = (e: React.MouseEvent) =>
     openMenu(e, [
+      { label: t("Details"), icon: <Info className="h-4 w-4" />, onClick: () => setDetailsOpen(true) },
       ...(sdItems.length
         ? [{ label: "MiSD", icon: <HardDrive className="h-4 w-4" />, children: sdItems }]
         : []),
@@ -1827,6 +1830,17 @@ function YearSection({
           </motion.div>
         )}
       </AnimatePresence>
+      {detailsOpen && (
+        <YearDetails
+          label={year != null ? String(year) : t("Misc")}
+          artistName={artistName}
+          platform={platform}
+          verified={verified}
+          monthPeriods={monthPeriods}
+          yearRewards={yearRewards.map((r) => r.reward)}
+          onClose={() => setDetailsOpen(false)}
+        />
+      )}
     </section>
   );
 }

@@ -2030,4 +2030,7 @@ export const dict: Dict = {
   "To another disk every file is copied and checked first. Stopping removes the copy, your collection stays where it was.": "別のディスクへは、すべてのファイルを先にコピーして確認します。停止するとコピーは削除され、コレクションは元の場所に残ります。",
   "The old folder {path} couldn’t be removed completely — everything in it is in the new place, delete it yourself.": "古いフォルダー {path} を完全には削除できませんでした。中身はすべて新しい場所にあるので、手動で削除してください。",
   "{when}, before a restore": "{when}（復元前）",
+  "Year details": "年の詳細",
+  "Measuring this year’s files…": "この年のファイルを計測中…",
+  "On MiSD": "MiSD 上",
 };

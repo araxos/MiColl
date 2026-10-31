@@ -2061,4 +2061,7 @@ export const dict: Dict = {
   "To another disk every file is copied and checked first. Stopping removes the copy, your collection stays where it was.": "Auf eine andere Platte wird jede Datei zuerst kopiert und geprüft. Stoppen entfernt die Kopie, deine Sammlung bleibt, wo sie war.",
   "The old folder {path} couldn’t be removed completely — everything in it is in the new place, delete it yourself.": "Der alte Ordner {path} ließ sich nicht ganz entfernen — alles darin ist am neuen Ort, lösch ihn selbst.",
   "{when}, before a restore": "{when}, vor einer Wiederherstellung",
+  "Year details": "Jahresdetails",
+  "Measuring this year’s files…": "Dateien dieses Jahres werden gemessen…",
+  "On MiSD": "Auf MiSD",
 };
