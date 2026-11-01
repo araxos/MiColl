@@ -2064,4 +2064,5 @@ export const dict: Dict = {
   "Year details": "Jahresdetails",
   "Measuring this year’s files…": "Dateien dieses Jahres werden gemessen…",
   "On MiSD": "Auf MiSD",
+  "{n} on MiSD, counted": "{n} auf MiSD, mitgezählt",
 };

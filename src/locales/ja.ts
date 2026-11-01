@@ -2033,4 +2033,5 @@ export const dict: Dict = {
   "Year details": "年の詳細",
   "Measuring this year’s files…": "この年のファイルを計測中…",
   "On MiSD": "MiSD 上",
+  "{n} on MiSD, counted": "{n} 件は MiSD 上(集計済み)",
 };

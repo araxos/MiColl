@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { FileArchive, HardDrive, Image as ImageIcon, PlayCircle } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { fmtBytes } from "@/components/RewardDetails";
-import { mediaStats } from "@/api/library";
+import { mediaStats, sdAvailable } from "@/api/library";
 import { isTauri } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { useTf, useTp } from "@/lib/i18n";
@@ -12,15 +12,35 @@ import type { Month } from "@/types";
  * What's in a month, next to "n owned": images, videos, other files and the size.
  * Only the month's own rewards (a borrowed collab counts toward its creator, a missing
  * one has no files). The size is one stat per file in the backend, measured when the
- * page opens (milliseconds on an SSD); rewards moved to an unplugged MiSD disk can't
- * be measured and are said so.
+ * page opens (milliseconds on an SSD). Rewards moved to the MiSD disk count while it's
+ * plugged in; unplugged they can't be measured and are said so.
  */
+
+// one question for all the months on a page (each asks right when the page opens)
+let diskAsked: { at: number; answer: Promise<boolean> } | null = null;
+function diskPluggedIn(): Promise<boolean> {
+  if (!diskAsked || Date.now() - diskAsked.at > 5000) {
+    diskAsked = { at: Date.now(), answer: sdAvailable().catch(() => false) };
+  }
+  return diskAsked.answer;
+}
+
 export function MonthStats({ month, className }: { month: Month; className?: string }) {
   const tf = useTf();
   const tp = useTp();
   const own = month.rewards.filter((r) => r.status === "owned" && !r.collabFrom);
   const offline = own.filter((r) => r.sdVolume).length;
-  const files = own.filter((r) => !r.sdVolume).flatMap((r) => r.images);
+  // is the MiSD disk plugged in? Then its rewards count too
+  const [disk, setDisk] = useState(false);
+  useEffect(() => {
+    if (!isTauri() || offline === 0) return;
+    let alive = true;
+    diskPluggedIn().then((ok) => alive && setDisk(ok));
+    return () => {
+      alive = false;
+    };
+  }, [offline]);
+  const files = own.filter((r) => disk || !r.sdVolume).flatMap((r) => r.images);
   const images = files.filter((f) => (f.kind ?? "image") === "image").length;
   const videos = files.filter((f) => f.kind === "video").length;
   const other = files.length - images - videos;
@@ -83,7 +103,7 @@ export function MonthStats({ month, className }: { month: Month; className?: str
           {files.length > 0 && sep}
           <span className="inline-flex items-center gap-1">
             <HardDrive className="h-3 w-3" />
-            {tf("{n} on MiSD, not counted", { n: offline })}
+            {tf(disk ? "{n} on MiSD, counted" : "{n} on MiSD, not counted", { n: offline })}
           </span>
         </>
       )}

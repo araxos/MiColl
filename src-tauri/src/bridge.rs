@@ -29,7 +29,8 @@
 //! files and one for the versions of each batch, and can be undone from there.
 //!
 //! Rewards MiSD moved to its disk are served at their old place while the disk is
-//! connected (SdView), the phone never sees the disk. Nothing is written to the disk.
+//! connected (SdView), the phone never sees the disk. Nothing from the phone goes into
+//! such a reward, neither onto the disk nor at its old place.
 
 use crate::{app_cache, crypto, db, db::DbLock, history, indexer, map_err, media_mime, parse_range, read_window, sd, session_key, Db, DekState, RANGE_CHUNK};
 use std::cell::OnceCell;
@@ -174,6 +175,9 @@ struct ArtistDto {
     /// in the graveyard folder, its paths start with it (left out when it isn't)
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     graveyard: bool,
+    /// the card is hidden on the desktop's dashboard (left out when it isn't)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    hidden: bool,
 }
 #[derive(Serialize, serde::Deserialize, Clone)]
 struct LinkDto {
@@ -275,6 +279,14 @@ fn pinned_names(conn: &rusqlite::Connection) -> HashSet<String> {
                 .map(|(_, name)| name.to_lowercase())
                 .collect()
         })
+        .unwrap_or_default()
+}
+
+/// The names of the creators hidden on the desktop's dashboard, lowercased.
+fn hidden_names(conn: &rusqlite::Connection) -> HashSet<String> {
+    let Ok(mut stmt) = conn.prepare("SELECT name FROM artists WHERE hidden = 1") else { return HashSet::new() };
+    stmt.query_map([], |r| r.get::<_, String>(0))
+        .map(|rows| rows.flatten().map(|n| n.to_lowercase()).collect())
         .unwrap_or_default()
 }
 
@@ -518,6 +530,7 @@ fn scan_dir(root: &Path, moved: &SdView, dir: &Path, graveyard: bool) -> Vec<Art
             chosen_cover: None,
             pinned: false,
             graveyard,
+            hidden: false,
         });
     }
     artists
@@ -564,33 +577,50 @@ fn join_rest(base: &Path, rest: &Path) -> PathBuf {
     if rest.as_os_str().is_empty() { base.to_path_buf() } else { base.join(rest) }
 }
 
+/// The moved rewards whose old place is in the served folder, deepest first. sd_origin
+/// is the old place; without one the disk's layout (the collection's, 1:1) tells it.
+fn sd_links(conn: &rusqlite::Connection, root: &Path, disk_root: &Path) -> Vec<SdLink> {
+    let rows: Vec<(String, Option<String>)> = conn
+        .prepare("SELECT folder_path, sd_origin FROM rewards WHERE sd_volume IS NOT NULL")
+        .and_then(|mut stmt| stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect())
+        .unwrap_or_default();
+    let mut links: Vec<SdLink> = rows
+        .into_iter()
+        .filter_map(|(folder, origin)| {
+            let disk = PathBuf::from(folder);
+            let old = match origin.filter(|o| !o.trim().is_empty()) {
+                Some(o) => PathBuf::from(o),
+                None => join_rest(root, &below(&disk, disk_root)?),
+            };
+            // somewhere in the served folder, never the folder itself
+            below(&old, root).filter(|r| r.components().next().is_some())?;
+            Some(SdLink { old_key: path_key(&old), disk_key: path_key(&disk), old, disk })
+        })
+        .collect();
+    links.sort_by_key(|l| std::cmp::Reverse(l.old.components().count()));
+    links
+}
+
+/// The old places of every moved reward, disk plugged in or not: nothing from the phone
+/// goes there (MiColl would make it a second reward next to the one on the disk).
+fn moved_away(conn: &rusqlite::Connection, root: &Path) -> Vec<SdLink> {
+    let disk_root = db::get_setting(conn, "sd_root").ok().flatten().map(PathBuf::from).unwrap_or_default();
+    sd_links(conn, root, &disk_root)
+}
+
+/// The path is in one of these rewards (or is one).
+fn in_moved(links: &[SdLink], p: &Path) -> bool {
+    let key = path_key(p);
+    links.iter().any(|l| below_key(p, &key, &l.old, &l.old_key).is_some())
+}
+
 impl SdView {
-    /// The moved rewards whose old place is in the served folder, when the disk is
-    /// connected. sd_origin is the old place; without one the disk's layout (the
-    /// collection's, 1:1) tells it.
+    /// The moved rewards, when the disk is connected.
     fn load(conn: &rusqlite::Connection, root: &Path) -> SdView {
         let Some(disk_root) = sd::connected_root(conn).map(PathBuf::from) else {
             return SdView::default();
         };
-        let rows: Vec<(String, Option<String>)> = conn
-            .prepare("SELECT folder_path, sd_origin FROM rewards WHERE sd_volume IS NOT NULL")
-            .and_then(|mut stmt| stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect())
-            .unwrap_or_default();
-        let mut links: Vec<SdLink> = rows
-            .into_iter()
-            .filter_map(|(folder, origin)| {
-                let disk = PathBuf::from(folder);
-                let old = match origin.filter(|o| !o.trim().is_empty()) {
-                    Some(o) => PathBuf::from(o),
-                    None => join_rest(root, &below(&disk, &disk_root)?),
-                };
-                // somewhere in the served folder, never the folder itself
-                below(&old, root).filter(|r| r.components().next().is_some())?;
-                Some(SdLink { old_key: path_key(&old), disk_key: path_key(&disk), old, disk })
-            })
-            .collect();
-        links.sort_by_key(|l| std::cmp::Reverse(l.old.components().count()));
-        SdView { links, disk_root }
+        SdView { links: sd_links(conn, root, &disk_root), disk_root }
     }
 
     /// Where a path at the old place is on the disk.
@@ -1275,8 +1305,10 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
             }
             let meta = meta();
             let pins = { let c = sh.src.db().conn(); pinned_names(&c) };
+            let hidden = { let c = sh.src.db().conn(); hidden_names(&c) };
             for a in &mut artists {
                 a.pinned = pins.contains(&a.name.to_lowercase());
+                a.hidden = hidden.contains(&a.name.to_lowercase());
                 if let Some(m) = meta.get(&a.name.to_lowercase()).cloned() {
                     a.kind = m.kind;
                     a.tag = m.tag;
@@ -1913,7 +1945,7 @@ fn same_version(
 }
 
 /// PUT /api/upload?p=<path>: a picture or video from the phone into the collection.
-/// Into a reward on the MiSD disk it lands at the old place, never on the disk.
+/// Never into a reward on the MiSD disk (409), plugged in or not.
 fn upload(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path, url: &str, moved: &LazySd) {
     let rel_in = query_param(url, "p").unwrap_or_default();
     let Some(full) = safe_path(root, &rel_in) else {
@@ -1923,6 +1955,10 @@ fn upload(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path, url: &str,
     let depth = full.strip_prefix(root).map(|r| r.components().count()).unwrap_or(0);
     if depth < 3 || !matches!(kind_for(&ext_lower(&full)), Some("image" | "video")) {
         return fail(req, 400, "only pictures and videos inside a creator folder");
+    }
+    let away = moved_away(&sh.src.db().conn(), root);
+    if in_moved(&away, &full) {
+        return fail(req, 409, "this reward is on the MiSD disk, bring it back in MiColl to add to it");
     }
     let enc = match encrypt_key(sh) {
         Ok(k) => k,
@@ -2111,7 +2147,8 @@ struct CheckItem {
 const MAX_CHECK: usize = 5000;
 
 /// POST /api/check: which of these does MiColl already have? Nothing is written.
-/// files: "same" + where it is, or "new" + where an upload would land.
+/// files: "same" + where it is, "new" + where an upload would land, or "misd" (it's for a
+/// reward on the MiSD disk, an upload would answer 409).
 /// versions: "same" (+ the version id, null = it's the original), "new", or "unknown"
 /// (MiColl doesn't know the original, an upload would answer 404).
 fn check(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path, moved: &LazySd) {
@@ -2136,6 +2173,7 @@ fn check(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path, moved: &Laz
     let key = sh.src.data_key();
     let hash_ok = |h: &str| h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit());
 
+    let away = moved_away(&sh.src.db().conn(), root);
     let files: Vec<serde_json::Value> = ask
         .files
         .iter()
@@ -2146,6 +2184,11 @@ fn check(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path, moved: &Laz
                 depth >= 3 && matches!(kind_for(&ext_lower(full)), Some("image" | "video"))
             });
             match full {
+                // in a reward on the MiSD disk: there already, or it can't go there
+                Some(full) if hash_ok(&hash) && in_moved(&away, &full) => match find_spot(&full, &hash, f.size, key, moved) {
+                    Spot::Same(at) => serde_json::json!({ "p": f.p, "result": "same", "path": rel(root, &at) }),
+                    _ => serde_json::json!({ "p": f.p, "result": "misd" }),
+                },
                 Some(full) if hash_ok(&hash) => match find_spot(&full, &hash, f.size, key, moved) {
                     Spot::Same(at) => serde_json::json!({ "p": f.p, "result": "same", "path": rel(root, &at) }),
                     Spot::Free(at, _) => serde_json::json!({ "p": f.p, "result": "new", "path": rel(root, &at) }),
@@ -2590,7 +2633,7 @@ mod tests {
             "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
              CREATE TABLE artists (id INTEGER PRIMARY KEY, name TEXT, kind TEXT, tag TEXT, tags TEXT, links TEXT, notes TEXT,
                                    aliases TEXT, template_verified INTEGER, no_dates INTEGER, tier_list TEXT,
-                                   preview_image TEXT);
+                                   preview_image TEXT, hidden INTEGER NOT NULL DEFAULT 0);
              CREATE TABLE periods (folder_path TEXT, preview_image TEXT, number INTEGER);
              CREATE TABLE rewards (folder_path TEXT, tier TEXT, cover_image TEXT, cover_custom INTEGER NOT NULL DEFAULT 0,
                                    notes TEXT, is_extra INTEGER NOT NULL DEFAULT 0, sd_volume TEXT, sd_origin TEXT);
@@ -2771,6 +2814,7 @@ mod tests {
         assert_eq!(m4["chosenCover"], "Ahri/Patreon/2026/04/Pack/p.png");
         // a whole creator
         let b = artist(&g, "Bea").unwrap();
+        assert!(b.get("hidden").is_none());
         assert_eq!(b["chosenCover"], "Bea/Fanbox/2025/01/Set/b.png");
         let set = reward(&month(&b, "Bea/Fanbox/2025/01").unwrap(), "Set").unwrap();
         assert_eq!(set["extra"], true);
@@ -2792,44 +2836,49 @@ mod tests {
         assert_eq!((code, body["result"].as_str()), (201, Some("added")));
         assert_eq!(std::fs::read_dir(base.join("versions")).unwrap().count(), 2);
 
-        // the same picture is there already; another one with its name gets a number and
-        // lands here, not on the disk
+        // nothing from the phone goes into a reward on the disk (MiColl would make it a
+        // second reward at the old place), next to one is fine
         let up = |p: &str| format!("{k}/api/upload?p={}", enc(p));
-        let (code, body) = put(&up("Ahri/Patreon/2026/03/Moved/m.png"), b"moved", None);
-        assert_eq!((code, body["result"].as_str()), (200, Some("same")));
-        let (code, body) = put(&up("Ahri/Patreon/2026/03/Moved/m.png"), b"other", None);
-        assert_eq!(
-            (code, body["result"].as_str(), body["path"].as_str()),
-            (201, Some("renamed"), Some("Ahri/Patreon/2026/03/Moved/m (2).png"))
-        );
-        assert_eq!(std::fs::read(march.join("Moved/m (2).png")).unwrap(), b"other");
-        assert!(!on_disk(&march.join("Moved/m (2).png")).exists());
-        let (_, body) = post(
-            &format!("{k}/api/check"),
-            &serde_json::json!({ "files": [
-                { "p": "Bea/Fanbox/2025/01/Set/b.png", "sha256": sha_hex(b"bea") },
-                { "p": "Bea/Fanbox/2025/01/Set/b.png", "sha256": sha_hex(b"new") },
-            ]}),
-        );
+        assert_eq!(put(&up("Ahri/Patreon/2026/03/Moved/m.png"), b"other", None).0, 409);
+        assert_eq!(put(&up("Ahri/Patreon/2026/04/new.png"), b"other", None).0, 409);
+        assert!(!march.join("Moved").exists() && !april.exists());
+        assert_eq!(put(&up("Ahri/Patreon/2026/03/New/n.png"), b"new one", None).0, 201);
+        // check: there already, or "misd" so the phone doesn't send it
+        let ask = || {
+            post(
+                &format!("{k}/api/check"),
+                &serde_json::json!({ "files": [
+                    { "p": "Bea/Fanbox/2025/01/Set/b.png", "sha256": sha_hex(b"bea") },
+                    { "p": "Bea/Fanbox/2025/01/Set/b.png", "sha256": sha_hex(b"new") },
+                    { "p": "Ahri/Patreon/2026/03/Set/x.png", "sha256": sha_hex(b"new") },
+                ]}),
+            )
+            .1
+        };
+        let body = ask();
         assert_eq!(body["files"][0]["result"], "same");
-        assert_eq!(
-            (body["files"][1]["result"].as_str(), body["files"][1]["path"].as_str()),
-            (Some("new"), Some("Bea/Fanbox/2025/01/Set/b (2).png"))
-        );
-        // the reward now is in both places, each file once
+        assert_eq!(body["files"][1]["result"], "misd");
+        assert_eq!(body["files"][2]["result"], "new");
+
+        // copied back by hand: a reward in both places, each file once
+        file(&march.join("Moved/m.png"), b"moved");
+        file(&march.join("Moved/h.png"), b"hand");
         let g = gallery();
         let mv = reward(&month(&artist(&g, "Ahri").unwrap(), "Ahri/Patreon/2026/03").unwrap(), "Moved").unwrap();
-        assert_eq!(paths(&mv), ["Ahri/Patreon/2026/03/Moved/m (2).png", "Ahri/Patreon/2026/03/Moved/m.png"]);
+        assert_eq!(paths(&mv), ["Ahri/Patreon/2026/03/Moved/h.png", "Ahri/Patreon/2026/03/Moved/m.png"]);
+        std::fs::remove_dir_all(march.join("Moved")).unwrap();
 
-        // unplugged: what's on the disk is left out, no error
+        // unplugged: what's on the disk is left out, no error, and still nothing goes there
         std::fs::remove_file(disk.join(sd::MARKER)).unwrap();
         let g = gallery();
         assert!(artist(&g, "Bea").is_none());
         let ahri = artist(&g, "Ahri").unwrap();
         assert!(month(&ahri, "Ahri/Patreon/2026/04").is_none());
-        let mv = reward(&month(&ahri, "Ahri/Patreon/2026/03").unwrap(), "Moved").unwrap();
-        assert_eq!(paths(&mv), ["Ahri/Patreon/2026/03/Moved/m (2).png"]);
+        assert!(reward(&month(&ahri, "Ahri/Patreon/2026/03").unwrap(), "Moved").is_none());
         assert_eq!(get(&format!("{k}/api/file?p={}", enc("Bea/Fanbox/2025/01/Set/b.png")), None).0, 404);
+        assert_eq!(put(&up("Ahri/Patreon/2026/03/Moved/m.png"), b"other", None).0, 409);
+        let body = ask();
+        assert_eq!((body["files"][0]["result"].as_str(), body["files"][1]["result"].as_str()), (Some("misd"), Some("misd")));
 
         for _ in 0..WORKERS {
             server.unblock();
@@ -2906,6 +2955,8 @@ mod tests {
                 .unwrap();
                 // pinned on the desktop (Ahri is id 1, 7 doesn't exist)
                 db::set_setting(&c, "ui_prefs", r#"{"micoll.pins":"[\"1\",\"7\"]","micoll.accent":"sakura"}"#).unwrap();
+                // hidden on the desktop's dashboard
+                c.execute("UPDATE artists SET hidden = 1 WHERE name = 'AHRI' COLLATE NOCASE", []).unwrap();
             }
             let shared = Arc::new(Shared::new(Box::new(src), "testkey1234".into(), HashSet::new()));
             let server = serve(0, shared).unwrap();
@@ -2952,6 +3003,7 @@ mod tests {
         assert_eq!(month["rewards"][0]["notes"], "Bonus PSD missing");
         assert_eq!(artists[0]["tiers"], serde_json::json!(["1", "2"]));
         assert_eq!(artists[0]["pinned"], true);
+        assert_eq!(artists[0]["hidden"], true);
         // with their platforms, in the creator's order
         assert_eq!(
             artists[0]["tierList"],

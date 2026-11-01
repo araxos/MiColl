@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { Loader2, X } from "lucide-react";
-import { mediaStats } from "@/api/library";
+import { mediaStats, sdAvailable } from "@/api/library";
 import { Cover } from "@/components/Cover";
 import { fmtBytes } from "@/components/RewardDetails";
 import { ThemeCheck } from "@/components/ThemeCheck";
@@ -18,7 +18,7 @@ import { ownRewards, type Month, type Reward } from "@/types";
 /**
  * Details of one year (or Misc) on a creator page, from the year header's right-click menu.
  * Counted from the library in memory, only the size is measured (one stat per file).
- * Rewards on an unplugged MiSD disk aren't measured and are said so.
+ * Rewards on the MiSD disk are measured while it's plugged in, otherwise it says so.
  */
 export function YearDetails({
   label,
@@ -52,6 +52,8 @@ export function YearDetails({
     ];
     const owned = rewards.filter((r) => r.status === "owned");
     const local = owned.filter((r) => !r.sdVolume);
+    const onDisk = owned.filter((r) => r.sdVolume);
+    const pathsOf = (list: Reward[]) => list.flatMap((r) => r.images.map((i) => i.path)).filter((p): p is string => !!p);
     const tracked = monthPeriods.filter((m) => !m.skipped && m.officialTotal != null);
     return {
       owned: owned.length,
@@ -59,21 +61,41 @@ export function YearDetails({
       skippedRewards: rewards.filter((r) => r.status !== "owned" && r.status !== "missing").length,
       files: owned.reduce((n, r) => n + r.imageCount, 0),
       localFiles: local.reduce((n, r) => n + r.imageCount, 0),
+      diskFiles: onDisk.reduce((n, r) => n + r.imageCount, 0),
       months: monthPeriods.filter((m) => !m.skipped).length,
       breaks: monthPeriods.filter((m) => m.skipped).length,
       offline: owned.length - local.length,
       official: tracked.length ? tracked.reduce((n, m) => n + (m.officialTotal || 0), 0) : null,
-      paths: local.flatMap((r) => r.images.map((i) => i.path)).filter((p): p is string => !!p),
+      paths: pathsOf(local),
+      diskPaths: pathsOf(onDisk),
       cover: owned.find((r) => r.cover)?.cover ?? "",
     };
   }, [monthPeriods, yearRewards]);
 
+  // is the MiSD disk plugged in? Then its rewards are measured too (null = still asking)
+  const [disk, setDisk] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!isTauri() || stats.offline === 0) return;
+    let alive = true;
+    sdAvailable()
+      .then((ok) => alive && setDisk(ok))
+      .catch(() => alive && setDisk(false));
+    return () => {
+      alive = false;
+    };
+  }, [stats.offline]);
+  const asking = stats.offline > 0 && disk === null;
+  const measured = useMemo(
+    () => (disk ? [...stats.paths, ...stats.diskPaths] : stats.paths),
+    [disk, stats.paths, stats.diskPaths],
+  );
+
   // size, unreadable files and the newest change, measured once on open
   const [size, setSize] = useState<{ bytes: number; missing: number; modified: number } | null>(null);
   useEffect(() => {
-    if (!isTauri() || stats.paths.length === 0) return;
+    if (!isTauri() || asking || measured.length === 0) return;
     let alive = true;
-    mediaStats(stats.paths)
+    mediaStats(measured)
       .then(
         (list) =>
           alive &&
@@ -88,8 +110,9 @@ export function YearDetails({
     return () => {
       alive = false;
     };
-  }, [stats.paths]);
-  const busy = isTauri() && stats.paths.length > 0 && !size;
+  }, [measured, asking]);
+  const busy = isTauri() && (asking || (measured.length > 0 && !size));
+  const filesToMeasure = stats.localFiles + (disk ? stats.diskFiles : 0);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -109,7 +132,7 @@ export function YearDetails({
     ? t("desktop app only")
     : size
       ? fmtBytes(size.bytes)
-      : busy || stats.localFiles > 0
+      : busy || filesToMeasure > 0
         ? t("measuring…")
         : fmtBytes(0);
 
@@ -129,7 +152,9 @@ export function YearDetails({
     ...(stats.breaks > 0 ? [row("Breaks", num(stats.breaks))] : []),
     ...(stats.missing > 0 ? [row("Missing", num(stats.missing))] : []),
     ...(stats.skippedRewards > 0 ? [row("Skipped", num(stats.skippedRewards))] : []),
-    ...(stats.offline > 0 ? [row("On MiSD", tf("{n} on MiSD, not counted", { n: num(stats.offline) }))] : []),
+    ...(stats.offline > 0 && !asking
+      ? [row("On MiSD", tf(disk ? "{n} on MiSD, counted" : "{n} on MiSD, not counted", { n: num(stats.offline) }))]
+      : []),
     ...(size && size.missing > 0
       ? [row("Not readable", tf("{n} — deleted, or on an unplugged disk", { n: num(size.missing) }))]
       : []),
