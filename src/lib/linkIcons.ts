@@ -72,6 +72,49 @@ const BRAND_SITES: [string, BrandKey][] = [
 
 const onSite = (host: string, site: string) => host === site || host.endsWith(`.${site}`);
 
+/**
+ * Hostname of a link without www (also works without https://). Empty if it's not a URL.
+ */
+export function hostOf(url: string): string {
+  try {
+    const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `https://${url}`;
+    return new URL(withScheme).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+/** Names that aren't the brand mark's title (FANBOX wears pixiv's mark). */
+const SITE_NAMES: [string, string][] = [
+  ["patreon.com", "Patreon"],
+  ["fansly.com", "Fansly"],
+  ["onlyfans.com", "OnlyFans"],
+  ["fanbox.cc", "Fanbox"],
+];
+
+/** Country domains with a second level in front (co.uk, com.br, ne.jp …). */
+const SECOND_LEVEL = new Set(["co", "com", "org", "net", "ne", "or", "ac", "gov", "edu"]);
+
+/**
+ * A name for a link, guessed from its address: the brand for sites we know, else the
+ * domain itself (https://yyy.com -> "Yyy", shop.yyy.co.uk -> "Yyy"). Empty if no URL.
+ */
+export function linkName(url: string): string {
+  const h = hostOf(url.trim()).toLowerCase();
+  if (!h) return "";
+  const named = SITE_NAMES.find(([site]) => onSite(h, site));
+  if (named) return named[1];
+  const brand = BRAND_SITES.find(([site]) => onSite(h, site));
+  if (brand) return BRAND_ICONS[brand[1]].title;
+  const parts = h.split(".");
+  if (parts.length < 2) return "";
+  // co.uk, com.br …: the name sits one further left
+  const n = parts.length;
+  const twoPart = n >= 3 && parts[n - 1].length === 2 && SECOND_LEVEL.has(parts[n - 2]);
+  const name = twoPart ? parts[n - 3] : parts[n - 2];
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
 /** Black marks (X, TikTok, Threads …) would vanish on the dark chips: those go light. */
 function brandColor(hex: string): string {
   // the brightest channel: YouTube's red stays red, near-black and slate go light

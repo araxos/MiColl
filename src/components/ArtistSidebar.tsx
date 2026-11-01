@@ -8,6 +8,7 @@ import { useData } from "@/store";
 import { useActions } from "@/actions";
 import { useAccent, toggleOnClass } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import { linkName } from "@/lib/linkIcons";
 import { useT, useTf, useTp } from "@/lib/i18n";
 import { platformKey, tierLabel, tierUsage, type TierUse } from "@/lib/tier";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -938,11 +939,16 @@ export function ArtistSidebar({
                   <div className="flex items-center gap-1.5">
                     <LinkIcon className="h-3.5 w-3.5 shrink-0 text-zinc-600" />
                     <input
-                      value={l.label}
-                      onChange={(e) => updateLink(i, { label: e.target.value })}
+                      value={l.url}
+                      onChange={(e) => {
+                        const url = e.target.value;
+                        // the name follows the address until it's typed by hand
+                        const auto = !l.label.trim() || l.label === linkName(l.url);
+                        updateLink(i, auto ? { url, label: linkName(url) } : { url });
+                      }}
                       onBlur={saveLinksIfDirty}
                       onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                      placeholder={t("Label (e.g. Patreon)")}
+                      placeholder={t("https://…")}
                       className={cn("h-7 min-w-0 flex-1 rounded-md border px-2 text-xs outline-none", fieldCls)}
                     />
                     <button
@@ -955,11 +961,11 @@ export function ArtistSidebar({
                   </div>
                   <div className="mt-1.5 flex items-center gap-1.5">
                     <input
-                      value={l.url}
-                      onChange={(e) => updateLink(i, { url: e.target.value })}
+                      value={l.label}
+                      onChange={(e) => updateLink(i, { label: e.target.value })}
                       onBlur={saveLinksIfDirty}
                       onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                      placeholder={t("https://…")}
+                      placeholder={t("Label (e.g. Patreon)")}
                       className={cn("h-7 min-w-0 flex-1 rounded-md border px-2 text-xs outline-none", fieldCls)}
                     />
                     {/* save button (clicking away also saves) */}

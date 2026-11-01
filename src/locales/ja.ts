@@ -2034,4 +2034,6 @@ export const dict: Dict = {
   "Measuring this year’s files…": "この年のファイルを計測中…",
   "On MiSD": "MiSD 上",
   "{n} on MiSD, counted": "{n} 件は MiSD 上(集計済み)",
+  "Spans months": "対象の月数",
+  "Only this month": "この月のみ",
 };

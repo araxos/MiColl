@@ -2034,4 +2034,6 @@ export const dict: Dict = {
   "Measuring this year’s files…": "正在计算今年的文件…",
   "On MiSD": "在 MiSD 上",
   "{n} on MiSD, counted": "{n} 个在 MiSD 上,已计入",
+  "Spans months": "涵盖月份",
+  "Only this month": "仅本月",
 };

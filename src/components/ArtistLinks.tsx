@@ -3,19 +3,7 @@ import type { ArtistLink } from "@/types";
 import * as api from "@/api/library";
 import { cn } from "@/lib/utils";
 import { useTf } from "@/lib/i18n";
-import { knownLinkIcon, siteIcon, type LinkIcon } from "@/lib/linkIcons";
-
-/**
- * Hostname of a link without www (also works without https://). Empty if it's not a URL.
- */
-function hostOf(url: string): string {
-  try {
-    const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `https://${url}`;
-    return new URL(withScheme).hostname.replace(/^www\./, "");
-  } catch {
-    return "";
-  }
-}
+import { hostOf, knownLinkIcon, siteIcon, type LinkIcon } from "@/lib/linkIcons";
 
 /**
  * The link's icon: our own logo for known platforms, else the site's own icon (fetched

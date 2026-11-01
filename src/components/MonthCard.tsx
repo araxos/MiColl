@@ -1,7 +1,7 @@
 import { memo, useCallback, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Check, FolderOpen, Trash2, RotateCcw, Coffee, BadgeCheck, CopyCheck, RefreshCw, HardDrive, DatabaseBackup, Sparkle } from "lucide-react";
+import { Check, FolderOpen, Trash2, RotateCcw, Coffee, BadgeCheck, CopyCheck, RefreshCw, HardDrive, DatabaseBackup, Sparkle, CalendarRange } from "lucide-react";
 import { SakuraBlossomIcon } from "@/lib/classIcons";
 import { openDuplicates } from "@/lib/duplicates";
 import { MonthMosaic } from "@/components/MonthMosaic";
@@ -17,6 +17,7 @@ import { useLibraryActions } from "@/store";
 import {
   setPeriodPreview,
   setPeriodSkipped,
+  setPeriodSpan,
   revealPeriod,
   folderPathOf,
   sdMark,
@@ -488,6 +489,31 @@ function MonthCardBase({
           ]
         : []),
     ];
+    // a reward folder for several months (no template needed): the card reads "03–05"
+    if (!skipped && month.number == null && month.year != null && month.month != null) {
+      const startYear = month.year;
+      const startMonth = month.month;
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const until = (n: number) => {
+        const m = startMonth + n - 1;
+        const y = startYear + Math.floor((m - 1) / 12);
+        const mm = pad(((m - 1) % 12) + 1);
+        return y === startYear ? `${pad(startMonth)}–${mm}` : `${pad(startMonth)} → ${y}-${mm}`;
+      };
+      items.push({
+        label: t("Spans months"),
+        icon: <CalendarRange className="h-4 w-4" />,
+        hint: month.span > 1 ? until(month.span) : undefined,
+        children: [1, 2, 3, 4, 6, 12].map((n) => ({
+          label: n === 1 ? t("Only this month") : tp("{n} months", n, { n }),
+          icon: month.span === n ? <Check className="h-4 w-4" /> : <span className="h-4 w-4" />,
+          hint: n > 1 ? until(n) : undefined,
+          onClick: () => {
+            if (backed && month.span !== n) void setPeriodSpan(month.id, n).then(() => refresh());
+          },
+        })),
+      });
+    }
     if (!empty) {
       items.push({
         label: t("Find duplicates"),

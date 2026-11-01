@@ -2141,4 +2141,6 @@ export const dict: Dict = {
   "Measuring this year’s files…": "Mierzenie plików z tego roku…",
   "On MiSD": "Na MiSD",
   "{n} on MiSD, counted": "{n} na MiSD, wliczone",
+  "Spans months": "Obejmuje miesiące",
+  "Only this month": "Tylko ten miesiąc",
 };
