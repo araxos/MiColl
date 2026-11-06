@@ -621,6 +621,14 @@ html[data-fx-idle="1"] .app-header .ruby-logo {
     0 0 9px rgba(255, 20, 100, 0.7),
     inset 0 0 0 1px rgba(255, 122, 168, 0.6);
 }
+/* the icons in silver: chrome strokes with a thin red edge on one side */
+[data-accent="corruptruby"] .app-header .ml-auto button:not(.ruby-keep-icon) svg {
+  stroke: url(#micoll-ruby-icon) #e6e9ef;
+  filter: drop-shadow(0.7px 0.7px 0 #ff1464);
+}
+[data-accent="corruptruby"] .app-header .ml-auto button:not(.ruby-keep-icon):hover:not(:disabled) svg {
+  filter: drop-shadow(0.7px 0.7px 0 #ff1464) drop-shadow(0 0 4px rgba(255, 214, 228, 0.8));
+}
 [data-accent="corruptruby"] header [data-lit] {
   color: #fff1f6;
   border: 1px solid #ff7aa8;
@@ -686,6 +694,19 @@ html[data-fx-idle="1"] .app-header .ruby-logo {
     0 0 8px #ff1464,
     0 0 24px rgba(255, 20, 100, 0.8);
 }
+/* template cards stay silver, the pink only comes from the light running round them */
+[data-accent="corruptruby"] .classic-card.ruby-card-silver {
+  border-width: 2px;
+  border-color: #ffffff;
+  box-shadow:
+    0 0 6px rgba(255, 255, 255, 0.55),
+    0 0 18px rgba(255, 20, 100, 0.85);
+}
+[data-accent="corruptruby"] .classic-card.ruby-card-silver:hover {
+  box-shadow:
+    0 0 8px rgba(255, 255, 255, 0.7),
+    0 0 26px rgba(255, 20, 100, 1);
+}
 /* cards without the frame (RubyCardFx): a light running round the rim. The turning
    square sits in a masked ring, so only its transform moves. */
 [data-accent="corruptruby"]:not([data-template-font="off"]) .cc-template-type:not(.ruby-frame-name) {
@@ -713,6 +734,7 @@ html[data-fx-idle="1"] .app-header .ruby-logo {
   background: conic-gradient(transparent 0 74%, #ff1464 88%, #ffd6e4 96%, #ff1464 99%, transparent);
 }
 .ruby-run-always {
+  background: conic-gradient(transparent 0 72%, #8e95a3 82%, #ffffff 90%, #ff7aa8 96%, #ff1464 99%, transparent);
   animation: ruby-run-spin 6s linear infinite;
 }
 .ruby-run-lap {
@@ -960,6 +982,110 @@ html[data-fx-idle="1"] .app-header .ruby-logo {
   0%, 100% { opacity: 0.55; }
   50% { opacity: 1; }
 }
+/* the pink light on a template card's silver: rests most of the time */
+.ruby-frame-sheen {
+  opacity: 0;
+  animation: ruby-frame-sheen 7s ease-in-out infinite;
+}
+.ruby-frame-sheen--b {
+  animation-duration: 9.5s;
+}
+@keyframes ruby-frame-sheen {
+  0%, 40%, 100% { opacity: 0; }
+  68% { opacity: 1; }
+}
+/* the ignition on a template card (hover): the two lines run, the leave pulls them back */
+.ruby-ignite-run {
+  stroke-dasharray: 1 2;
+  stroke-dashoffset: 1.01;
+  transition: stroke-dashoffset 0.3s ease-in;
+}
+.group:hover .ruby-ignite-run,
+.group:focus-visible .ruby-ignite-run {
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 0.55s cubic-bezier(0.3, 0, 0.2, 1);
+}
+.ruby-ignite-flash {
+  opacity: 0;
+}
+.group:hover .ruby-ignite-flash,
+.group:focus-visible .ruby-ignite-flash {
+  animation: ruby-ignite-flash 0.7s 0.5s ease-out both;
+}
+@keyframes ruby-ignite-flash {
+  0%, 100% { opacity: 0; stroke-width: 2px; }
+  25% { opacity: 1; stroke-width: 5px; }
+}
+/* template card on hover. Every shard comes out slowly, flips over at once, holds for a
+   moment and stabs in. Three nested parts, so a leave can undo them at any point. Once the
+   stab has landed each sigil shoots up and opens the tribal strip. */
+.ruby-shard-out,
+.ruby-shard-stab,
+.ruby-shard-flip {
+  transition: transform 0.1s ease-in;
+}
+.group:hover .ruby-shard-out,
+.group:focus-visible .ruby-shard-out {
+  transform: translate(var(--ox), var(--oy));
+  transition: transform 0.32s cubic-bezier(0.25, 0.6, 0.3, 1);
+}
+.group:hover .ruby-shard-flip,
+.group:focus-visible .ruby-shard-flip {
+  transform: rotate(var(--spin));
+  transition: transform 0s linear 0.32s;
+}
+.group:hover .ruby-shard-stab,
+.group:focus-visible .ruby-shard-stab {
+  transform: translate(var(--sx), var(--sy));
+  transition: transform 0.07s cubic-bezier(0.8, 0, 1, 0.7) 0.46s;
+}
+.ruby-sigil-base {
+  transition: opacity 0.1s ease-out 0.1s;
+}
+.group:hover .ruby-sigil-base,
+.group:focus-visible .ruby-sigil-base {
+  opacity: 0;
+  transition: opacity 0.05s linear 0.53s;
+}
+.ruby-sigil-white .ruby-sigil-morph {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.group:hover .ruby-sigil-white .ruby-sigil-morph,
+.group:focus-visible .ruby-sigil-white .ruby-sigil-morph {
+  animation: ruby-sigil-morph 0.14s cubic-bezier(0.8, 0, 0.6, 1) 0.53s both;
+}
+@keyframes ruby-sigil-morph {
+  0% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-130%) scale(0.3, 1.9); }
+}
+.ruby-tribal {
+  clip-path: inset(100% 0 0 0);
+  transition: clip-path 0.1s ease-in;
+}
+.group:hover .ruby-tribal,
+.group:focus-visible .ruby-tribal {
+  clip-path: inset(-5% -5% -5% -5%);
+  transition: clip-path 0.26s cubic-bezier(0.7, 0, 0.2, 1) 0.6s;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.ruby-shard-out, .ruby-shard-stab, .ruby-shard-flip, .ruby-sigil-base, .ruby-tribal) {
+    transition: none !important;
+  }
+  .ruby-sigil-white .ruby-sigil-morph {
+    animation: none !important;
+  }
+}
+html[data-fx-off~="holo.corruptruby"] .ruby-ignite {
+  display: none;
+}
+html[data-fx-off~="holo.corruptruby"] .ruby-tribals {
+  display: none;
+}
+html[data-fx-off~="holo.corruptruby"] :is(.ruby-shard-out, .ruby-shard-stab, .ruby-shard-flip) {
+  transform: none !important;
+}
 .ruby-haze {
   position: absolute;
   width: 88%;
@@ -998,14 +1124,6 @@ html[data-fx-idle="1"] .app-header .ruby-logo {
   mix-blend-mode: screen;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 .2 0 0 0 0 .45 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23g)'/%3E%3C/svg%3E");
 }
-.ruby-frame-fade {
-  position: absolute;
-  inset: 56% 0 0;
-  background: linear-gradient(180deg, transparent, rgba(20, 2, 8, 0.75) 50%, rgba(10, 1, 5, 0.96));
-}
-.ruby-frame-fade--chrome {
-  background: linear-gradient(180deg, transparent, rgba(40, 3, 14, 0.78) 50%, rgba(14, 1, 6, 0.96));
-}
 .ruby-ember {
   position: absolute;
   width: 2px;
@@ -1040,14 +1158,14 @@ html[data-fx-idle="1"] .app-header .ruby-logo {
   97% { opacity: 0.75; }
 }
 /* the holo switch stops what isn't unmounted with it */
-html[data-fx-off~="holo.corruptruby"] :is(.ruby-frame-glow, .ruby-haze, .ruby-frame-name, .ruby-month--max) {
+html[data-fx-off~="holo.corruptruby"] :is(.ruby-frame-glow, .ruby-frame-sheen, .ruby-haze, .ruby-frame-name, .ruby-month--max) {
   animation: none !important;
 }
-html[data-holo-freq="2"] :is(.ruby-run i, .ruby-frame-glow, .ruby-haze, .ruby-ember, .ruby-month--max) {
+html[data-holo-freq="2"] :is(.ruby-run i, .ruby-frame-glow, .ruby-frame-sheen, .ruby-haze, .ruby-ember, .ruby-month--max) {
   animation-play-state: paused !important;
 }
 @media (prefers-reduced-motion: reduce) {
-  :is(.ruby-run i, .ruby-spark, .ruby-frame-glow, .ruby-haze, .ruby-ember, .ruby-frame-name, .ruby-month--max) {
+  :is(.ruby-run i, .ruby-spark, .ruby-frame-glow, .ruby-frame-sheen, .ruby-haze, .ruby-ember, .ruby-frame-name, .ruby-month--max) {
     animation: none;
   }
 }

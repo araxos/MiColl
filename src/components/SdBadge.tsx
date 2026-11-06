@@ -18,19 +18,18 @@ const LOOK: Record<SdState, { Icon: typeof HardDrive; color: string }> = {
 };
 
 /**
- * MiSD marker on month/reward cards: just a colored icon.
- * Uses a portaled tooltip because the chip row is pointer-events-none and the tile clips.
+ * Portaled tooltip for a MiSD marker: the chip rows are pointer-events-none and the tiles
+ * clip.
  */
-export function SdBadge({
-  state,
+export function SdTip({
   title,
   className,
+  children,
 }: {
-  state: SdState;
   title?: string;
   className?: string;
+  children: React.ReactNode;
 }) {
-  const { Icon, color } = LOOK[state];
   const ref = useRef<HTMLSpanElement>(null);
   const [tip, setTip] = useState<{ left: number; top: number } | null>(null);
 
@@ -49,10 +48,7 @@ export function SdBadge({
         onMouseEnter={show}
         onMouseLeave={() => setTip(null)}
       >
-        <Icon
-          className={cn("h-4 w-4 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]", color)}
-          strokeWidth={2.5}
-        />
+        {children}
       </span>
       {tip &&
         title &&
@@ -66,6 +62,27 @@ export function SdBadge({
           document.body,
         )}
     </>
+  );
+}
+
+/** MiSD marker on month/reward cards: just a colored icon. */
+export function SdBadge({
+  state,
+  title,
+  className,
+}: {
+  state: SdState;
+  title?: string;
+  className?: string;
+}) {
+  const { Icon, color } = LOOK[state];
+  return (
+    <SdTip title={title} className={className}>
+      <Icon
+        className={cn("h-4 w-4 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]", color)}
+        strokeWidth={2.5}
+      />
+    </SdTip>
   );
 }
 

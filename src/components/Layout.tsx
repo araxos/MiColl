@@ -184,7 +184,7 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
           title={
             getHomeDblToggle() ? t("Home (double-click: switch SFW/NSFW)") : t("Home")
           }
-          className="flex items-center gap-2 transition-opacity hover:opacity-80"
+          className="group/home flex items-center gap-2"
         >
           {sakura ? (
             // sakura: the theme icon next to "Dashboard" morphs into a blossom (SakuraMark)
@@ -222,12 +222,14 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
               )}
             </span>
           )}
+          {/* only the text dims on hover, the mark stays as it is */}
           <span
-            className={
+            className={cn(
+              "transition-opacity group-hover/home:opacity-80",
               accent === "corruptruby"
                 ? "ruby-title"
-                : "text-[15px] font-semibold tracking-tight text-zinc-100"
-            }
+                : "text-[15px] font-semibold tracking-tight text-zinc-100",
+            )}
           >
             {t("Dashboard")}
           </span>
@@ -273,12 +275,27 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
               />
             </div>
           )}
+          {/* the chrome the Pyre header icons are stroked with (index.css). In icon units,
+              a box gradient would drop the straight lines of an icon */}
+          {accent === "corruptruby" && (
+            <svg aria-hidden className="absolute h-0 w-0">
+              <defs>
+                <linearGradient id="micoll-ruby-icon" gradientUnits="userSpaceOnUse" x1="2" y1="2" x2="22" y2="22">
+                  <stop offset="0" stopColor="#ffffff" />
+                  <stop offset="0.34" stopColor="#c8cdd8" />
+                  <stop offset="0.5" stopColor="#8a92a3" />
+                  <stop offset="0.66" stopColor="#ffffff" />
+                  <stop offset="1" stopColor="#d6dbe4" />
+                </linearGradient>
+              </defs>
+            </svg>
+          )}
           <Button
             variant="ghost"
             size="icon"
             onClick={() => window.dispatchEvent(new CustomEvent("micoll:search"))}
             title={t("Global search — find any creator or reward (Ctrl+K)")}
-            className="text-brand-300 hover:bg-brand-500/15 hover:text-brand-200"
+            className="ruby-keep-icon text-brand-300 hover:bg-brand-500/15 hover:text-brand-200"
           >
             <GlobeSearchIcon className="h-4 w-4" />
           </Button>

@@ -36,6 +36,7 @@ const SYNCED = [
   "micoll.hideNames",
   "micoll.cardNameSize",
   "micoll.cardPlus",
+  "micoll.backupMode",
   "micoll.cardMeta",
   "micoll.stripCreator",
   "micoll.showHidden",

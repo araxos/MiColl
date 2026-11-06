@@ -1,4 +1,4 @@
-import { VenetianMask, Palette, Clapperboard, Camera, Crown, Drama, Shapes, type LucideIcon } from "lucide-react";
+import { VenetianMask, Palette, Clapperboard, Camera, Crown, Drama, Shapes, Users, type LucideIcon } from "lucide-react";
 
 /** Creator type / role. Saved as a string on the artist (kind), these are the options. */
 export interface CreatorTypeDef {
@@ -20,6 +20,7 @@ export const CREATOR_TYPES: CreatorTypeDef[] = [
   { key: "Celeb", label: "Celeb", color: "text-fuchsia-300", Icon: Crown },
   { key: "Character", label: "Character", color: "text-emerald-300", Icon: Drama },
   { key: "Cosplayer", label: "Cosplayer", color: "text-pink-300", Icon: VenetianMask },
+  { key: "Group", label: "Group", color: "text-lime-300", Icon: Users },
   { key: "Model", label: "Model", color: "text-amber-300", Icon: Camera },
   { key: "Other", label: "Other", color: "text-zinc-300", Icon: Shapes },
 ];

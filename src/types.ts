@@ -227,7 +227,7 @@ export interface Artist {
    * set on rewards are added to it.
    */
   tierList?: TierEntry[];
-  /** Creator type: "Cosplayer" | "Artist" | "Animator" | "Model" | null. */
+  /** Creator type: a key from CREATOR_TYPES, several are comma separated. */
   kind?: string | null;
   /** Social media links. */
   links?: ArtistLink[];

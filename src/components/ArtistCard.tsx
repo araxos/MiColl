@@ -34,6 +34,7 @@ import { CyberCardFrame, CyberCardScreen, CARD_CLIP } from "@/components/CyberCa
 import { SakuraCardFrame, SakuraCardScreen, SAKURA_CARD_CLIP } from "@/components/SakuraCardFrame";
 import { IriCardFrame, IriCardScreen } from "@/components/IriCardFrame";
 import { RubyCardFrame, RubyCardFx, RubyCardScreen, RUBY_CARD_CLIP } from "@/components/RubyCardFrame";
+import { BackupMark } from "@/components/BackupMark";
 import { CreatorDetails } from "@/components/CreatorDetails";
 import { PlatformCheck } from "@/components/ThemeCheck";
 import { useFx, useFxPref } from "@/lib/fx";
@@ -48,6 +49,7 @@ import { useCardMeta } from "@/lib/cardMeta";
 import { useShowHidden } from "@/lib/showHidden";
 import { GraveyardIcon } from "@/lib/graveyardIcon";
 import { useCardPlus } from "@/lib/cardPlus";
+import { useBackupMode } from "@/lib/backupMode";
 import { useAccent, isPremium } from "@/lib/theme";
 import { useActions } from "@/actions";
 import { useLibraryActions } from "@/store";
@@ -823,10 +825,10 @@ function ArtistCardBase({
   const openTypeMenu = (e: React.MouseEvent) =>
     openMenu(
       e,
-      CREATOR_TYPES.map((t) => ({
-        label: t.label,
-        icon: <t.Icon className={`h-4 w-4 ${t.color}`} />,
-        onClick: () => void setArtistKind(artist.id, t.key).then(() => refresh()),
+      CREATOR_TYPES.map((ct) => ({
+        label: t(ct.label),
+        icon: <ct.Icon className={`h-4 w-4 ${ct.color}`} />,
+        onClick: () => void setArtistKind(artist.id, ct.key).then(() => refresh()),
       })),
     );
 
@@ -844,6 +846,7 @@ function ArtistCardBase({
   const cardMeta = useCardMeta();
   // the hover "+" button
   const showPlus = useCardPlus();
+  const backupMode = useBackupMode();
   const accent = useAccent();
   const [hovered, setHovered] = useState(false);
 
@@ -1146,7 +1149,10 @@ function ArtistCardBase({
                   ? "iri-edge"
                   : sak
                     ? "sak-edge"
-                    : "classic-card border border-zinc-800 bg-zinc-900"
+                    : cn(
+                        "classic-card border border-zinc-800 bg-zinc-900",
+                        ruby && hasTemplate && "ruby-card-silver",
+                      )
         }`}
         // clip to the frame outline so the cover ends at the border.
         // Not on iridescent: its cut corners are filled by the frame, a clip would remove
@@ -1184,7 +1190,7 @@ function ArtistCardBase({
       {/* every framed card, each one has its own timer (see SakuraCardScreen) */}
       {sakFrame && holoFx && <SakuraCardScreen tone={hasTemplate ? "bloom" : "petal"} />}
       {iriFrame && holoFx && <IriCardScreen tone={hasTemplate ? "prism" : "pearl"} />}
-      {/* always there: it also holds the fade behind the name, embers only with the fx */}
+      {/* always there: the grain stays, embers only with the fx */}
       {rubyFrame && <RubyCardScreen tone={hasTemplate ? "neon" : "chrome"} />}
 
       {holoFx &&
@@ -1292,6 +1298,17 @@ function ArtistCardBase({
       {/* "set type" fold, only without a type */}
       {showTypeCorner && <TypeCorner accent={accent} onOpen={openTypeMenu} />}
 
+      {/* corruptruby: the dark floor only comes up on hover, to keep the name readable */}
+      {ruby && (
+        <div
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute inset-x-0 bottom-0 h-[46%] bg-gradient-to-t from-black/85 via-black/40 to-transparent opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100 group-focus-visible:opacity-100",
+            rubyFrame && "z-[16]",
+          )}
+        />
+      )}
+
       {/* caption: the name, on hover it moves up and the platforms + count appear */}
       <div
         className={cn(
@@ -1303,8 +1320,11 @@ function ArtistCardBase({
           // iridescent frame, single line: lift the name off the frame's bottom edge
           // (template creators only, the others keep it low)
           iriFrame && !cardMeta && hasTemplate && "pb-4",
-          // corruptruby frame: above the frame's fade, clear of the mark on the bottom edge
-          rubyFrame && "z-[16] !from-transparent !via-transparent !pb-[15%]",
+          // corruptruby: no dark floor, the name carries its own tight shadow
+          ruby &&
+            "!from-transparent !via-transparent [text-shadow:0_1px_3px_rgba(0,0,0,0.95),0_0_10px_rgba(0,0,0,0.7)]",
+          // corruptruby frame: clear of the mark on the bottom edge
+          rubyFrame && "z-[16] !pb-[15%]",
           // with hidden names fade the whole shadow with the text
           hideNames &&
             "opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100 group-focus-visible:opacity-100",
@@ -1377,7 +1397,13 @@ function ArtistCardBase({
               menu) */}
         </div>
         {cardMeta && (
-        <div className="flex max-h-0 translate-y-2 items-center gap-2.5 overflow-hidden text-[9.5px] text-zinc-300 opacity-0 transition-all duration-300 ease-out group-hover:mt-1.5 group-hover:max-h-12 group-hover:translate-y-0 group-hover:opacity-100">
+        <div
+          className={cn(
+            "flex max-h-0 translate-y-2 items-center gap-2.5 overflow-hidden text-[9.5px] text-zinc-300 opacity-0 transition-all duration-300 ease-out group-hover:mt-1.5 group-hover:max-h-12 group-hover:translate-y-0 group-hover:opacity-100",
+            // clear of the tribal strip on the sides of a Pyre template card
+            rubyFrame && hasTemplate && "px-[14%]",
+          )}
+        >
           {badges.map((b) => (
             <span key={b.key} className="relative inline-flex">
               <img
@@ -1443,6 +1469,8 @@ function ArtistCardBase({
           <CardPin accent={accent} />
         </div>
       )}
+      {/* last and highest: over the frames, the pin and the "?" */}
+      {backed && backupMode && <BackupMark rewards={allOwned} />}
     </motion.button>
   );
 }

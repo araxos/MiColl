@@ -237,7 +237,7 @@ const SECTIONS: NavSection[] = [
     id: "misd",
     label: "MiSD",
     Icon: HardDrive,
-    keywords: "sd card external disk drive transport offline preview bring back volume storage space",
+    keywords: "sd card external disk drive transport offline preview bring back volume storage space backup mode status",
     desktopOnly: true,
   },
   {
@@ -428,7 +428,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
         // read the live value, the item can be clicked several times (keepOpen)
         onClick: () => frame.write(!frame.read()),
       },
-      { label: frame.info, info: true },
+      { label: t(frame.info), info: true },
       ...(key === "corruptruby"
         ? [
             {
@@ -437,7 +437,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
               toggled: rubyAltLogo ? logoOff : logoOn,
               onClick: () => setRubyAltLogo(!getRubyAltLogo()),
             },
-            { label: "Swaps the MiColl logo for a silver flame M.", info: true as const },
+            { label: t("Swaps the MiColl logo for a silver flame M."), info: true as const },
           ]
         : []),
       ...(hasFace

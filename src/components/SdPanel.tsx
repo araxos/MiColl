@@ -16,9 +16,11 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ProgressModal } from "@/components/ProgressModal";
 import { SdQueuedCreators } from "@/components/SdQueuedCreators";
+import { BackupGlyph } from "@/components/BackupMark";
 import { useActions } from "@/actions";
 import { useT, useTf, useTp } from "@/lib/i18n";
 import { useData } from "@/store";
+import { getBackupMode, setBackupMode } from "@/lib/backupMode";
 import { toggleOnClass, useAccent } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import * as api from "@/api/library";
@@ -54,6 +56,7 @@ export function SdPanel({ backed }: { backed: boolean }) {
   const [confirmBackup, setConfirmBackup] = useState(false);
   // live progress for the blocking overlay
   const [prog, setProg] = useState<SdProgress | null>(null);
+  const [backupMode, setBackupModeOn] = useState(getBackupMode);
 
   const reloadStatus = useCallback(async () => {
     if (!backed) return;
@@ -363,6 +366,48 @@ export function SdPanel({ backed }: { backed: boolean }) {
                 </p>
               </div>
               <Toggle checked={st.previews} onChange={(v) => void setPreviews(v)} />
+            </div>
+          )}
+          {st?.configured && (
+            <div
+              className={cn(
+                "mt-3 flex items-start justify-between gap-4 rounded-xl border px-4 py-3",
+                irid ? "glass-box border-white/15 bg-white/10 backdrop-blur-md" : "glass-box border-zinc-800 bg-zinc-900/40",
+              )}
+            >
+              <div className="min-w-0">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
+                  <DatabaseBackup className="h-4 w-4 text-zinc-400" />
+                  {t("Backup mode")}
+                </h3>
+                <p className="settings-desc mt-0.5 text-sm text-zinc-400">
+                  {t("Every creator card on the dashboard shows how much of it is on your MiSD disk:")}
+                </p>
+                <div className="settings-desc mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-400">
+                  <span className="inline-flex items-center gap-1.5">
+                    <BackupGlyph state="none" className="h-4 w-4" />
+                    {t("Nothing yet")}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <BackupGlyph state="some" className="h-4 w-4" />
+                    {t("Part of it")}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <BackupGlyph state="all" className="h-4 w-4" />
+                    {t("Everything")}
+                  </span>
+                </div>
+                <p className="settings-desc mt-1.5 text-xs text-zinc-500">
+                  {t("Rewards you moved to the disk count too. New imports turn the card orange again until they’re backed up.")}
+                </p>
+              </div>
+              <Toggle
+                checked={backupMode}
+                onChange={(v) => {
+                  setBackupModeOn(v);
+                  setBackupMode(v);
+                }}
+              />
             </div>
           )}
 
