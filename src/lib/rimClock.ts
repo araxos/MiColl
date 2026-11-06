@@ -16,7 +16,10 @@ const FPS = 12;
 /**
  * Where we are in the pass (0 -> 1). Computed from the clock so late cards stay in sync.
  */
-const phaseNow = () => (performance.now() % PERIOD_MS) / PERIOD_MS;
+const phaseNow = () => ((performance.now() - heldMs) % PERIOD_MS) / PERIOD_MS;
+/** How long the clock stood still, so the rim goes on from where it stopped. */
+let heldMs = 0;
+let idleAt = 0;
 
 type Tick = (phase: number) => void;
 
@@ -60,8 +63,14 @@ function stop() {
 if (typeof window !== "undefined") {
   onFxIdle((v) => {
     idle = v;
-    if (idle) stop();
-    else start();
+    if (idle) {
+      idleAt = performance.now();
+      stop();
+    } else {
+      if (idleAt) heldMs += performance.now() - idleAt;
+      idleAt = 0;
+      start();
+    }
   });
 }
 

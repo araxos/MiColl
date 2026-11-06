@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { isFxIdle, onFxIdle } from "@/lib/fx";
 import { subscribeHolo, HOLO } from "@/lib/holoEngine";
 import { HOLO_PERIOD_SCALE, useHoloFreq } from "@/lib/holoFreq";
 
@@ -110,15 +111,19 @@ export function IriHoloCard({
       ctx.clearRect(0, 0, cv.width, cv.height);
     };
 
-    const startBurst = () => {
-      if (!visible || unsub) return;
-      burstStart = performance.now();
-      unsub = subscribeHolo(draw);
-      // a bit extra time so it fades out fully
+    const scheduleEnd = (ms: number) => {
       endTimer = window.setTimeout(() => {
         stopBurst();
         nextTimer = window.setTimeout(startBurst, (period - active) * 1000);
-      }, (active + 0.5) * 1000);
+      }, ms);
+    };
+
+    const startBurst = () => {
+      if (!visible || unsub || isFxIdle()) return;
+      burstStart = performance.now();
+      unsub = subscribeHolo(draw);
+      // a bit extra time so it fades out fully
+      scheduleEnd((active + 0.5) * 1000);
     };
 
     const clearTimers = () => {
@@ -144,7 +149,22 @@ export function IriHoloCard({
     );
     io.observe(cv);
 
+    // the idle pause holds a burst where it is, its clock goes on from there
+    let idleAt = 0;
+    const stopIdle = onFxIdle((idle) => {
+      if (idle) {
+        idleAt = performance.now();
+        clearTimers();
+      } else if (idleAt) {
+        burstStart += performance.now() - idleAt;
+        idleAt = 0;
+        if (unsub) scheduleEnd(burstStart + (active + 0.5) * 1000 - performance.now());
+        else if (visible) nextTimer = window.setTimeout(startBurst, Math.random() * period * 1000);
+      }
+    });
+
     return () => {
+      stopIdle();
       io.disconnect();
       clearTimers();
       stopBurst();

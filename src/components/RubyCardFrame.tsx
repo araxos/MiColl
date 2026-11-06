@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { useFx } from "@/lib/fx";
+import { useFx, useFxIdle } from "@/lib/fx";
 import { cn } from "@/lib/utils";
 
 /**
@@ -103,8 +103,6 @@ export function RubyCardFrame({ tone }: { tone: Tone }) {
   const trim = neon ? `url(#${chromeId})` : PINK;
   // a template card: a white line in a pink aura, so it stands out from the plain chrome
   const glow = neon ? "#FFFFFF" : CRIMSON;
-  // the two crystals: ruby on a template card, silver on the others
-  const gem = neon ? PINK : `url(#${chromeId})`;
   // a template card's sigils and tribal strip: white with a neon pink rim
   const neonWhite = `drop-shadow(0 0 ${line(2)}px #FFFFFF) drop-shadow(0 0 ${line(6)}px ${PINK})`;
   const halo = neon
@@ -219,7 +217,7 @@ export function RubyCardFrame({ tone }: { tone: Tone }) {
                 stroke={main}
                 strokeWidth={line(1.2) / s}
               />
-              <path d="M0,-40 L4,-34 L0,-28 L-4,-34 Z" fill={gem} />
+              <path d="M0,-40 L4,-34 L0,-28 L-4,-34 Z" fill={PINK} />
             </g>
 
             {/* the jewel on the top edge */}
@@ -227,10 +225,10 @@ export function RubyCardFrame({ tone }: { tone: Tone }) {
               <path d="M-30,1 L-14,1 M14,1 L30,1" stroke={`url(#${chromeId})`} strokeWidth={3} fill="none" />
               <path
                 d="M0,-9 L9,1 L0,11 L-9,1 Z"
-                fill={gem}
-                stroke={neon ? `url(#${chromeId})` : "#4A0C22"}
+                fill={PINK}
+                stroke={`url(#${chromeId})`}
                 strokeWidth={1}
-                style={{ filter: `drop-shadow(0 0 5px ${neon ? PINK : "rgba(255,255,255,0.7)"})` }}
+                style={{ filter: `drop-shadow(0 0 5px ${PINK})` }}
               />
             </g>
 
@@ -370,11 +368,13 @@ const BURST_MS = 9000;
 /** On for a short burst every now and then, on this card's own random clock. */
 function useBurst(): boolean {
   const [burst, setBurst] = useState(false);
+  const idle = useFxIdle();
   useEffect(() => {
+    if (idle) return;
     const wait = burst ? BURST_MS : rnd(12_000, 60_000);
     const t = setTimeout(() => setBurst(!burst), wait);
     return () => clearTimeout(t);
-  }, [burst]);
+  }, [burst, idle]);
   return burst;
 }
 

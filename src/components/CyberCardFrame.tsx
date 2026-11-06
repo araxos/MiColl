@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useFx } from "@/lib/fx";
+import { useFx, useFxIdle } from "@/lib/fx";
 
 /**
  * Cyberpunk card frame for dashboard cards (when the theme's frame option is on).
@@ -93,13 +93,15 @@ export function CyberCardScreen({ tone, wave = 0 }: { tone: "yellow" | "cyan"; w
   const tearDelay = `${(wave * WAVE_STEP).toFixed(2)}s`;
   // one pass, then a long random wait, so the cards don't pulse together
   const [sweeping, setSweeping] = useState(false);
+  const idle = useFxIdle();
   useEffect(() => {
+    if (idle) return;
     // running: remove after 5s (in case onAnimationEnd never fires).
     // idle: wait 30s-3min for the next one.
     const delay = sweeping ? 5_000 : 30_000 + Math.random() * 150_000;
     const t = setTimeout(() => setSweeping(!sweeping), delay);
     return () => clearTimeout(t);
-  }, [sweeping]);
+  }, [sweeping, idle]);
 
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 z-[15] overflow-hidden">

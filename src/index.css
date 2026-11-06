@@ -591,8 +591,7 @@
   15% { filter: drop-shadow(0 0 4px rgba(255, 20, 100, 0.62)); }
   23% { filter: drop-shadow(0 0 10px rgba(255, 45, 122, 0.95)); }
 }
-[data-animations="off"] .app-header .ruby-logo,
-html[data-fx-idle="1"] .app-header .ruby-logo {
+[data-animations="off"] .app-header .ruby-logo {
   animation: none;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -693,6 +692,13 @@ html[data-fx-idle="1"] .app-header .ruby-logo {
   box-shadow:
     0 0 8px #ff1464,
     0 0 24px rgba(255, 20, 100, 0.8);
+}
+/* a light vignette on the creator covers */
+.ruby-cover-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 60%, rgba(0, 0, 0, 0.42) 100%);
 }
 /* template cards stay silver, the pink only comes from the light running round them */
 [data-accent="corruptruby"] .classic-card.ruby-card-silver {
@@ -3618,6 +3624,7 @@ img {
   [data-accent="iridescent"] .iri-check,
   [data-accent="iridescent"] .iri-home-plate,
   [data-accent="iridescent"] .sfw-dot::before,
+  [data-accent="corruptruby"] .sfw-dot,
   [data-accent="cyberpunk"] .sfw-dot,
   [data-accent="cyberpunk"] .sfw-dot::before,
   [data-accent="cyberpunk"] .sfw-dot::after {
@@ -3678,6 +3685,43 @@ img {
 [data-accent="sakura"] .sfw-dot {
   background: radial-gradient(circle at 50% 32%, #d1fae5 0%, #34d399 48%, #15803d 100%);
   box-shadow: 0 0 0 2px #09090b, 0 0 0 3.5px rgba(249, 168, 212, 0.85), 0 0 8px rgba(249, 168, 212, 0.6);
+}
+/* pyre: the logo's four-point star, a chrome blade with a green heart. The pink glow
+   breathes. Two pseudo elements, a clip would cut the glow on the dot itself. */
+[data-accent="corruptruby"] .sfw-dot,
+[data-accent="corruptruby"] .phone-dot {
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  --ruby-star: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  filter: drop-shadow(0 0 2px rgba(255, 20, 100, 0.7));
+  animation: ruby-dot-breathe 3.4s steps(34) infinite;
+}
+[data-accent="corruptruby"] .sfw-dot {
+  width: 15px;
+  height: 15px;
+}
+[data-accent="corruptruby"] .sfw-dot::before,
+[data-accent="corruptruby"] .sfw-dot::after,
+[data-accent="corruptruby"] .phone-dot::before,
+[data-accent="corruptruby"] .phone-dot::after {
+  content: "";
+  position: absolute;
+  clip-path: var(--ruby-star);
+}
+[data-accent="corruptruby"] .sfw-dot::before,
+[data-accent="corruptruby"] .phone-dot::before {
+  inset: 0;
+  background: linear-gradient(135deg, #ffffff 0%, #c9c3d1 45%, #ffffff 60%, #8a92a3 100%);
+}
+[data-accent="corruptruby"] .sfw-dot::after,
+[data-accent="corruptruby"] .phone-dot::after {
+  inset: 14%;
+  background: radial-gradient(circle, #a7f3d0 0%, #10d98a 40%, #059669 100%);
+}
+@keyframes ruby-dot-breathe {
+  0%, 100% { filter: drop-shadow(0 0 1.5px rgba(255, 20, 100, 0.6)); }
+  50% { filter: drop-shadow(0 0 3px rgba(255, 20, 100, 1)) drop-shadow(0 0 1px #ffffff); }
 }
 /* cyberpunk: glitchy neon green dot with magenta + cyan ghosts that snap out on glitches */
 [data-accent="cyberpunk"] .sfw-dot {
@@ -4238,31 +4282,194 @@ img {
   from { opacity: 0; }
 }
 
-/* pyre: a rim of neon breathing around the picture, embers rising over it */
-.aifx-ruby-rim {
+/* pyre: a night drive. --aifx-py-p (0..1) is how far the headlight has come along the
+   bottom bar: the job's progress, else it grows by time. */
+@property --aifx-py-p {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+.aifx-py {
+  transition: --aifx-py-p 0.7s ease-out;
+}
+.aifx-py--free {
+  animation: aifx-py-grow 30s cubic-bezier(0.1, 0.5, 0.3, 1) both;
+}
+@keyframes aifx-py-grow {
+  to { --aifx-py-p: 0.92; }
+}
+/* the picture at night: violet on top, magenta from below */
+.aifx-py-night {
   inset: 0;
-  border-radius: inherit;
-  box-shadow:
-    inset 0 0 0 1.5px #ff1464,
-    inset 0 0 26px rgba(255, 20, 100, 0.5);
-  animation:
-    aifx-in 1.2s ease both,
-    aifx-ruby-rim 3.2s ease-in-out infinite;
+  mix-blend-mode: multiply;
+  background: linear-gradient(180deg, #4b3a86 0%, #6e5a9c 45%, #8a4a8c 100%);
+  animation: aifx-in 1.1s ease both;
 }
-@keyframes aifx-ruby-rim {
-  50% {
-    box-shadow:
-      inset 0 0 0 1.5px #ff7aa8,
-      inset 0 0 52px rgba(255, 20, 100, 0.8);
-  }
-}
-.aifx-ruby-embers {
+/* the city and the trails add light: they need no fade of their own, each piece fades */
+.aifx-py-city,
+.aifx-py-trails {
   inset: 0;
   overflow: hidden;
   container-type: size;
+  mix-blend-mode: screen;
 }
-.aifx-ruby-embers .ruby-spark {
-  animation-iteration-count: infinite;
+/* out of focus: the blur is on the group, only transforms move below it */
+.aifx-py-city {
+  filter: blur(6px);
+  animation: aifx-in 1.6s ease both;
+}
+.aifx-py-city > span {
+  position: absolute;
+  left: 100%;
+  opacity: var(--op);
+  animation: aifx-py-pass 16s linear infinite;
+}
+@keyframes aifx-py-pass {
+  to { transform: translateX(calc(-100cqw - 100%)); }
+}
+.aifx-py-trails > span {
+  position: absolute;
+  left: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #fff 0, currentColor 3%, currentColor 30%, transparent);
+  box-shadow: 0 0 8px currentColor;
+  animation: aifx-py-pass 2s cubic-bezier(0.55, 0, 0.75, 1) infinite;
+}
+/* cinema bars close in */
+.aifx-py-bar {
+  left: 0;
+  right: 0;
+  height: 11%;
+  background: #050208;
+  animation: aifx-py-bar 0.7s cubic-bezier(0.7, 0, 0.2, 1) both;
+}
+.aifx-py-bar--top {
+  top: 0;
+  --from: -100%;
+  box-shadow: 0 1px 0 rgba(255, 45, 154, 0.5), 0 0 22px rgba(255, 20, 140, 0.35);
+}
+.aifx-py-bar--bottom {
+  bottom: 0;
+  --from: 100%;
+  box-shadow: 0 -1px 0 rgba(255, 45, 154, 0.5), 0 0 22px rgba(255, 20, 140, 0.35);
+}
+@keyframes aifx-py-bar {
+  from { transform: translateY(var(--from)); }
+}
+/* the road along the bottom bar and the headlight on it */
+.aifx-py-road {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 1.5px;
+  width: calc(var(--aifx-py-p) * 100%);
+  background: linear-gradient(90deg, transparent, #b14dff 20%, #ff2d9a 70%, #fff);
+  box-shadow: 0 0 8px #ff2d9a;
+}
+.aifx-py-beam {
+  position: absolute;
+  left: calc(var(--aifx-py-p) * 100%);
+  top: 50%;
+  width: 0;
+  height: 0;
+}
+/* a wide thin streak with a hot core: how a lens sees a headlight */
+.aifx-py-beam::before {
+  content: "";
+  position: absolute;
+  left: -130px;
+  top: -1px;
+  width: 260px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #ff5cc0 30%, #fff 50%, #ff5cc0 70%, transparent);
+  animation: aifx-py-beam 1.3s ease-in-out infinite;
+}
+.aifx-py-beam::after {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    0 0 10px 3px #ff5cc0,
+    0 0 26px 8px rgba(255, 45, 154, 0.7);
+}
+@keyframes aifx-py-beam {
+  50% { transform: scaleX(0.7); opacity: 0.75; }
+}
+/* its busy note: no box, a line of big type like a title in a film. A bold number next
+   to a thin word, the colours split at the edges and the light blooming */
+.aifx-note-py {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 12px;
+  max-width: min(80vw, 34rem);
+  color: #fff;
+  text-transform: uppercase;
+  animation: aifx-note-py-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+/* a soft dark behind it, a bright picture would swallow white type */
+.aifx-note-py::before {
+  content: "";
+  position: absolute;
+  inset: -34px -70px;
+  z-index: -1;
+  background: radial-gradient(closest-side, rgba(10, 3, 22, 0.62), transparent);
+}
+@keyframes aifx-note-py-in {
+  from { opacity: 0; letter-spacing: 0.2em; filter: blur(6px); }
+}
+.aifx-note-py-pct {
+  font-family: "Sora", sans-serif;
+  font-size: 42px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  text-shadow:
+    0 0 10px rgba(255, 255, 255, 0.7),
+    0 0 26px rgba(255, 45, 154, 0.8);
+}
+.aifx-note-py-word {
+  font-family: "Pyre Display", var(--ruby-display);
+  font-size: 42px;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+  text-align: center;
+  animation: aifx-note-py-split 4.2s steps(1) infinite;
+  text-shadow:
+    -1.2px 0 rgba(53, 224, 216, 0.75),
+    1.2px 0 rgba(255, 45, 154, 0.9),
+    0 0 12px rgba(255, 255, 255, 0.55),
+    0 0 30px rgba(255, 45, 154, 0.6);
+}
+/* now and then the split jumps, a lens catching a light */
+@keyframes aifx-note-py-split {
+  0%, 86%, 92%, 100% {
+    text-shadow:
+      -1.2px 0 rgba(53, 224, 216, 0.75),
+      1.2px 0 rgba(255, 45, 154, 0.9),
+      0 0 12px rgba(255, 255, 255, 0.55),
+      0 0 30px rgba(255, 45, 154, 0.6);
+  }
+  87%, 90% {
+    text-shadow:
+      -3px 0 rgba(53, 224, 216, 0.85),
+      3px 0 rgba(255, 45, 154, 1),
+      0 0 16px rgba(255, 255, 255, 0.8),
+      0 0 40px rgba(255, 45, 154, 0.8);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aifx-note-py,
+  .aifx-note-py-word {
+    animation: none;
+  }
 }
 
 /* iridescent: quiet and precious. A faint pearl sheen, a hairline of shifting pastel
@@ -5318,19 +5525,17 @@ html[data-holo-freq="1"] .app-content .animate-bounce {
 /* ---- Focus idling: nothing animates in a window nobody looks at -------- */
 /* While the idle pause applies (unfocused and/or minimized, as the Performance level
    says, fx.ts sets data-fx-idle) every decorative loop pauses on every accent.
+   Paused, never removed: everything stays exactly as it was and goes on from there.
    The WebGL engines pause through their own listeners. */
-html[data-fx-idle="1"] .app-content *,
-html[data-fx-idle="1"] .app-content *::before,
-html[data-fx-idle="1"] .app-content *::after,
-html[data-fx-idle="1"] .app-wallpaper *,
-html[data-fx-idle="1"] .app-wallpaper *::before,
-html[data-fx-idle="1"] .app-wallpaper *::after {
+html[data-fx-idle="1"] .aifx,
+html[data-fx-idle="1"] :is(.app-content, .app-wallpaper, .app-header, .micoll-viewer, .aifx) *,
+html[data-fx-idle="1"] :is(.app-content, .app-wallpaper, .app-header, .micoll-viewer, .aifx) *::before,
+html[data-fx-idle="1"] :is(.app-content, .app-wallpaper, .app-header, .micoll-viewer, .aifx) *::after {
   animation-play-state: paused !important;
 }
-html[data-fx-idle="1"] .app-content .animate-spin,
-html[data-fx-idle="1"] .app-content .animate-pulse,
-html[data-fx-idle="1"] .app-content .animate-ping,
-html[data-fx-idle="1"] .app-content .animate-bounce {
+/* loaders go on, and a card coming or going must not stop halfway */
+html[data-fx-idle="1"] :is(.app-content, .app-header, .micoll-viewer, .aifx) :is(.animate-spin, .animate-pulse, .animate-ping, .animate-bounce),
+html[data-fx-idle="1"] .app-content :is(.card-entering, .card-leaving) {
   animation-play-state: running !important;
 }
 
@@ -5797,6 +6002,50 @@ html[data-fx-idle="1"] .app-content .animate-bounce {
   border-color: rgba(255, 255, 255, 0.45);
   --new-ink: #3f1027;
   box-shadow: 0 1px 8px rgba(236, 72, 153, 0.4);
+}
+
+/* pyre: a chrome plate with two cut corners. The plate and the shine are clipped, not the
+   badge, or the clip would cut its glow */
+[data-accent="corruptruby"] .new-badge {
+  --ruby-plate: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+  overflow: visible;
+  padding: 1px 9px 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: #2a0512;
+  font-family: "Pyre Display", var(--ruby-display);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.09em;
+  box-shadow: none;
+  filter: drop-shadow(0 0 4px rgba(255, 20, 100, 0.85));
+}
+[data-accent="corruptruby"] .new-badge::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  clip-path: var(--ruby-plate);
+  background: linear-gradient(115deg, #ffffff 0%, #c9c3d1 30%, #ffe6f0 50%, #7e7688 68%, #f4f0f6 100%);
+}
+[data-accent="corruptruby"] .new-badge::after {
+  z-index: -1;
+  clip-path: var(--ruby-plate);
+  transform: none;
+  background: linear-gradient(105deg, transparent 38%, rgba(255, 92, 151, 0.9) 50%, transparent 62%) no-repeat;
+  background-size: 300% 100%;
+  animation-name: ruby-new-sweep;
+}
+@keyframes ruby-new-sweep {
+  0%, 62% { background-position: 120% 0; }
+  88%, 100% { background-position: -20% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="corruptruby"] .new-badge::after {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 /* cyberpunk: square, cut corner, its yellow */
@@ -7316,6 +7565,12 @@ html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-acc
   94% {
     opacity: 0.25;
   }
+}
+
+/* pyre: the same star as its SFW mark, see .sfw-dot */
+[data-accent="corruptruby"] .phone-dot {
+  height: 13px;
+  width: 13px;
 }
 
 /* sakura: a soft petal-pink halo that breathes around it */

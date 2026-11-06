@@ -53,6 +53,7 @@ const FRAG = `
 export type HoloDraw = (frame: HTMLCanvasElement) => void;
 
 let idle = false;
+let idleAt = 0;
 
 let canvas: HTMLCanvasElement | null = null;
 let gl: WebGLRenderingContext | null = null;
@@ -77,8 +78,15 @@ const subs = new Set<HoloDraw>();
 if (typeof window !== "undefined") {
   onFxIdle((v) => {
     idle = v;
-    if (idle) stopLoop();
-    else if (subs.size) startLoop();
+    if (idle) {
+      idleAt = performance.now();
+      stopLoop();
+    } else {
+      // the shader clock stood still too, or the picture jumps on the way back
+      if (idleAt && startT) startT += performance.now() - idleAt;
+      idleAt = 0;
+      if (subs.size) startLoop();
+    }
   });
 }
 

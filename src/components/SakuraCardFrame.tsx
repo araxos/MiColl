@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useState, type CSSProperties } from "react";
-import { useFx } from "@/lib/fx";
+import { useFx, useFxLive } from "@/lib/fx";
 
 /**
  * Sakura card frame for dashboard cards (when the sakura frame option is on).
@@ -156,16 +156,17 @@ function randomPetals() {
  */
 export function SakuraCardScreen({ tone }: { tone: Tone }) {
   const anim = useFx("holo");
+  const live = useFxLive("holo");
   // one pass, then a random wait, so cards never do it together
   const [sweeping, setSweeping] = useState(false);
   useEffect(() => {
-    if (!anim) return;
+    if (!live) return;
     // running: safety timer (2x the animation) in case onAnimationEnd never fires.
     // idle: wait 15-75s.
     const delay = sweeping ? SWEEP_MS * 2 : 15_000 + Math.random() * 60_000;
     const t = setTimeout(() => setSweeping(!sweeping), delay);
     return () => clearTimeout(t);
-  }, [sweeping, anim]);
+  }, [sweeping, live]);
   // this card's own petals, drawn once per mount
   const petals = useMemo(randomPetals, []);
   // warmer on template cards, cooler on plain ones, kept faint

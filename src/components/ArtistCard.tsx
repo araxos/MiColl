@@ -37,7 +37,7 @@ import { RubyCardFrame, RubyCardFx, RubyCardScreen, RUBY_CARD_CLIP } from "@/com
 import { BackupMark } from "@/components/BackupMark";
 import { CreatorDetails } from "@/components/CreatorDetails";
 import { PlatformCheck } from "@/components/ThemeCheck";
-import { useFx, useFxPref } from "@/lib/fx";
+import { useFx } from "@/lib/fx";
 import { useCyberFrame } from "@/lib/cyberFrame";
 import { useSakuraFrame } from "@/lib/sakuraFrame";
 import { useIriFrame } from "@/lib/iriFrame";
@@ -838,8 +838,6 @@ function ArtistCardBase({
   // the VHS screen of the cyberpunk frame (scanlines, shine, tape tears) has its own
   const vhsFx = useFx("vhs");
   const tagsFx = useFx("tags");
-  // hover effects use the saved switch only (see useCardFxPref)
-  const tagsPref = useFxPref("tags");
   const hideNames = useHideNames();
   const nameSize = useCardNameSize();
   // platform logos + reward count under the name
@@ -1179,6 +1177,8 @@ function ArtistCardBase({
         </div>
       </div>
 
+      {ruby && <div aria-hidden className="ruby-cover-vignette" />}
+
       {/* holo overlay. Iridescent: template cards get IriTemplateHolo, others IriHoloCard.
           Sakura: template cards get IriTemplateHolo in blossom colours, others a blossom
           sheen (.micoll-holo). Cyberpunk: template cards get CyberHoloCard, others the CSS
@@ -1244,15 +1244,14 @@ function ArtistCardBase({
       )}
 
       {/* class icon top left. Its visibility is a setting (0% = not rendered).
-          On premium accents it fades out on hover (the hover effect replaces it).
-          Uses the saved switch (tagsPref), not the idle pause. */}
+          On premium accents it fades out on hover (the hover effect replaces it). */}
       {tag && classIconOpacity > 0 && (
         // own layer as query container (container-type on the card root would break fixed
         // children)
         <div className="pointer-events-none absolute inset-0 z-10 [container-type:size]">
           <div
             className="absolute left-2 top-2 transition-opacity duration-200 ease-out"
-            style={{ opacity: premium && tagsPref && hovered ? 0 : classIconOpacity / 100 }}
+            style={{ opacity: premium && tagsFx && hovered ? 0 : classIconOpacity / 100 }}
           >
             <tag.Icon
               aria-label={tag.label}

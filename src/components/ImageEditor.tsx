@@ -38,7 +38,7 @@ import { cn } from "@/lib/utils";
 import { useT, useTf } from "@/lib/i18n";
 import { isTauri } from "@/lib/tauri";
 import { queuePrefsSync } from "@/lib/prefs";
-import { useFxPref } from "@/lib/fx";
+import { useFx } from "@/lib/fx";
 import { useActions } from "@/actions";
 import {
   readImage,
@@ -267,7 +267,7 @@ export function ImageEditor({
   const tf = useTf();
   const { showToast } = useActions();
   // the theme's loading animation has its own switch (Settings → Animations)
-  const editorFx = useFxPref("editor");
+  const editorFx = useFx("editor");
   // a failed step says so instead of just stopping
   const failed = (title: string, err: unknown) => {
     console.error(title, err);

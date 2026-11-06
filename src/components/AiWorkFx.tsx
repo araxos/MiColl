@@ -11,7 +11,9 @@ import type { AccentKey } from "@/lib/theme";
  *   · cyberpunk: scanlines, a scan bar, red data streams and a rare thin glitch
  *   · sakura: cherry branches growing out of the left edge one above the other, their
  *     blossoms opening and only then letting petals go on the wind (see SakuraFx)
- *   · pyre: a neon rim that burns brighter and dims again, embers rising over the picture
+ *   · pyre: a night drive. Cinema bars close in, the picture sinks into violet night,
+ *     city lights pass out of focus and light trails race across it. A headlight runs
+ *     along the bottom bar with the job.
  * Basic themes get nothing (the busy note is enough there). Off with the Animations
  * switch (index.css). Pure CSS, the numbers below only place the pieces.
  */
@@ -115,42 +117,104 @@ export function AiWorkFx({
     );
   }
   if (accent === "sakura") return <SakuraFx progress={progress} />;
-  if (accent === "corruptruby") return <PyreFx />;
+  if (accent === "corruptruby") return <PyreFx progress={progress} />;
   return null;
 }
 
-/** Pyre: the rim breathes and embers keep rising, reused from the theme's cards. */
-function PyreFx() {
-  const embers = useMemo(
+/** The colours of the night city: mostly pink and violet, a little cyan and gold. */
+const PYRE_LIGHTS = ["#ff2d9a", "#b14dff", "#ff5c97", "#ff1464", "#7a5cff", "#35e0d8", "#ffc46b"];
+
+/** Pyre: a night drive, see the top of this file. Without a known progress it runs by time. */
+function PyreFx({ progress }: { progress: number | null }) {
+  // never back down: HQ starts its second half at 50%
+  const [peak, setPeak] = useState(0);
+  useEffect(() => {
+    if (progress != null) setPeak((p) => Math.max(p, progress));
+  }, [progress]);
+  const seed = (i: number, k: number) => {
+    const v = Math.sin((i + 1) * 37.71 + k * 11.13) * 24634.63;
+    return v - Math.floor(v);
+  };
+  // the city going by, far away and out of focus: round lights and lit windows
+  const lights = useMemo(
     () =>
-      Array.from({ length: 22 }, (_, i) => ({
-        left: `${(3 + ((i * 47) % 94)).toFixed(0)}%`,
-        height: 5 + (i * 7) % 11,
-        duration: `${(3.5 + ((i * 13) % 40) / 10).toFixed(1)}s`,
-        delay: `-${(((i * 29) % 70) / 10).toFixed(1)}s`,
-        drift: `${((i * 11) % 28) - 14}cqw`,
+      Array.from({ length: 22 }, (_, i) => {
+        const near = seed(i, 1) > 0.55;
+        const tall = seed(i, 2) > 0.62;
+        const size = 10 + seed(i, 3) * (near ? 46 : 20);
+        return {
+          top: `${10 + seed(i, 4) * 78}%`,
+          width: tall ? size * 0.5 : size,
+          height: tall ? size * 1.6 : size,
+          radius: tall ? "3px" : "50%",
+          color: PYRE_LIGHTS[Math.floor(seed(i, 5) * PYRE_LIGHTS.length)],
+          duration: `${(near ? 7 : 15) + seed(i, 6) * 8}s`,
+          delay: `-${(seed(i, 7) * 22).toFixed(1)}s`,
+          opacity: near ? 0.36 : 0.22,
+        };
+      }),
+    [],
+  );
+  // the light trails: long and thin, racing past at different depths
+  const trails = useMemo(
+    () =>
+      Array.from({ length: 9 }, (_, i) => ({
+        top: `${14 + seed(i, 8) * 70}%`,
+        width: `${35 + seed(i, 9) * 55}%`,
+        height: 1 + Math.floor(seed(i, 10) * 3),
+        color: PYRE_LIGHTS[Math.floor(seed(i, 11) * 4)],
+        duration: `${1.1 + seed(i, 12) * 2.2}s`,
+        delay: `-${(seed(i, 13) * 5).toFixed(1)}s`,
       })),
     [],
   );
   return (
-    <div className="aifx" aria-hidden>
-      <div className="aifx-ruby-rim" />
-      <div className="aifx-ruby-embers">
-        {embers.map((e, i) => (
+    <div
+      className={progress == null ? "aifx aifx-py aifx-py--free" : "aifx aifx-py"}
+      style={progress == null ? undefined : ({ "--aifx-py-p": peak } as React.CSSProperties)}
+      aria-hidden
+    >
+      <div className="aifx-py-night" />
+      <div className="aifx-py-city">
+        {lights.map((l, i) => (
           <span
             key={i}
-            className="ruby-spark"
             style={
               {
-                left: e.left,
-                height: e.height,
-                animationDuration: e.duration,
-                animationDelay: e.delay,
-                "--drift": e.drift,
+                top: l.top,
+                width: l.width,
+                height: l.height,
+                borderRadius: l.radius,
+                background: l.color,
+                animationDuration: l.duration,
+                animationDelay: l.delay,
+                "--op": l.opacity,
               } as React.CSSProperties
             }
           />
         ))}
+      </div>
+      <div className="aifx-py-trails">
+        {trails.map((t, i) => (
+          <span
+            key={i}
+            style={
+              {
+                top: t.top,
+                width: t.width,
+                height: t.height,
+                color: t.color,
+                animationDuration: t.duration,
+                animationDelay: t.delay,
+              } as React.CSSProperties
+            }
+          />
+        ))}
+      </div>
+      <div className="aifx-py-bar aifx-py-bar--top" />
+      <div className="aifx-py-bar aifx-py-bar--bottom">
+        <i className="aifx-py-road" />
+        <b className="aifx-py-beam" />
       </div>
     </div>
   );
@@ -348,7 +412,8 @@ export function useLongBusy(busy: boolean, after = 450): boolean {
  * The note in the middle while the editor works. On iridescent a glass card with the
  * theme's crystal, filling with the real progress (0..1) or gently rising and falling
  * when there's none. On cyberpunk a HUD readout with a segmented bar, on sakura a
- * cherry blossom whose petals fill one by one. Elsewhere the plain spinner note.
+ * cherry blossom whose petals fill one by one, on pyre a line of big type like a title
+ * in a film, its colours split at the edges. Elsewhere the plain spinner note.
  */
 export function BusyNote({
   accent,
@@ -392,6 +457,15 @@ export function BusyNote({
             />
           ))}
         </div>
+      </div>
+    );
+  }
+  if (accent === "corruptruby") {
+    const pct = progress == null ? null : Math.max(0, Math.min(1, progress)) * 100;
+    return (
+      <div className="aifx-note-py">
+        {pct != null && <span className="aifx-note-py-pct">{Math.round(pct)}%</span>}
+        <span className="aifx-note-py-word">{msg.replace(/[….]+$/, "")}</span>
       </div>
     );
   }

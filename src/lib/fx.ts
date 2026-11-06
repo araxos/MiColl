@@ -5,7 +5,10 @@
  *
  * It works in two ways: a data-animations attribute on <html> for the CSS, and
  * useCardFx() so React can unmount canvas/WebGL effects completely.
- * The idle pause (lib/perf) uses this same switch.
+ *
+ * The idle pause (lib/perf) is NOT this switch: the switch takes an effect away, the pause
+ * only holds it where it is, so the window looks the same when it comes back.
+ * CSS pauses through <html data-fx-idle>, JS loops and timers through onFxIdle/useFxLive.
  *
  * Under the main switch each group of effects can be turned off on its own (FxGroup).
  * The groups are remembered while the main switch is off and apply again when it comes
@@ -88,14 +91,6 @@ export function getCardFx(): boolean {
   }
 }
 
-/**
- * Are animations on right now? (user switch AND idle pause)
- * The idle pause never changes the saved setting.
- */
-function cardFxNow(): boolean {
-  return getCardFx() && !idleSuppressed();
-}
-
 /** last value we told the subscribers, so we only re-render on a change */
 let lastEffective: boolean | null = null;
 
@@ -104,7 +99,7 @@ let lastEffective: boolean | null = null;
  * CSS alone can't stop SMIL or canvas effects, so React has to be told too.
  */
 function applyAttr(): void {
-  const on = cardFxNow();
+  const on = getCardFx();
   try {
     document.documentElement.dataset.animations = on ? "on" : "off";
     document.documentElement.dataset.fxOff = [...offGroups].join(" ");
@@ -150,7 +145,6 @@ function recomputeIdle(): void {
   const idle = idleSuppressed();
   const changed = !applied || idle !== idleNow;
   idleNow = idle;
-  // always recompute, winMinimized can change while already idle
   applyAttr();
   if (!changed) return;
   applied = true;
@@ -242,12 +236,8 @@ export function useFxIdle(): boolean {
   return idle;
 }
 
-/**
- * Only the user's saved switch, without the idle pause.
- * Used for hover effects: if the mouse is on a card, someone is looking at it,
- * even if the window isn't focused.
- */
-export function useCardFxPref(): boolean {
+/** Is the main switch on? */
+export function useCardFx(): boolean {
   const [on, setOn] = useState(getCardFx);
   useEffect(() => {
     const l = () => setOn(getCardFx());
@@ -260,20 +250,19 @@ export function useCardFxPref(): boolean {
   return on;
 }
 
-/** Is this group running right now? (main switch + idle pause + its own switch) */
+/** Is this group on? (main switch + its own switch) It stays on during the idle pause. */
 export function useFx(group: FxGroup): boolean {
-  const live = useCardFx();
+  const on = useCardFx();
   const accent = useAccent();
   useGroupsVersion();
-  return live && getFxGroup(group, accent);
+  return on && getFxGroup(group, accent);
 }
 
-/** The saved switches only (main + group), without the idle pause. See useCardFxPref. */
-export function useFxPref(group: FxGroup): boolean {
-  const pref = useCardFxPref();
-  const accent = useAccent();
-  useGroupsVersion();
-  return pref && getFxGroup(group, accent);
+/** Is this group moving right now? For timers: they wait out the idle pause. */
+export function useFxLive(group: FxGroup): boolean {
+  const on = useFx(group);
+  const idle = useFxIdle();
+  return on && !idle;
 }
 
 /** Re-renders when a group switch changes (the main hooks only fire on main changes). */
@@ -288,17 +277,3 @@ function useGroupsVersion(): void {
   }, []);
 }
 
-/** Are animations on right now? (user switch + idle pause) */
-export function useCardFx(): boolean {
-  const [on, setOn] = useState(cardFxNow);
-  useEffect(() => {
-    const l = () => setOn(cardFxNow());
-    listeners.add(l);
-    // the window may have gone idle since the render
-    l();
-    return () => {
-      listeners.delete(l);
-    };
-  }, []);
-  return on;
-}

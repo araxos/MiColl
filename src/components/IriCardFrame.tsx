@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useFx } from "@/lib/fx";
+import { useFx, useFxLive } from "@/lib/fx";
 import { subscribeRim } from "@/lib/rimClock";
 
 /**
@@ -250,11 +250,12 @@ const SPARKS = [
  */
 export function IriCardScreen({ tone }: { tone: Tone }) {
   const anim = useFx("holo");
+  const live = useFxLive("holo");
   // one pass, then a random wait, so cards never do it together (like SakuraCardScreen)
   const graded = tone === "prism";
   const [sweeping, setSweeping] = useState(false);
   useEffect(() => {
-    if (!anim) return;
+    if (!live) return;
     // running: safety timer in case onAnimationEnd never fires.
     // idle: 15-75s until the next one (half on template cards)
     const delay = sweeping
@@ -262,7 +263,7 @@ export function IriCardScreen({ tone }: { tone: Tone }) {
       : (graded ? 7_000 : 15_000) + Math.random() * (graded ? 28_000 : 60_000);
     const t = setTimeout(() => setSweeping(!sweeping), delay);
     return () => clearTimeout(t);
-  }, [sweeping, anim, graded]);
+  }, [sweeping, live, graded]);
   const band =
     tone === "prism"
       ? "transparent 26%, rgba(196,181,253,0.3) 39%, rgba(245,194,255,0.26) 47%, rgba(167,243,208,0.24) 55%, rgba(186,230,253,0.28) 62%, transparent 76%"
