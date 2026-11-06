@@ -13,12 +13,14 @@ import {
   findWallpaperPreset,
   IRI_DEFAULT_WALLPAPER,
   CYBER_DEFAULT_WALLPAPER,
+  RUBY_DEFAULT_WALLPAPER,
 } from "@/lib/wallpaperPresets";
 import { isTauri } from "@/lib/tauri";
 import { readImage } from "@/api/library";
 import { SakuraFx } from "@/components/SakuraFx";
 import { SakuraStill } from "@/components/SakuraStill";
 import { SakuraMoonPond } from "@/components/SakuraMoonPond";
+import { RubyEmberWall } from "@/components/RubyEmberWall";
 // CyberpunkFx (the old glitch background) stays in the codebase but isn't mounted
 import { CyberpunkAnimated, type CyberAnimatedId } from "@/components/CyberpunkAnimated";
 import { IridescentFx } from "@/components/IridescentFx";
@@ -82,13 +84,20 @@ export function AppWallpaper() {
     accent === "cyberpunk" && animated ? (cyberPreset?.animated as CyberAnimatedId | undefined) : undefined;
   // same for sakura (Moon pond)
   const sakAnim = sakura && preset?.accent === "sakura" && preset.animated === "moon-pond";
+  // corruptruby works like cyberpunk: a default picture, which moves when it may
+  const rubyDefault =
+    accent === "corruptruby" && (!wallpaperPath || (isWallpaperPreset(wallpaperPath) && !preset))
+      ? findWallpaperPreset(RUBY_DEFAULT_WALLPAPER)
+      : undefined;
+  const rubyPreset = preset?.accent === "corruptruby" ? preset : rubyDefault;
+  const rubyAnim = accent === "corruptruby" && animated && rubyPreset?.animated === "ember";
   // the picture painted over the whole background (the shader preset is handled by
   // iridStill)
-  const custom = cyberAnim || sakAnim
+  const custom = cyberAnim || sakAnim || rubyAnim
     ? ""
     : preset
       ? preset.url
-      : (iriDefault?.url ?? cyberDefault?.url ?? file);
+      : (iriDefault?.url ?? cyberDefault?.url ?? rubyDefault?.url ?? file);
 
   // a custom picture covers everything, so skip the iridescent shader behind it
   const iridStill = !custom && !animated && accent === "iridescent" && !!snapshot;
@@ -132,6 +141,7 @@ export function AppWallpaper() {
       {cyberAnim && <CyberpunkAnimated variant={cyberAnim} />}
       {/* sakura's moving Moon pond, same place (the petals of SakuraFx fall over it) */}
       {sakAnim && <SakuraMoonPond />}
+      {rubyAnim && <RubyEmberWall />}
       {custom && (
         <div
           className="absolute inset-0 bg-cover bg-center"

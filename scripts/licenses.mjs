@@ -41,6 +41,7 @@ const manual = [
     "licenses/Apache-2.0.txt",
   ],
   ["KDA font by Bryan Torres (CC BY-SA 4.0)", "https://ko-fi.com/brylark", "licenses/KDA-Font-CC-BY-SA-4.0.txt"],
+  ["Pyre Display font (OFL 1.1)", "Our own cut of Italiana by Santiago Orozco, made with scripts/make-pyre-font.py.", "licenses/PyreDisplay-OFL-1.1.txt"],
   [
     "Simple Icons 16.35.0 (CC0 1.0)",
     "https://simpleicons.org

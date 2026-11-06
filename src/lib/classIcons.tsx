@@ -237,6 +237,97 @@ const CP_NEW: readonly Px[] = [
 ];
 export const CyberSparkIcon: ClassIcon = (props) => <CyberPixels px={CP_NEW} {...props} />;
 
+/* ---- Pyre set (premium skin, silver blades) ----------------------------- */
+/* Every icon is put together from sharp blades with thin gaps between them, in one
+   chrome gradient. Like the iridescent set they ignore the text colour and each copy
+   gets its own gradient id. Drawn in a 100 box, half a glyph is mirrored around x = 50. */
+
+/** The chrome all pyre icons are cut from. */
+function RubyGrad({ id }: { id: string }) {
+  return (
+    <linearGradient id={id} x1="0" y1="0" x2="100" y2="100" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stopColor="#F4F6FA" />
+      <stop offset="0.35" stopColor="#8E95A3" />
+      <stop offset="0.55" stopColor="#FFFFFF" />
+      <stop offset="0.8" stopColor="#B9A2B0" />
+      <stop offset="1" stopColor="#E9EDF2" />
+    </linearGradient>
+  );
+}
+
+function RubyBlades({
+  svg,
+  half = [],
+  whole = [],
+}: {
+  svg: SVGProps<SVGSVGElement>;
+  /** Blades drawn on the left, mirrored to the right. */
+  half?: string[];
+  /** Blades drawn once. */
+  whole?: string[];
+}) {
+  const id = useId();
+  const g = `url(#${id})`;
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="-6 -6 112 112" width={24} height={24} {...svg}>
+      <defs><RubyGrad id={id} /></defs>
+      {half.map((d) => (
+        <g key={d} fill={g}>
+          <path d={d} />
+          <path d={d} transform="translate(100 0) scale(-1 1)" />
+        </g>
+      ))}
+      {whole.map((d) => (
+        <path key={d} d={d} fill={g} />
+      ))}
+    </svg>
+  );
+}
+
+/** Heart of two blades (heart class). */
+export const RubyHeartIcon: ClassIcon = (props) => (
+  <RubyBlades svg={props} half={["M47 96 L8 52 C-2 36 10 12 30 16 C38 18 44 26 47 36 Z"]} />
+);
+
+/** Five blades meeting in the middle (star class). */
+export const RubyStarIcon: ClassIcon = (props) => {
+  const id = useId();
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="-6 -6 112 112" width={24} height={24} {...props}>
+      <defs><RubyGrad id={id} /></defs>
+      {ROT5.map((a) => (
+        <path key={a} d="M50 50 L44 30 L50 0 L56 30 Z" transform={`rotate(${a} 50 50)`} fill={`url(#${id})`} />
+      ))}
+    </svg>
+  );
+};
+
+/** A diamond split into four blades (diamond class). */
+export const RubyDiamondIcon: ClassIcon = (props) => (
+  <RubyBlades svg={props} half={["M47 4 L47 44 L12 44 Z", "M47 96 L47 56 L12 56 Z"]} />
+);
+
+/** Two blade lids around a small diamond (eye class). */
+export const RubyEyeIcon: ClassIcon = (props) => (
+  <RubyBlades
+    svg={props}
+    half={[
+      "M4 46 C22 18 40 20 47 22 L47 36 C34 34 20 38 4 46 Z",
+      "M4 54 C22 82 40 80 47 78 L47 64 C34 66 20 62 4 54 Z",
+    ]}
+    whole={["M50 38 L62 50 L50 62 L38 50 Z"]}
+  />
+);
+
+/** Three blades rising (new class). */
+export const RubyNewIcon: ClassIcon = (props) => (
+  <RubyBlades
+    svg={props}
+    half={["M36 58 L12 16 L30 40 L40 74 Z"]}
+    whole={["M50 2 L58 56 L50 98 L42 56 Z"]}
+  />
+);
+
 /* ---- Iridescent set (premium skin, holographic-jewel style) ------------ */
 /* Flat faceted icons with one holographic gradient (no outline).
    They ignore the text color. Each one gets its own gradient id (useId)

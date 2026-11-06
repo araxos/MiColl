@@ -69,7 +69,7 @@ export function StatsPanel({ onClose }: { onClose: () => void }) {
   const { panel, divider, box, soft, accent: accentFill, accentText } = useDialogTheme();
   const accent = useAccent();
   const cyber = accent === "cyberpunk";
-  const premium = cyber || accent === "iridescent" || accent === "sakura";
+  const premium = cyber || accent === "iridescent" || accent === "sakura" || accent === "corruptruby";
   // soft has no radius, cyberpunk gets square corners
   const rowRadius = cyber ? "rounded-none" : "rounded-lg";
   // bars use the accent fill on premium themes, standard ones keep their two colors
@@ -80,7 +80,9 @@ export function StatsPanel({ onClose }: { onClose: () => void }) {
       ? "shadow-[0_0_10px_rgba(245,194,255,0.35)]"
       : accent === "sakura"
         ? "shadow-[0_0_10px_rgba(236,72,153,0.4)]"
-        : "";
+        : accent === "corruptruby"
+          ? "shadow-[0_0_10px_#ff1464]"
+          : "";
   // dashed placeholder ("No rewards yet", "Measuring...")
   const emptyBox = cn("border border-dashed p-3 text-center text-xs text-zinc-500", divider, rowRadius);
   const stats = useMemo(() => computeStats(artists), [artists]);

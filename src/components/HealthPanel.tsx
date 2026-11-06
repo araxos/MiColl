@@ -57,7 +57,9 @@ export function HealthPanel({ onClose }: { onClose: () => void }) {
       ? "shadow-[0_0_16px_rgba(196,181,253,0.4)]"
       : accent === "sakura"
         ? "shadow-[0_0_14px_rgba(236,72,153,0.35)]"
-        : "";
+        : accent === "corruptruby"
+          ? "shadow-[0_0_14px_rgba(255,20,100,0.7)]"
+          : "";
   const badgeInk = cyber || accent === "iridescent" ? "text-zinc-950" : "text-white";
 
   // Escape closes the prune question first, then the panel

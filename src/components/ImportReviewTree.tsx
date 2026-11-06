@@ -18,6 +18,7 @@ import {
   RotateCcw,
   Tag,
   Eye,
+  Pencil,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
@@ -27,11 +28,13 @@ import { ImportClashDialog } from "@/components/ImportClashDialog";
 import { ImportStatsLine } from "@/components/ImportStatsLine";
 import * as api from "@/api/library";
 import type { ImportPlan, ResolvedReward, StyleChoice } from "@/api/library";
-import type { ReleaseStyle } from "@/types";
+import type { Month, ReleaseStyle } from "@/types";
 import { PLATFORMS } from "@/lib/platforms";
 import { usePlatformOptions, addPlatform as registerPlatform } from "@/lib/platformRegistry";
 import { useData } from "@/store";
 import { TierCombo } from "@/components/TierCombo";
+import { NameCombo } from "@/components/NameCombo";
+import { customMonthNames, customYearNames, uniqueNames } from "@/lib/customOrder";
 import { ImportPreviewDialog, type PreviewReward } from "@/components/ImportPreviewDialog";
 import { noteImportReview, useInboxWaiting } from "@/components/InboxWatcher";
 import { creatorTiers, platformKey } from "@/lib/tier";
@@ -181,7 +184,12 @@ type DraftRow = {
   tier?: string;
   imageCount: number;
   /** What the analyzer saw (used again when the style flips back). */
-  det: { year: number | null; month: number | null; number: number | null };
+  det: {
+    year: number | null;
+    month: number | null;
+    number: number | null;
+    levels?: api.CustomLevels;
+  };
   /** Editable period fields (text, can be empty). */
   year: string;
   month: string;
@@ -200,6 +208,7 @@ type DraftRow = {
 const STYLE_META: { key: ReleaseStyle; label: string; icon: typeof CalendarDays; hint: string }[] = [
   { key: "monthly", label: "Monthly", icon: CalendarDays, hint: "Periods are year + month (2026-02)" },
   { key: "numbered", label: "Numbered drops", icon: Hash, hint: "Each drop is its own card (#51, #52 …) — no dates" },
+  { key: "custom", label: "Custom", icon: Pencil, hint: "Your own names for years and cards (Summer, Part 1 …)" },
   { key: "none", label: "No schedule", icon: CalendarOff, hint: "Just rewards — no period cards at all" },
 ];
 
@@ -405,10 +414,27 @@ export function ImportReviewTree({
    */
   const droppedStyle: ReleaseStyle | null =
     defaultYear != null || defaultMonth != null
-      ? "monthly"
+      ? defaultStyle === "custom"
+        ? "custom"
+        : "monthly"
       : defaultNumber != null
         ? "numbered"
         : null;
+
+  /** The names of the year and month card this was dropped on (custom style). */
+  const droppedNames = (creator: string): { year: string; month: string } => {
+    if (defaultYear == null) return { year: "", month: "" };
+    const a = artists.find((x) => normName(x.name) === normName(creator));
+    const months = (a?.platforms ?? [])
+      .filter((p) => p.releaseStyle === "custom" && (!defaultPlatform || p.name === defaultPlatform))
+      .flatMap((p) => p.months)
+      .filter((m) => m.year === defaultYear);
+    const card = months.find((m) => m.month === defaultMonth);
+    return {
+      year: months[0]?.yearName ?? String(defaultYear),
+      month: defaultMonth == null ? "" : defaultMonth <= 12 ? pad2(defaultMonth) : card?.label ?? "",
+    };
+  };
 
   /* ---- draft state ------------------------------------------------------ */
 
@@ -445,7 +471,7 @@ export function ImportReviewTree({
         root: r.root,
         extra: false,
         imageCount: r.imageCount,
-        det: { year: r.year, month: r.month, number: r.number },
+        det: { year: r.year, month: r.month, number: r.number, levels: plan.levels?.[r.folder] },
         year: "",
         month: "",
         num: "",
@@ -523,6 +549,15 @@ export function ImportReviewTree({
         row.num = String(n);
         row.year = "";
         row.month = "";
+      } else if (s === "custom") {
+        // the card it was dropped on, else the folders above it, else a date in its name
+        const dropped = droppedNames(row.creator);
+        const { det } = row;
+        row.year = dropped.year || det.levels?.year || (det.year != null ? String(det.year) : "");
+        row.month = dropped.year
+          ? dropped.month
+          : det.levels?.month || (det.month != null ? pad2(det.month) : "");
+        row.num = "";
       } else {
         row.year = "";
         row.month = "";
@@ -665,6 +700,13 @@ export function ImportReviewTree({
       if (y) return { key: y, label: y, sort: Number(y) * 100 };
       return { key: "misc", label: t("Misc"), sort: -1 };
     }
+    if (s === "custom") {
+      const y = r.year.trim();
+      const m = r.month.trim();
+      if (!y) return { key: "misc", label: t("Misc"), sort: -1 };
+      const label = m ? `${y} › ${m}` : y;
+      return { key: label.toLowerCase(), label, sort: 0 };
+    }
     return { key: "unscheduled", label: t("Unscheduled"), sort: -1 };
   };
 
@@ -742,6 +784,7 @@ export function ImportReviewTree({
         node.rows.push(r);
         periods.set(key, node);
       }
+      // custom names stay in the order they came in, that's the order they're made in
       const sorted = [...periods.values()].sort((a, b) => b.sort - a.sort);
       return { creator, style: s, periods: sorted, count: list.length };
     });
@@ -758,6 +801,45 @@ export function ImportReviewTree({
   const platformOf = (v: string): string | null =>
     v === MISC ? MISC_PLATFORM : v && v !== UNSORTED ? v : null;
 
+  /** The custom names to offer, by creator and platform: the library's, then this review's. */
+  const customPool = useMemo(() => {
+    const pool = new Map<string, { months: Month[]; rows: DraftRow[] }>();
+    for (const row of rows) {
+      if (row.mergedInto !== null) continue;
+      const key = `${normName(row.creator)}\u0001${platformKey(platformOf(row.platform))}`;
+      let entry = pool.get(key);
+      if (!entry) {
+        const plat = platformKey(platformOf(row.platform));
+        const a = artists.find((x) => normName(x.name) === normName(row.creator));
+        const own = a?.platforms.filter((p) => p.releaseStyle === "custom" && platformKey(p.name) === plat);
+        entry = { months: (own ?? []).flatMap((p) => p.months), rows: [] };
+        pool.set(key, entry);
+      }
+      entry.rows.push(row);
+    }
+    return pool;
+    // platformOf only reads constants
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, artists]);
+  const customEntry = (creator: string, platform: string) =>
+    customPool.get(`${normName(creator)}\u0001${platformKey(platformOf(platform))}`);
+  const yearsFor = (creator: string, platform: string): string[] => {
+    const entry = customEntry(creator, platform);
+    if (!entry) return [];
+    return uniqueNames([...customYearNames(entry.months), ...entry.rows.map((r) => r.year)]);
+  };
+  const monthsFor = (creator: string, platform: string, year: string): string[] => {
+    const entry = customEntry(creator, platform);
+    if (!entry) return [];
+    const want = year.trim().toLowerCase();
+    const here = entry.rows.filter((r) => r.year.trim().toLowerCase() === want);
+    return uniqueNames([
+      ...customMonthNames(entry.months, year),
+      ...here.map((r) => r.month),
+      ...entry.rows.map((r) => r.month),
+    ]);
+  };
+
   const num = (v: string): number | null => {
     const t = v.trim();
     if (!t) return null;
@@ -773,12 +855,15 @@ export function ImportReviewTree({
       year: s === "monthly" ? num(r.year) : null,
       month: s === "monthly" ? num(r.month) : null,
       number: s === "numbered" ? num(r.num) : null,
-      category: r.category,
+      // custom: the folders above are the year and month, not a category
+      category: s === "custom" ? r.det.levels?.category ?? null : r.category,
       title: r.title.trim() || baseName(r.folder),
       folder: r.folder,
       root: r.root,
       extra: r.extra,
       tier: r.tier?.trim() || null,
+      customYear: s === "custom" ? r.year.trim() || null : null,
+      customMonth: s === "custom" ? r.month.trim() || null : null,
     };
   };
 
@@ -1176,6 +1261,34 @@ export function ImportReviewTree({
                             />
                           </span>
                         )}
+                        {node.style === "custom" && (
+                          <span
+                            className="flex items-center gap-1"
+                            title={t(
+                              "Year & month names for every reward of this creator — set them once here instead of on each reward row",
+                            )}
+                          >
+                            <Pencil className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                            <NameCombo
+                              typos
+                              value={sharedYear}
+                              fieldId={`${node.creator}::all-year`}
+                              onCommit={(v) => setCreatorPeriod(node.creator, { year: v })}
+                              suggestions={yearsFor(node.creator, groupPlatform)}
+                              placeholder={t("Year")}
+                              className={cn("h-8 w-24", inputCls)}
+                            />
+                            <NameCombo
+                              typos
+                              value={sharedMonth}
+                              fieldId={`${node.creator}::all-month`}
+                              onCommit={(v) => setCreatorPeriod(node.creator, { month: v })}
+                              suggestions={monthsFor(node.creator, groupPlatform, sharedYear)}
+                              placeholder={t("Month")}
+                              className={cn("h-8 w-24", inputCls)}
+                            />
+                          </span>
+                        )}
                         <ThemedSelect
                           value={groupPlatform}
                           onChange={(v) => {
@@ -1312,6 +1425,8 @@ export function ImportReviewTree({
                                     >
                                       {node.style === "numbered" ? (
                                         <Hash className="h-3 w-3" />
+                                      ) : node.style === "custom" ? (
+                                        <Pencil className="h-3 w-3" />
                                       ) : (
                                         <CalendarDays className="h-3 w-3" />
                                       )}
@@ -1421,7 +1536,31 @@ export function ImportReviewTree({
                                         )}
                                       </div>
                                     )}
-                                    {r.category && <Badge tone="zinc">{r.category}</Badge>}
+                                    {r.category && node.style !== "custom" && <Badge tone="zinc">{r.category}</Badge>}
+                                    {node.style === "custom" && (
+                                      <>
+                                        <NameCombo
+                                          typos
+                                          value={r.year}
+                                          fieldId={`${r.folder}::year`}
+                                          onCommit={(v) => patchRow(r.folder, { year: v })}
+                                          suggestions={yearsFor(r.creator, r.platform)}
+                                          placeholder={t("Year")}
+                                          title={t("Year name — leave blank for Misc")}
+                                          className={cn("h-7 w-24", inputCls, !r.year && "border-amber-500/50")}
+                                        />
+                                        <NameCombo
+                                          typos
+                                          value={r.month}
+                                          fieldId={`${r.folder}::month`}
+                                          onCommit={(v) => patchRow(r.folder, { month: v })}
+                                          suggestions={monthsFor(r.creator, r.platform, r.year)}
+                                          placeholder={t("Month")}
+                                          title={t("Month name — leave blank to put it directly in the year")}
+                                          className={cn("h-7 w-24", inputCls)}
+                                        />
+                                      </>
+                                    )}
                                     {node.style === "monthly" && (
                                       <>
                                         <CommitInput

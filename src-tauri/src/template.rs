@@ -76,6 +76,12 @@ pub struct TemplatePeriod {
     pub year: Option<i64>,
     #[serde(default)]
     pub month: Option<i64>,
+    /// The custom style's names ("Summer", "Part 1"), they replace year and month. A
+    /// period with a yearName makes its platform a custom one.
+    #[serde(default, rename = "yearName")]
+    pub year_name: Option<String>,
+    #[serde(default, rename = "monthName")]
+    pub month_name: Option<String>,
     /// How many months this release covers (1 = one month). A March release that also
     /// counts for April = month=3, span=2.
     #[serde(default)]
@@ -111,6 +117,38 @@ impl TemplatePeriod {
     /// Months this period covers (>= 1).
     pub fn span_months(&self) -> i64 {
         self.span.unwrap_or(1).max(1)
+    }
+
+    /// The custom names as their folders are called. None = a dated period.
+    pub fn names(&self) -> Option<(String, Option<String>)> {
+        let year = indexer::custom_word(self.year_name.as_deref())?;
+        Some((year, indexer::custom_word(self.month_name.as_deref())))
+    }
+
+    /// This period's year and month numbers. A custom name gets its number with create,
+    /// without it None = that name doesn't exist (anymore).
+    pub fn numbers(
+        &self,
+        conn: &Connection,
+        artist_id: i64,
+        platform: Option<&str>,
+        create: bool,
+    ) -> rusqlite::Result<Option<(Option<i64>, Option<i64>)>> {
+        let Some((year, month)) = self.names() else {
+            return Ok(Some((self.year, self.month)));
+        };
+        if create {
+            let y = db::custom_year(conn, artist_id, platform, &year)?;
+            let m = month.map(|n| db::custom_month(conn, artist_id, platform, y, &n)).transpose()?;
+            return Ok(Some((Some(y), m)));
+        }
+        let Some(y) = db::custom_year_known(conn, artist_id, platform, &year)? else {
+            return Ok(None);
+        };
+        match month {
+            None => Ok(Some((Some(y), None))),
+            Some(n) => Ok(db::custom_month_known(conn, artist_id, platform, y, &n)?.map(|m| (Some(y), Some(m)))),
+        }
     }
 }
 
@@ -215,7 +253,7 @@ pub fn check_no_duplicate_periods(t: &TemplateFile) -> Result<(), String> {
     use std::collections::HashSet;
     // key by (platform, year, month) over all platform blocks (also catches a platform
     // split in two)
-    let mut seen: HashSet<(String, Option<i64>, Option<i64>)> = HashSet::new();
+    let mut seen: HashSet<(String, Option<String>, Option<String>)> = HashSet::new();
     for plat in &t.platforms {
         let pkey = plat.name.trim().to_lowercase();
         let plabel = if plat.name.trim().is_empty() {
@@ -224,12 +262,19 @@ pub fn check_no_duplicate_periods(t: &TemplateFile) -> Result<(), String> {
             plat.name.trim().to_string()
         };
         for per in &plat.periods {
-            if !seen.insert((pkey.clone(), per.year, per.month)) {
-                let when = match (per.year, per.month) {
-                    (Some(y), Some(m)) => format!("{y}-{m:02}"),
-                    (Some(y), None) => format!("{y} (whole year)"),
-                    (None, Some(m)) => format!("month {m}"),
-                    (None, None) => "an undated period".to_string(),
+            let names = per.names();
+            let (year, month) = match &names {
+                Some((y, m)) => (Some(y.to_lowercase()), m.as_ref().map(|m| m.to_lowercase())),
+                None => (per.year.map(|y| y.to_string()), per.month.map(|m| m.to_string())),
+            };
+            if !seen.insert((pkey.clone(), year, month)) {
+                let when = match (&names, per.year, per.month) {
+                    (Some((y, Some(m))), ..) => format!("{y} › {m}"),
+                    (Some((y, None)), ..) => y.clone(),
+                    (None, Some(y), Some(m)) => format!("{y}-{m:02}"),
+                    (None, Some(y), None) => format!("{y} (whole year)"),
+                    (None, None, Some(m)) => format!("month {m}"),
+                    (None, None, None) => "an undated period".to_string(),
                 };
                 return Err(format!(
                     "This template lists {when} more than once on {plabel}. A month may \
@@ -294,24 +339,62 @@ pub struct CoverKey {
     pub platform: String,
     pub year: Option<i64>,
     pub month: Option<i64>,
+    /// Custom names, lowercase. They stand in for year and month.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub year_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub month_name: Option<String>,
 }
 
 impl CoverKey {
     fn same_platform(&self, o: &CoverKey) -> bool {
         self.platform.trim().eq_ignore_ascii_case(o.platform.trim())
     }
+    /// A dated cell has no names, so these compare both kinds.
+    fn year_id(&self) -> Option<String> {
+        self.year_name.clone().or_else(|| self.year.map(|y| y.to_string()))
+    }
+    fn month_id(&self) -> Option<String> {
+        self.month_name.clone().or_else(|| self.month.map(|m| m.to_string()))
+    }
     fn conflicts(&self, o: &CoverKey) -> bool {
-        if !self.same_platform(o) || self.year != o.year {
+        if !self.same_platform(o) || self.year_id() != o.year_id() {
             return false;
         }
         // a whole year collides with any month of that year
-        self.month == o.month || self.month.is_none() || o.month.is_none()
+        let (a, b) = (self.month_id(), o.month_id());
+        a == b || a.is_none() || b.is_none()
     }
     fn describe(&self) -> String {
+        if let Some(y) = &self.year_name {
+            return match &self.month_name {
+                Some(m) => format!("{} {} › {}", self.platform, y, m),
+                None => format!("{} {}", self.platform, y),
+            };
+        }
         match (self.year, self.month) {
             (Some(y), Some(m)) => format!("{} {}-{:02}", self.platform, y, m),
             (Some(y), None) => format!("{} {}", self.platform, y),
             _ => format!("{} (undated)", self.platform),
+        }
+    }
+
+    /// This cell's year and month numbers for a creator. None = its name doesn't exist.
+    pub fn numbers(
+        &self,
+        conn: &Connection,
+        artist_id: i64,
+    ) -> rusqlite::Result<Option<(Option<i64>, Option<i64>)>> {
+        let Some(name) = &self.year_name else {
+            return Ok(Some((self.year, self.month)));
+        };
+        let platform = Some(self.platform.as_str());
+        let Some(y) = db::custom_year_known(conn, artist_id, platform, name)? else {
+            return Ok(None);
+        };
+        match &self.month_name {
+            None => Ok(Some((Some(y), self.month))),
+            Some(n) => Ok(db::custom_month_known(conn, artist_id, platform, y, n)?.map(|m| (Some(y), Some(m)))),
         }
     }
 }
@@ -322,11 +405,39 @@ pub fn coverage(t: &TemplateFile) -> Vec<CoverKey> {
     for plat in &t.platforms {
         let platform = plat.name.trim().to_string();
         for per in &plat.periods {
-            match (per.year, per.month) {
+            let names = per.names();
+            // real dates stay dates, so they still collide with a dated template
+            let (year, month) = match &names {
+                Some((y, m)) => (
+                    db::real_year(y),
+                    m.as_deref().and_then(db::real_month),
+                ),
+                None => (per.year, per.month),
+            };
+            let word = names.as_ref().is_some_and(|(y, m)| {
+                db::real_year(y).is_none() || m.as_deref().is_some_and(|m| db::real_month(m).is_none())
+            });
+            if let (true, Some((y, m))) = (word, &names) {
+                out.push(CoverKey {
+                    platform: platform.clone(),
+                    year: None,
+                    month: None,
+                    year_name: Some(y.to_lowercase()),
+                    month_name: m.as_ref().map(|m| m.to_lowercase()),
+                });
+                continue;
+            }
+            match (year, month) {
                 (Some(y), Some(m0)) => {
                     let (mut y, mut m) = (y, m0);
                     for _ in 0..per.span_months() {
-                        out.push(CoverKey { platform: platform.clone(), year: Some(y), month: Some(m) });
+                        out.push(CoverKey {
+                            platform: platform.clone(),
+                            year: Some(y),
+                            month: Some(m),
+                            year_name: None,
+                            month_name: None,
+                        });
                         m += 1;
                         if m > 12 {
                             m = 1;
@@ -334,7 +445,13 @@ pub fn coverage(t: &TemplateFile) -> Vec<CoverKey> {
                         }
                     }
                 }
-                (y, _) => out.push(CoverKey { platform: platform.clone(), year: y, month: None }),
+                (y, _) => out.push(CoverKey {
+                    platform: platform.clone(),
+                    year: y,
+                    month: None,
+                    year_name: None,
+                    month_name: None,
+                }),
             }
         }
     }
@@ -400,7 +517,9 @@ fn apply_verified(conn: &Connection, artist_id: i64, t: &TemplateFile) -> rusqli
         let platform = plat.name.trim();
         for per in &plat.periods {
             if t.verified || plat.verified || per.verified {
-                db::set_period_verified_scope(conn, artist_id, Some(platform), per.year, per.month)?;
+                if let Some((year, month)) = per.numbers(conn, artist_id, Some(platform), false)? {
+                    db::set_period_verified_scope(conn, artist_id, Some(platform), year, month)?;
+                }
             }
         }
     }
@@ -524,19 +643,28 @@ fn apply_inner(
 
     for plat in &t.platforms {
         let platform = plat.name.trim();
+        // named periods need the platform's style, or a rescan would drop the names
+        let custom = plat.periods.iter().any(|p| p.names().is_some());
+        if custom {
+            db::set_platform_release_style(conn, artist_id, platform, "custom")?;
+        }
         for per in &plat.periods {
-            let label_str = match (per.year, per.month) {
-                (Some(y), m) => indexer::fmt_label(y, m),
+            let (year, month) = per
+                .numbers(conn, artist_id, Some(platform), true)?
+                .unwrap_or((per.year, per.month));
+            let label_str = match (year, month) {
+                (Some(y), m) => db::custom_label(conn, artist_id, Some(platform), y, m)?
+                    .unwrap_or_else(|| indexer::fmt_label(y, m)),
                 (None, _) => "Misc".to_string(),
             };
-            // templates are monthly only, no drop numbers
-            let key = indexer::period_key(name, Some(platform), per.year, per.month, None);
+            // no drop numbers in templates
+            let key = indexer::period_key(name, Some(platform), year, month, None);
             let period_id = indexer::upsert_period(
                 conn,
                 artist_id,
                 Some(platform),
-                per.year,
-                per.month,
+                year,
+                month,
                 None,
                 &label_str,
                 &key,
@@ -550,10 +678,14 @@ fn apply_inner(
             // this period's folder on disk (if creating folders)
             let period_dir = artist_base.as_ref().map(|ab| {
                 let mut p = ab.join(crate::sanitize_name(platform));
-                if let Some(y) = per.year {
-                    p = p.join(y.to_string());
-                    if let Some(m) = per.month {
-                        p = p.join(format!("{:02}", m));
+                if let Some(y) = year {
+                    let named = |m: i64| {
+                        let name = db::custom_name(conn, artist_id, Some(platform), y, m).ok().flatten();
+                        name.filter(|_| custom).map(|n| crate::organize::sanitize(&n))
+                    };
+                    p = p.join(named(0).unwrap_or_else(|| y.to_string()));
+                    if let Some(m) = month {
+                        p = p.join(named(m).unwrap_or_else(|| format!("{:02}", m)));
                     }
                 }
                 p
@@ -791,6 +923,62 @@ mod tests {
 
         // running again changes nothing
         reverify_applied(&conn).unwrap();
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// a template with custom names makes the same periods and folders as a custom import
+    #[test]
+    fn custom_template_applies_its_names() {
+        let base = std::env::temp_dir().join(format!("micoll_tpl_custom_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let conn = db::open(&base.join("t.db")).unwrap();
+        let t = tf(r#"{"micollTemplate":1,"artist":{"name":"Nora"},"platforms":[{"name":"Patreon","periods":[
+            {"yearName":"Sommer","monthName":"Teil 1","rewards":[{"title":"Set"}]},
+            {"yearName":"Sommer","monthName":"Pause","skipped":true},
+            {"yearName":"Winter","count":2}
+        ]}]}"#);
+        check_no_duplicate_periods(&t).unwrap();
+        let id = indexer::upsert_artist(&conn, "Nora").unwrap();
+        let cov = coverage(&t);
+        apply_inner(&conn, &t, "{}", "Nora", &cov, true, Some(&base), id).unwrap();
+
+        assert_eq!(db::custom_artist(&conn, "Nora", Some("Patreon")).unwrap(), Some(id));
+        let y = db::custom_year_known(&conn, id, Some("Patreon"), "sommer").unwrap().unwrap();
+        let m = db::custom_month_known(&conn, id, Some("Patreon"), y, "TEIL 1").unwrap().unwrap();
+        assert!(y < 1000 && m > 12);
+        let label: String = conn
+            .query_row("SELECT label FROM periods WHERE year = ?1 AND month = ?2", [y, m], |r| r.get(0))
+            .unwrap();
+        assert_eq!(label, "Teil 1");
+        let dir = base.join("Nora/Patreon/Sommer");
+        assert!(dir.join("Teil 1/Set").is_dir());
+        assert!(dir.join("Pause").join(db::SKIP_MARKER).is_file());
+
+        // the same names collide, other ones don't, and the cells find their numbers again
+        let again = tf(r#"{"micollTemplate":1,"artist":{"name":"Nora"},"platforms":[{"name":"Patreon",
+            "periods":[{"yearName":"SOMMER","monthName":"teil 1"}]}]}"#);
+        let other = tf(r#"{"micollTemplate":1,"artist":{"name":"Nora"},"platforms":[{"name":"Patreon",
+            "periods":[{"yearName":"Sommer","monthName":"Teil 2"}]}]}"#);
+        let whole = tf(r#"{"micollTemplate":1,"artist":{"name":"Nora"},"platforms":[{"name":"Patreon",
+            "periods":[{"yearName":"Sommer"}]}]}"#);
+        assert!(first_conflict(&coverage(&again), &cov).is_some());
+        assert!(first_conflict(&coverage(&other), &cov).is_none());
+        assert!(first_conflict(&coverage(&whole), &cov).is_some());
+        assert_eq!(cov[0].numbers(&conn, id).unwrap(), Some((Some(y), Some(m))));
+        assert_eq!(coverage(&other)[0].numbers(&conn, id).unwrap(), None);
+
+        // a real date in the name fields stays a date, with its span
+        let dated = tf(r#"{"micollTemplate":1,"artist":{"name":"Nora"},"platforms":[{"name":"Patreon",
+            "periods":[{"yearName":"2025","monthName":"03","span":2}]}]}"#);
+        let cells = coverage(&dated);
+        assert_eq!(cells.len(), 2);
+        assert_eq!((cells[1].year, cells[1].month), (Some(2025), Some(4)));
+
+        // a double in names is caught like a double month
+        let dup = tf(r#"{"micollTemplate":1,"artist":{"name":"Nora"},"platforms":[{"name":"Patreon","periods":[
+            {"yearName":"A","monthName":"B"},{"yearName":"a","monthName":"b"}]}]}"#);
+        assert!(check_no_duplicate_periods(&dup).is_err());
         let _ = std::fs::remove_dir_all(&base);
     }
 

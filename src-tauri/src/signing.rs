@@ -215,6 +215,33 @@ pub const THEME_PRODUCT: &str = "themes";
 /// limit.
 pub const THEME_TRIAL_PRODUCT: &str = "themes-trial";
 
+/// What a bought Pyre key unlocks. A pack of its own: an Aurora key doesn't
+/// open it, and builds that don't know it refuse its keys.
+pub const RUBY_PRODUCT: &str = "corruptruby";
+
+/// Its test key, separate for the same reason as `THEME_TRIAL_PRODUCT`.
+pub const RUBY_TRIAL_PRODUCT: &str = "corruptruby-trial";
+
+/// Every pack a key can be for: (bought product, test product). The bought product
+/// doubles as the pack's id (`THEME_PACKS` in lib/theme.ts).
+const THEME_PACKS: &[(&str, &str)] = &[
+    (THEME_PRODUCT, THEME_TRIAL_PRODUCT),
+    (RUBY_PRODUCT, RUBY_TRIAL_PRODUCT),
+];
+
+/// The pack a product belongs to and whether it is a test key. None = not ours.
+pub fn theme_product(product: &str) -> Option<(&'static str, bool)> {
+    THEME_PACKS.iter().find_map(|(bought, test)| {
+        if product == *bought {
+            Some((*bought, false))
+        } else if product == *test {
+            Some((*bought, true))
+        } else {
+            None
+        }
+    })
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ThemeLicense {
     pub product: String,
@@ -252,11 +279,20 @@ fn looks_like_a_date(v: &str) -> bool {
         && b.iter().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
 }
 
-/// Issue a premium-theme unlock key for a buyer (owner-only). `trial` makes it a
-/// key that runs out; without it the key is permanent, and its payload is byte for
-/// byte what this function has always produced (the two new fields are skipped
-/// when empty, so every key already in someone's hands keeps verifying).
-pub fn issue_theme_key(buyer: &str, trial: Option<TrialTerms>) -> Result<String, String> {
+/// Issue a premium-theme unlock key for a buyer (owner-only). `pack` is the pack's
+/// id. `trial` makes it a key that runs out; without it the key is permanent, and
+/// its payload is byte for byte what this function has always produced (the two new
+/// fields are skipped when empty, so every key already in someone's hands keeps
+/// verifying).
+pub fn issue_theme_key(
+    pack: &str,
+    buyer: &str,
+    trial: Option<TrialTerms>,
+) -> Result<String, String> {
+    let (bought, test) = THEME_PACKS
+        .iter()
+        .find(|(bought, _)| *bought == pack)
+        .ok_or_else(|| format!("There is no theme pack called {pack}."))?;
     let buyer = buyer.trim();
     if buyer.is_empty() {
         return Err("Enter the buyer's name / Patreon handle.".into());
@@ -283,7 +319,7 @@ pub fn issue_theme_key(buyer: &str, trial: Option<TrialTerms>) -> Result<String,
     };
     let (sk, _) = own_key_id()?;
     let lic = ThemeLicense {
-        product: if trial.is_some() { THEME_TRIAL_PRODUCT } else { THEME_PRODUCT }.into(),
+        product: if trial.is_some() { *test } else { *bought }.into(),
         buyer: buyer.to_string(),
         issued: chrono_date(),
         expires,
@@ -363,10 +399,8 @@ fn verify_theme_key_with(
         ));
     }
     let lic: ThemeLicense = serde_json::from_slice(&payload).map_err(|_| bad())?;
-    let trial = match lic.product.as_str() {
-        THEME_PRODUCT => false,
-        THEME_TRIAL_PRODUCT => true,
-        _ => return Err("This key unlocks a different product.".into()),
+    let Some((_, trial)) = theme_product(&lic.product) else {
+        return Err("This key unlocks a different product.".into());
     };
     // A signature covers what the payload says, not whether it makes sense. A
     // bought key carrying trial terms, or a test key carrying none (or both), is
@@ -506,6 +540,41 @@ mod tests {
         );
         assert!(verify_theme_key_with(&forged, &keys, &[]).is_err());
         assert!(verify_theme_key_with("MICOLL-THEMES.garbage", &keys, &[]).is_err());
+    }
+
+    /// Each pack's keys verify and say which pack they are for, so an Aurora key
+    /// can't stand in for Pyre. Anything else is still refused.
+    #[test]
+    fn a_key_names_its_pack() {
+        let (sk, keys) = test_keys();
+        let key_for = |product: &str, days: Option<u32>| {
+            let lic = ThemeLicense {
+                product: product.into(),
+                buyer: "Alice".into(),
+                issued: "2026-11-05".into(),
+                expires: None,
+                days,
+            };
+            let payload = serde_json::to_vec(&lic).unwrap();
+            let sig = sk.sign(&payload);
+            format!(
+                "{THEME_KEY_PREFIX}{}.{}",
+                STANDARD.encode(&payload),
+                STANDARD.encode(sig.to_bytes())
+            )
+        };
+        let pack_of = |token: &str| {
+            let lic = verify_theme_key_with(token, &keys, &[]).unwrap();
+            theme_product(&lic.product).unwrap()
+        };
+
+        assert_eq!(pack_of(&key_for(THEME_PRODUCT, None)), (THEME_PRODUCT, false));
+        assert_eq!(pack_of(&key_for(RUBY_PRODUCT, None)), (RUBY_PRODUCT, false));
+        assert_eq!(pack_of(&key_for(THEME_TRIAL_PRODUCT, Some(7))), (THEME_PRODUCT, true));
+        assert_eq!(pack_of(&key_for(RUBY_TRIAL_PRODUCT, Some(7))), (RUBY_PRODUCT, true));
+        assert!(verify_theme_key_with(&key_for("other", None), &keys, &[]).is_err());
+        // A test key has to carry terms, for every pack.
+        assert!(verify_theme_key_with(&key_for(RUBY_TRIAL_PRODUCT, None), &keys, &[]).is_err());
     }
 
     /// A key that verifies perfectly is still refused once its fingerprint is on

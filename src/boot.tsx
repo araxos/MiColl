@@ -16,6 +16,14 @@ import "@fontsource/zen-maru-gothic/latin-500.css";
 import "@fontsource/zen-maru-gothic/latin-700.css";
 // Kaisei Decol: sakura's display font for template creator cards (latin, bold only)
 import "@fontsource/kaisei-decol/latin-700.css";
+// Pyre: Sora for the app, Playfair Display for its glowing titles
+import "@fontsource/sora/latin-400.css";
+import "@fontsource/sora/latin-500.css";
+import "@fontsource/sora/latin-600.css";
+import "@fontsource/sora/latin-700.css";
+import "@fontsource/playfair-display/latin-700.css";
+// and Italiana for the names on its card frame
+import "@fontsource/italiana/latin-400.css";
 import "@fontsource/exo-2/400.css";
 import "@fontsource/exo-2/500.css";
 import "@fontsource/exo-2/600.css";

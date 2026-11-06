@@ -530,7 +530,7 @@ pub fn restore_rows(conn: &Connection, snap: &Snapshot) -> Result<(), String> {
         r.insert("artist_id".into(), map(&artists, int(row, "artist_id").unwrap_or_default()).into());
         insert(conn, "reward_collabs", &r, false, true).map_err(e)?;
     }
-    for table in ["platform_no_dates", "applied_templates", "sd_year_rules"] {
+    for table in ["platform_no_dates", "applied_templates", "sd_year_rules", "custom_names", "custom_order"] {
         for row in snap.rows_of(table) {
             let mut r = row.clone();
             r.insert("artist_id".into(), map(&artists, int(row, "artist_id").unwrap_or_default()).into());

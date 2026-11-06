@@ -33,12 +33,14 @@ import { CyberHoloCard } from "@/components/CyberHoloCard";
 import { CyberCardFrame, CyberCardScreen, CARD_CLIP } from "@/components/CyberCardFrame";
 import { SakuraCardFrame, SakuraCardScreen, SAKURA_CARD_CLIP } from "@/components/SakuraCardFrame";
 import { IriCardFrame, IriCardScreen } from "@/components/IriCardFrame";
+import { RubyCardFrame, RubyCardFx, RubyCardScreen, RUBY_CARD_CLIP } from "@/components/RubyCardFrame";
 import { CreatorDetails } from "@/components/CreatorDetails";
 import { PlatformCheck } from "@/components/ThemeCheck";
 import { useFx, useFxPref } from "@/lib/fx";
 import { useCyberFrame } from "@/lib/cyberFrame";
 import { useSakuraFrame } from "@/lib/sakuraFrame";
 import { useIriFrame } from "@/lib/iriFrame";
+import { useRubyFrame } from "@/lib/rubyFrame";
 import { useTemplateFont } from "@/lib/templateFont";
 import { useHideNames } from "@/lib/hideNames";
 import { cardNameScale, useCardNameSize } from "@/lib/cardNameSize";
@@ -435,12 +437,62 @@ function KanzashiPin() {
   );
 }
 
+/** Outline of the Pyre tiara, its ruby and its openings (100 units wide). */
+const TIARA_BODY =
+  "M2.0 40.0L3.6 44.8L5.0 47.7L6.1 49.3L7.0 50.3L8.1 51.2L9.5 51.9L9.6 56.5L10.7 61.9L10.7 62.3L10.4 62.5L10.1 62.5L7.7 61.0L5.7 59.6L3.8 57.9L2.0 56.0L5.4 59.9L10.9 65.4L11.0 65.8L11.3 65.9L15.0 68.9L17.3 70.6L22.1 73.4L24.7 74.5L27.4 75.5L32.8 77.0L41.3 78.8L47.1 79.4L50.0 79.5L55.8 79.2L58.7 78.8L64.4 77.7L72.6 75.5L75.3 74.5L77.9 73.4L82.7 70.6L85.0 68.9L88.7 65.9L89.0 65.8L89.1 65.4L94.6 59.9L98.0 56.0L96.2 57.9L94.3 59.6L92.3 61.0L89.9 62.5L89.6 62.5L89.3 62.3L89.3 61.9L90.4 56.5L90.5 51.9L91.9 51.2L93.0 50.3L93.9 49.3L95.0 47.7L96.4 44.8L98.0 40.0L97.0 42.1L95.3 44.2L92.8 46.3L90.5 47.8L90.1 47.8L89.7 47.5L87.0 38.0L87.3 39.8L87.4 41.5L87.4 42.4L87.1 43.5L86.2 46.1L85.1 48.4L82.9 51.9L80.9 54.2L79.8 55.0L78.9 55.3L78.2 55.2L77.4 54.9L75.7 53.3L75.4 52.6L75.5 47.0L75.0 40.7L74.0 35.4L71.0 22.0L71.4 25.3L71.5 29.9L70.9 35.9L70.8 36.2L70.4 36.3L70.0 36.1L67.7 32.5L65.6 28.7L64.5 25.5L64.1 23.8L64.0 22.0L64.0 29.7L64.3 32.0L64.8 34.3L65.7 36.5L66.6 38.1L67.8 39.3L69.4 40.2L69.5 40.5L69.5 40.8L68.3 42.9L66.3 45.8L64.4 47.9L62.4 49.6L61.2 50.2L60.2 50.3L59.1 49.7L58.1 48.7L57.4 47.6L56.5 45.6L55.2 41.6L52.9 26.0L52.6 22.7L52.3 16.0L50.5 2.7L50.1 -0.7L50.0 -4.0L49.9 -0.7L49.5 2.7L47.7 16.0L47.4 22.7L47.1 26.0L44.8 41.6L43.2 46.4L42.3 48.2L41.3 49.4L40.3 50.1L39.2 50.3L38.1 49.9L36.7 48.9L35.0 47.3L33.1 44.9L31.7 42.9L30.5 40.7L30.6 40.2L32.2 39.3L33.4 38.1L34.3 36.5L35.2 34.3L35.7 32.0L36.0 29.7L36.0 22.0L35.9 23.8L35.5 25.5L34.4 28.7L32.3 32.5L30.0 36.1L29.6 36.3L29.2 36.2L29.1 35.9L28.5 29.9L28.6 25.3L29.0 22.0L26.0 35.4L25.0 40.7L24.5 47.0L24.6 52.7L23.4 54.2L22.3 55.0L21.6 55.3L20.8 55.2L19.9 54.8L19.1 54.1L17.1 51.9L14.9 48.4L13.3 44.8L12.6 42.5L12.7 39.8L13.0 38.0L10.3 47.5L9.9 47.8L9.5 47.8L7.2 46.3L4.7 44.2L3.0 42.1ZM72.8 66.0L73.6 62.1L74.7 57.3L75.3 57.3L76.5 58.1L77.2 58.5L78.7 58.7L79.4 58.6L80.2 58.5L81.5 57.8L82.6 56.8L83.7 55.5L84.0 55.5L84.3 55.6L84.4 56.0L84.3 59.7L84.8 64.6L84.6 64.9L80.6 66.4L73.2 68.6L72.8 68.5L72.6 68.2ZM56.2 54.0L56.3 53.6L56.6 53.4L58.4 54.0L60.0 54.2L62.4 53.8L63.9 53.1L65.2 52.1L66.4 50.7L67.5 49.2L67.9 49.1L68.2 49.3L68.3 49.6L67.8 52.9L67.5 57.2L67.5 69.7L67.3 70.1L65.7 70.5L60.5 71.2L56.4 71.4L55.9 71.2L55.9 70.8L57.4 66.0L57.4 62.7ZM31.7 49.7L32.0 49.1L32.5 49.2L33.6 50.7L34.8 52.1L36.1 53.1L37.6 53.8L40.0 54.2L41.6 54.0L43.2 53.4L43.8 53.7L42.6 62.7L42.6 66.0L44.1 70.8L44.1 71.1L43.9 71.3L42.1 71.3L36.9 70.9L32.9 70.2L32.6 70.0L32.5 57.2L32.2 52.9ZM15.2 64.6L15.7 59.0L15.6 56.0L15.8 55.6L16.1 55.5L16.4 55.6L17.4 56.8L18.5 57.8L19.8 58.5L20.6 58.6L21.3 58.7L22.8 58.5L23.5 58.1L24.7 57.3L25.1 57.2L25.4 57.6L26.6 63.1L27.2 66.0L27.4 68.3L27.2 68.5L26.8 68.6L21.8 67.2L16.9 65.6L15.3 64.9Z";
+const TIARA_RUBY = "M50.0 47.0L54.4 57.0L50.0 68.0L45.6 57.0Z";
+const TIARA_OPENINGS = "M55.7 53.9L56.9 62.7L56.9 65.9L55.4 70.7L55.4 71.2L55.7 71.6L56.4 71.9L60.6 71.6L65.8 71.0L67.7 70.5L68.0 69.7L67.9 58.2L68.2 54.0L68.8 49.7L68.5 48.9L67.9 48.6L67.2 48.8L66.1 50.4L64.9 51.7L63.6 52.7L62.2 53.4L60.0 53.7L58.5 53.5L56.8 52.9L56.0 53.1ZM31.2 49.7L32.0 57.2L32.0 69.7L32.2 70.2L32.8 70.7L36.8 71.4L42.1 71.8L43.7 71.9L44.1 71.8L44.5 71.3L44.6 70.8L43.1 65.9L43.1 62.7L44.3 54.0L44.2 53.3L43.7 53.0L43.2 52.9L41.5 53.5L40.0 53.7L38.5 53.6L37.1 53.1L35.1 51.7L33.9 50.4L33.0 48.9L32.4 48.6L31.8 48.7L31.3 49.2ZM72.2 66.9L72.2 68.5L72.6 69.0L73.2 69.1L80.8 66.9L85.0 65.3L85.3 64.5L84.8 59.7L84.9 55.9L84.6 55.3L84.1 55.0L83.4 55.1L82.3 56.5L81.2 57.4L79.3 58.1L78.7 58.2L77.4 58.0L75.3 56.7L74.8 56.7L74.4 57.0L74.1 57.5L73.1 62.0ZM14.7 64.4L14.8 65.0L15.3 65.5L21.6 67.6L26.8 69.1L27.5 68.9L27.9 68.4L27.5 64.9L25.9 57.5L25.7 57.0L25.2 56.8L24.5 56.8L22.6 58.0L21.3 58.2L20.7 58.1L18.8 57.4L17.7 56.5L16.6 55.1L16.0 55.0L15.5 55.2L15.1 55.9L15.2 59.7Z";
+
 /**
- * The "pinned" marker on the card corner. Pushpin for basic accents,
- * kanzashi hairpin for sakura, glitching neon pin for cyberpunk, crystal for iridescent.
+ * Pyre pin: a gothic chrome tiara with a small ruby, worn upright in the middle of the top
+ * edge. The wrapper in ArtistCard centres it and lets the band sit on the edge.
+ */
+function RubyCrownPin() {
+  return (
+    <svg
+      viewBox="-2 -8 104 98"
+      className="block h-[34px] w-[36px] overflow-visible [filter:drop-shadow(0_0_3px_#ff1464)_drop-shadow(0_0_7px_rgba(255,20,100,0.75))]"
+    >
+      <defs>
+        <linearGradient id="micoll-crown-chrome" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#ffffff" />
+          <stop offset="0.3" stopColor="#c9c3d1" />
+          <stop offset="0.5" stopColor="#ffe6f0" />
+          <stop offset="0.68" stopColor="#7e7688" />
+          <stop offset="1" stopColor="#f4f0f6" />
+        </linearGradient>
+        <linearGradient id="micoll-crown-ruby" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#ff5c93" />
+          <stop offset="0.4" stopColor="#e0115f" />
+          <stop offset="0.75" stopColor="#9e0636" />
+          <stop offset="1" stopColor="#4a0219" />
+        </linearGradient>
+      </defs>
+      <g>
+        {/* dark enamel in the openings, or the glow fills them and they read as rubies */}
+        <path d={TIARA_OPENINGS} fill="#14030a" />
+        <path
+          d={TIARA_BODY}
+          fill="url(#micoll-crown-chrome)"
+          fillRule="evenodd"
+          stroke="#4a0c22"
+          strokeWidth={1.4}
+          paintOrder="stroke"
+        />
+        <path d={TIARA_RUBY} fill="url(#micoll-crown-ruby)" stroke="#ffd6e4" strokeWidth={0.5} />
+      </g>
+    </svg>
+  );
+}
+
+/**
+ * The "pinned" marker on the card corner. Pushpin for basic accents, kanzashi hairpin
+ * for sakura, glitching neon pin for cyberpunk, crystal for iridescent, tiara for
+ * corruptruby.
  */
 function CardPin({ accent }: { accent: string }) {
   if (accent === "sakura") return <KanzashiPin />;
+  if (accent === "corruptruby") return <RubyCrownPin />;
   if (accent === "iridescent") {
     // thin sharp crystal leaning to the right
     return (
@@ -534,6 +586,7 @@ function TypeCorner({
   const cyber = accent === "cyberpunk";
   const irid = accent === "iridescent";
   const sakura = accent === "sakura";
+  const ruby = accent === "corruptruby";
   // top right corner fold
   const tri = "polygon(100% 0, 0 0, 100% 100%)";
   // "?" is black on cyberpunk yellow, white elsewhere
@@ -605,7 +658,7 @@ function TypeCorner({
       className={cn(
         "fx-corner absolute right-0 top-0 z-20 h-12 w-12 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-white/70",
         // classic accents: hooks for the "Premium look" (index.css), inert without it
-        !cyber && !sakura && "classic-corner-wrap",
+        !cyber && !sakura && !ruby && "classic-corner-wrap",
       )}
     >
       {cyber ? (
@@ -634,6 +687,23 @@ function TypeCorner({
             style={{ clipPath: tri, background: "#fcee0a", animation: "micoll-icon-glitch 3.4s infinite" }}
           />
         </>
+      ) : ruby ? (
+        // the corner cut away to black, only the cut glows (index.css .ruby-cut-line)
+        <svg viewBox="-48 0 48 48" className="absolute inset-0 h-full w-full overflow-visible">
+          <polygon points="0,0 -46,0 0,46" fill="#080206" />
+          <path className="ruby-cut-line" d="M-46,0 L0,46" fill="none" />
+          <text
+            x={-13}
+            y={18}
+            textAnchor="middle"
+            fontFamily="var(--ruby-display)"
+            fontWeight={700}
+            fontSize={14}
+            fill="#ffd6e4"
+          >
+            ?
+          </text>
+        </svg>
       ) : sakura ? (
         // an omikuji (paper fortune slip) hanging from the top edge on a red thread,
         // its "?" in ink. Sways a little (index.css .sak-omikuji).
@@ -672,8 +742,8 @@ function TypeCorner({
           style={{ clipPath: tri }}
         />
       )}
-      {/* sakura writes its "?" on the slip */}
-      {!sakura && (
+      {/* sakura writes its "?" on the slip, corruptruby into the cut */}
+      {!sakura && !ruby && (
         <span
           className={cn(
             "pointer-events-none absolute right-3 top-2 text-[13px] font-extrabold leading-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]",
@@ -793,10 +863,14 @@ function ArtistCardBase({
   // iridescent frame option: drop outline instead of iri-edge + holo
   const iriFrameSetting = useIriFrame();
   const iriFrame = irid && iriFrameSetting;
+  // corruptruby frame option: the neon/chrome frame instead of the running light
+  const ruby = accent === "corruptruby";
+  const rubyFrameSetting = useRubyFrame();
+  const rubyFrame = ruby && rubyFrameSetting;
   // true if the name uses a display font (template font on AND the accent has one)
-  const displayFace = useTemplateFont() && hasTemplate && (irid || cyber || sak);
+  const displayFace = useTemplateFont() && hasTemplate && (irid || cyber || sak || ruby);
   // any frame replaces the edge, so treat them as one flag where it doesn't matter
-  const framed = cyberFrame || sakFrame || iriFrame;
+  const framed = cyberFrame || sakFrame || iriFrame || rubyFrame;
   // square corners on iridescent and on framed cards
   const cardRadius = irid || framed ? "rounded-none" : "rounded-2xl";
   const holoStyle = holoVars(artist.id + artist.name, hasTemplate, irid);
@@ -1061,6 +1135,8 @@ function ArtistCardBase({
             ? "bg-[#0b0b12]"
             : sakFrame
               ? "bg-[#1b1016]"
+              : rubyFrame
+                ? "bg-[#14040a]"
               : iriFrame
                 ? // No `iri-edge` here: that draws its own gradient border, and a
                   // border on a clipped body gets sliced by the drop outline. The
@@ -1080,7 +1156,9 @@ function ArtistCardBase({
             ? { clipPath: CARD_CLIP }
             : sakFrame
               ? { clipPath: SAKURA_CARD_CLIP }
-              : undefined
+              : rubyFrame
+                ? { clipPath: RUBY_CARD_CLIP }
+                : undefined
         }
       >
       <div className={cn("w-full overflow-hidden", aspect)}>
@@ -1106,10 +1184,15 @@ function ArtistCardBase({
       {/* every framed card, each one has its own timer (see SakuraCardScreen) */}
       {sakFrame && holoFx && <SakuraCardScreen tone={hasTemplate ? "bloom" : "petal"} />}
       {iriFrame && holoFx && <IriCardScreen tone={hasTemplate ? "prism" : "pearl"} />}
+      {/* always there: it also holds the fade behind the name, embers only with the fx */}
+      {rubyFrame && <RubyCardScreen tone={hasTemplate ? "neon" : "chrome"} />}
 
       {holoFx &&
         !framed &&
-        (irid ? (
+        (ruby ? (
+          // the running light with its bursts of sparks
+          <RubyCardFx template={hasTemplate} />
+        ) : irid ? (
           hasTemplate ? (
             <IriTemplateHolo />
           ) : (
@@ -1220,6 +1303,8 @@ function ArtistCardBase({
           // iridescent frame, single line: lift the name off the frame's bottom edge
           // (template creators only, the others keep it low)
           iriFrame && !cardMeta && hasTemplate && "pb-4",
+          // corruptruby frame: above the frame's fade, clear of the mark on the bottom edge
+          rubyFrame && "z-[16] !from-transparent !via-transparent !pb-[15%]",
           // with hidden names fade the whole shadow with the text
           hideNames &&
             "opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100 group-focus-visible:opacity-100",
@@ -1250,6 +1335,8 @@ function ArtistCardBase({
                 (hasTemplate
                   ? "text-[#ffd0e3] [text-shadow:0_2px_12px_rgba(24,10,18,0.95)]"
                   : "text-[#ffe6f2] [text-shadow:0_2px_12px_rgba(24,10,18,0.95)]"),
+              // corruptruby: uppercase Italiana on a neon glow, like a stage sign
+              rubyFrame && "ruby-frame-name",
               // and on iridescent
               iriFrame &&
                 (hasTemplate
@@ -1264,7 +1351,7 @@ function ArtistCardBase({
                 ? 10.5
                 : displayFace && cyber
                   ? 13
-                  : displayFace && sak
+                  : displayFace && (sak || ruby)
                     ? 16
                     : irid
                       ? 13
@@ -1315,6 +1402,9 @@ function ArtistCardBase({
       </div>
       </div>
 
+      {/* outside the clip: its jewel and shards reach over the card's edge */}
+      {rubyFrame && <RubyCardFrame tone={hasTemplate ? "neon" : "chrome"} />}
+
       {detailsOpen && (
         <CreatorDetails
           artist={artist}
@@ -1340,12 +1430,15 @@ function ArtistCardBase({
           </div>
         </>
       )}
-      {/* premium themes: their own pin on the top right, outside the clip */}
+      {/* premium themes: their own pin outside the clip, top right (Pyre: top centre) */}
       {pinned && isPremium(accent) && (
         <div
           aria-label={t("Pinned")}
           // fx-pin: the "Pin, NEW badge and corners" animation switch (index.css)
-          className="fx-pin pointer-events-none absolute -right-2 -top-3 z-30"
+          className={cn(
+            "fx-pin pointer-events-none absolute z-30",
+            accent === "corruptruby" ? "left-1/2 top-[-24px] -translate-x-1/2" : "-right-2 -top-3",
+          )}
         >
           <CardPin accent={accent} />
         </div>

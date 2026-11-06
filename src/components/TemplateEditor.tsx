@@ -8,6 +8,8 @@ import { COVER_DROP_EVENT, type CoverDropDetail } from "@/components/DropZone";
 import { useAccent } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { useT, useTf, useTp, useMonthsShort } from "@/lib/i18n";
+import { customMonthNames, customYearNames, sortCustomMonths, uniqueNames } from "@/lib/customOrder";
+import { NameCombo } from "@/components/NameCombo";
 import { CREATOR_TYPES, creatorTypeDefs } from "@/lib/creatorTypes";
 import { PLATFORMS } from "@/lib/platforms";
 import { useData } from "@/store";
@@ -25,8 +27,8 @@ interface EReward {
 }
 interface EPeriod {
   id: string;
-  year: string; // "" = no year
-  month: string; // "" = whole year / Misc
+  year: string; // "" = no year, on a custom platform the year's name
+  month: string; // "" = whole year / Misc, on a custom platform the card's name
   span: string; // consecutive months covered (>=1)
   skipped: boolean; // artist break — no rewards
   verified: boolean; // verify just this period (needs the code unlocked)
@@ -40,6 +42,7 @@ interface EPlatform {
   name: string;
   url: string;
   verified: boolean; // verify every period on this platform (code unlocked)
+  custom: boolean; // own names instead of year and month
   periods: EPeriod[];
 }
 
@@ -63,6 +66,7 @@ const blankPlatform = (name = "Patreon", year?: string): EPlatform => ({
   name,
   url: "",
   verified: false,
+  custom: false,
   periods: [blankPeriod(year)],
 });
 
@@ -75,10 +79,14 @@ const sortPeriods = (arr: EPeriod[]): EPeriod[] =>
   [...arr].sort((a, b) => periodOrder(b) - periodOrder(a));
 
 /** Short label for a period row. */
-const periodChip = (pr: EPeriod, t: (s: string) => string): string => {
+const periodChip = (pr: EPeriod, t: (s: string) => string, custom = false): string => {
   if (pr.skipped) return t("Break");
   if (!pr.year.trim()) return t("Any");
   if (!pr.month.trim()) return pr.year;
+  if (custom) {
+    const named = `${pr.year} › ${pr.month}`;
+    return Number(pr.span) > 1 ? `${named} ×${pr.span}` : named;
+  }
   const base = `${pr.year}-${String(Number(pr.month)).padStart(2, "0")}`;
   return Number(pr.span) > 1 ? `${base} ×${pr.span}` : base;
 };
@@ -114,16 +122,28 @@ function fromArtist(a: Artist): {
     name: a.name,
     kind: a.kind ?? null,
     links: a.links?.length ? a.links.map((l) => ({ ...l })) : [],
-    platforms: a.platforms.map((p) => ({
+    platforms: a.platforms.map((p) => {
+      const custom = p.releaseStyle === "custom";
+      return {
       id: uid(),
       name: p.name,
       url: a.links?.find((l) => l.label.toLowerCase() === p.name.toLowerCase())?.url ?? "",
       verified: false,
-      periods: sortPeriods(
-        p.months.map((m) => ({
+      custom,
+      // custom rows stay in their order, applying makes the names in that order
+      periods: (custom ? (rows: EPeriod[]) => rows : sortPeriods)(
+        (custom ? sortCustomMonths(p.months) : p.months).map((m) => ({
           id: uid(),
-          year: m.year != null ? String(m.year) : "",
-          month: m.month != null ? String(m.month) : "",
+          year: m.yearName ?? (m.year != null ? String(m.year) : ""),
+          month: !custom
+            ? m.month != null
+              ? String(m.month)
+              : ""
+            : m.month == null
+              ? ""
+              : m.month > 12
+                ? (m.plainLabel ?? m.label)
+                : String(m.month).padStart(2, "0"),
           span: String(m.span ?? 1),
           skipped: !!m.skipped,
           verified: false,
@@ -134,7 +154,8 @@ function fromArtist(a: Artist): {
           rewards: [],
         })),
       ),
-    })),
+      };
+    }),
   };
 }
 
@@ -159,18 +180,22 @@ function fromRaw(json: string) {
   const o = JSON.parse(unwrapSigned(json)) as Record<string, unknown>;
   const a = (o.artist ?? {}) as Record<string, unknown>;
   const rawPlatforms = (o.platforms ?? []) as Record<string, unknown>[];
-  const platforms: EPlatform[] = rawPlatforms.map((p) => ({
+  const platforms: EPlatform[] = rawPlatforms.map((p) => {
+    const rawPeriods = (p.periods ?? []) as Record<string, unknown>[];
+    const custom = rawPeriods.some((pr) => typeof pr.yearName === "string" && pr.yearName.trim());
+    return {
     id: uid(),
     name: typeof p.name === "string" ? p.name : "",
     url: typeof p.url === "string" ? p.url : "",
     verified: !!p.verified,
-    periods: sortPeriods(((p.periods ?? []) as Record<string, unknown>[]).map((pr) => {
+    custom,
+    periods: (custom ? (rows: EPeriod[]) => rows : sortPeriods)(rawPeriods.map((pr) => {
       const rewards = Array.isArray(pr.rewards) ? (pr.rewards as Record<string, unknown>[]) : [];
       const named = rewards.length > 0;
       return {
         id: uid(),
-        year: pr.year != null ? String(pr.year) : "",
-        month: pr.month != null ? String(pr.month) : "",
+        year: typeof pr.yearName === "string" ? pr.yearName : pr.year != null ? String(pr.year) : "",
+        month: typeof pr.monthName === "string" ? pr.monthName : pr.month != null ? String(pr.month) : "",
         span: String((pr.span as number) ?? 1),
         skipped: !!pr.skipped,
         verified: !!pr.verified,
@@ -185,7 +210,8 @@ function fromRaw(json: string) {
           : [],
       };
     })),
-  }));
+    };
+  });
   const links = Array.isArray(a.links)
     ? (a.links as Record<string, unknown>[]).map((l) => ({
         label: typeof l.label === "string" ? l.label : "",
@@ -331,7 +357,7 @@ export function TemplateEditor({
       setLinks(m.links);
       setPlatforms(m.platforms);
       // continue from the template's last year
-      const newest = m.platforms.flatMap((p) => p.periods).find((pr) => pr.year.trim());
+      const newest = m.platforms.flatMap((p) => (p.custom ? [] : p.periods)).find((pr) => pr.year.trim());
       if (newest) setLastYear(newest.year.trim());
       // verified state is kept, but only survives saving where it can be re-signed
       setMasterVerified(m.masterVerified);
@@ -352,7 +378,7 @@ export function TemplateEditor({
     setKind(m.kind);
     setLinks(m.links);
     setPlatforms(m.platforms.length ? m.platforms : [blankPlatform()]);
-    const newest = m.platforms.flatMap((p) => p.periods).find((pr) => pr.year.trim());
+    const newest = m.platforms.flatMap((p) => (p.custom ? [] : p.periods)).find((pr) => pr.year.trim());
     if (newest) setLastYear(newest.year.trim());
   };
 
@@ -370,6 +396,42 @@ export function TemplateEditor({
   // sort periods newest first (manual, so rows don't jump while typing)
   const sortPlatformPeriods = (pid: string) =>
     setPlatforms((ps) => ps.map((p) => (p.id === pid ? { ...p, periods: sortPeriods(p.periods) } : p)));
+
+  // the names to offer: the creator's on that platform, then the template's own rows
+  const libraryMonths = (p: EPlatform) => {
+    const a = artists.find((x) => x.name.trim().toLowerCase() === name.trim().toLowerCase());
+    const plat = a?.platforms.find((x) => x.name.trim().toLowerCase() === p.name.trim().toLowerCase());
+    return plat?.releaseStyle === "custom" ? plat.months : [];
+  };
+  const yearNames = (p: EPlatform) =>
+    uniqueNames([...customYearNames(libraryMonths(p)), ...p.periods.map((pr) => pr.year)]);
+  const monthNames = (p: EPlatform, year: string) => {
+    const want = year.trim().toLowerCase();
+    const here = p.periods.filter((pr) => pr.year.trim().toLowerCase() === want);
+    return uniqueNames([
+      ...customMonthNames(libraryMonths(p), year),
+      ...here.map((pr) => pr.month),
+      ...p.periods.map((pr) => pr.month),
+    ]);
+  };
+
+  // own names <-> dates: real dates carry over, words can't be a date
+  const setPlatformCustom = (p: EPlatform, custom: boolean) =>
+    patchPlatform(p.id, {
+      custom,
+      periods: p.periods.map((pr) => {
+        if (custom) {
+          return { ...pr, month: pr.month.trim() ? pr.month.trim().padStart(2, "0") : "" };
+        }
+        const dated = /^\d{4}$/.test(pr.year.trim());
+        const month = Number(pr.month);
+        return {
+          ...pr,
+          year: dated ? pr.year.trim() : "",
+          month: dated && month >= 1 && month <= 12 ? String(month) : "",
+        };
+      }),
+    });
 
   // pick a month cover -> saved inline (data URL)
   const pickCover = async (pid: string, prid: string) => {
@@ -429,8 +491,13 @@ export function TemplateEditor({
           ...(unlocked && p.verified ? { verified: true } : {}),
           periods: p.periods.map((pr) => {
             const o: Record<string, unknown> = {};
-            if (pr.year.trim()) o.year = Number(pr.year);
-            if (pr.month.trim()) o.month = Number(pr.month);
+            if (p.custom) {
+              if (pr.year.trim()) o.yearName = pr.year.trim();
+              if (pr.year.trim() && pr.month.trim()) o.monthName = pr.month.trim();
+            } else {
+              if (pr.year.trim()) o.year = Number(pr.year);
+              if (pr.month.trim()) o.month = Number(pr.month);
+            }
             const span = Math.max(1, Number(pr.span) || 1);
             if (span > 1) o.span = span;
             if (unlocked && pr.verified) o.verified = true;
@@ -733,6 +800,18 @@ export function TemplateEditor({
                     placeholder={t("Platform URL (optional)")}
                     className="h-8 min-w-0 flex-1 rounded-md border border-zinc-800 bg-zinc-950 px-2 text-xs text-zinc-300 outline-none focus:border-brand-500/60"
                   />
+                  <label
+                    className="flex shrink-0 items-center gap-1 text-[11px] text-zinc-400"
+                    title={t("Your own names for years and cards (Summer, Part 1 …)")}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={p.custom}
+                      onChange={(e) => setPlatformCustom(p, e.target.checked)}
+                      className="h-3.5 w-3.5 accent-brand-500"
+                    />
+                    {t("Custom")}
+                  </label>
                   {unlocked && !masterVerified && (
                     <label
                       className="flex shrink-0 items-center gap-1 text-[11px] text-brand-200"
@@ -760,11 +839,18 @@ export function TemplateEditor({
                 <div className="mt-2.5 space-y-2.5">
                   <div className="flex items-center justify-between px-0.5">
                     <span className="text-[10px] font-medium uppercase tracking-wide text-zinc-600">
-                      {t("Periods — newest first · year · month · how many rewards")}
+                      {p.custom
+                        ? t("Periods — year name · month name · how many rewards")
+                        : t("Periods — newest first · year · month · how many rewards")}
                     </span>
                     <button
                       onClick={() =>
-                        patchPlatform(p.id, { periods: [blankPeriod(lastYear), ...p.periods] })
+                        patchPlatform(p.id, {
+                          // custom rows are in the order the names get made, so a new one is last
+                          periods: p.custom
+                            ? [...p.periods, blankPeriod(p.periods[p.periods.length - 1]?.year ?? "")]
+                            : [blankPeriod(lastYear), ...p.periods],
+                        })
                       }
                       className="inline-flex items-center gap-1 rounded-md border border-brand-500/40 bg-brand-500/10 px-2 py-1 text-[11px] text-brand-200 hover:bg-brand-500/20"
                       title={t("Add a new period at the top")}
@@ -811,11 +897,17 @@ export function TemplateEditor({
                           <button
                             onClick={() =>
                               patchPlatform(p.id, {
-                                periods: [
-                                  ...p.periods.slice(0, p.periods.indexOf(g.periods[0])),
-                                  blankPeriod(g.year === "—" ? "" : g.year),
-                                  ...p.periods.slice(p.periods.indexOf(g.periods[0])),
-                                ],
+                                periods: (() => {
+                                  // custom: at the end of the year (see above)
+                                  const at = p.custom
+                                    ? p.periods.indexOf(g.periods[g.periods.length - 1]) + 1
+                                    : p.periods.indexOf(g.periods[0]);
+                                  return [
+                                    ...p.periods.slice(0, at),
+                                    blankPeriod(g.year === "—" ? "" : g.year),
+                                    ...p.periods.slice(at),
+                                  ];
+                                })(),
                               })
                             }
                             title={tf("Add a period to {year}", { year: yearLabel })}
@@ -835,8 +927,31 @@ export function TemplateEditor({
                           }`}
                           title={t("This period")}
                         >
-                          {periodChip(pr, t)}
+                          {periodChip(pr, t, p.custom)}
                         </span>
+                        {p.custom ? (
+                          <>
+                            <NameCombo
+                              live
+                              typos
+                              value={pr.year}
+                              onCommit={(year) => patchPeriod(p.id, pr.id, { year })}
+                              suggestions={yearNames(p)}
+                              placeholder={t("Year name")}
+                              className="h-8 w-28 rounded-md border border-zinc-800 bg-zinc-950 px-2 text-xs text-zinc-100 outline-none focus:border-brand-500/60"
+                            />
+                            <NameCombo
+                              live
+                              typos
+                              value={pr.month}
+                              onCommit={(month) => patchPeriod(p.id, pr.id, { month })}
+                              suggestions={monthNames(p, pr.year)}
+                              placeholder={t("Month name")}
+                              className="h-8 w-28 rounded-md border border-zinc-800 bg-zinc-950 px-2 text-xs text-zinc-100 outline-none focus:border-brand-500/60"
+                            />
+                          </>
+                        ) : (
+                          <>
                         <input
                           value={pr.year}
                           onChange={(e) => {
@@ -860,6 +975,8 @@ export function TemplateEditor({
                             </option>
                           ))}
                         </select>
+                          </>
+                        )}
                         {/* span (several months) */}
                         <label
                           className="flex items-center gap-1 text-xs text-zinc-400"
@@ -895,7 +1012,7 @@ export function TemplateEditor({
                           <span
                             className="relative inline-flex h-8 w-8 shrink-0 overflow-hidden rounded-md border border-zinc-700"
                             data-drop-cover={`${p.id}:${pr.id}`}
-                            data-drop-cover-label={periodChip(pr, t)}
+                            data-drop-cover-label={periodChip(pr, t, p.custom)}
                             title={t("Drop an image here to replace this cover")}
                           >
                             <img src={pr.cover} alt="cover" className="h-full w-full object-cover" />
@@ -911,7 +1028,7 @@ export function TemplateEditor({
                           <button
                             onClick={() => void pickCover(p.id, pr.id)}
                             data-drop-cover={`${p.id}:${pr.id}`}
-                            data-drop-cover-label={periodChip(pr, t)}
+                            data-drop-cover-label={periodChip(pr, t, p.custom)}
                             title={t(
                               "Set a cover image for this month — click to browse, or drop an image straight onto it",
                             )}
@@ -1054,14 +1171,19 @@ export function TemplateEditor({
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() =>
-                        patchPlatform(p.id, { periods: [...p.periods, blankPeriod(lastYear)] })
+                        patchPlatform(p.id, {
+                          periods: [
+                            ...p.periods,
+                            blankPeriod(p.custom ? (p.periods[p.periods.length - 1]?.year ?? "") : lastYear),
+                          ],
+                        })
                       }
                       className="inline-flex items-center gap-1 text-[11px] text-brand-300 hover:text-brand-200"
                     >
                       <Plus className="h-3 w-3" />
                       {t("Add period")}
                     </button>
-                    {p.periods.length > 1 && (
+                    {p.periods.length > 1 && !p.custom && (
                       <button
                         onClick={() => sortPlatformPeriods(p.id)}
                         className="inline-flex items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-200"

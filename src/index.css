@@ -47,6 +47,12 @@
 /* Iridescent UI font: a narrow Unbounded (scripts/make-iri-font.py), and every weight
    one step lighter (400 uses the 300 file and so on), so the app looks slimmer
    without touching any class. */
+/* Pyre's title font, our own cut of Italiana, built by scripts/make-pyre-font.py */
+@font-face {
+  font-family: "Pyre Display";
+  src: url("./assets/fonts/PyreDisplay.woff2?v=3") format("woff2");
+  font-display: swap;
+}
 @font-face {
   font-family: "Iri Unbounded";
   src: url("./assets/fonts/iri/iri-unbounded-narrow-200.woff2?v=1") format("woff2");
@@ -479,6 +485,650 @@
     radial-gradient(36vh 36vh at 55% 48%, rgba(254, 215, 170, 0.18), transparent 70%);
 }
 
+[data-accent="corruptruby"] {
+  /* Neon on a black stage: hot pink light, white-hot text, wine-black surfaces. */
+  --color-brand-50: #fff1f6;
+  --color-brand-100: #ffd6e4;
+  --color-brand-200: #ffb0cb;
+  --color-brand-300: #ff7aa8;
+  --color-brand-400: #ff4d86;
+  --color-brand-500: #ff1464;
+  --color-brand-600: #e00b56;
+  --color-brand-700: #b80a47;
+  --color-brand-800: #8c0a38;
+  --color-brand-900: #3a0618;
+  --color-accent2-400: #ff7aa8;
+  --color-accent2-500: #ff1464;
+  --color-accent2-600: #e00b56;
+  /* the greys lean into the wine, so no surface reads as plain grey */
+  --color-zinc-100: #f8eef1;
+  --color-zinc-200: #ecdce1;
+  --color-zinc-300: #d6c0c7;
+  --color-zinc-400: #b0939c;
+  --color-zinc-500: #866772;
+  --color-zinc-600: #5e3c47;
+  --color-zinc-700: #3c1d28;
+  --color-zinc-800: #26101a;
+  --color-zinc-900: #16070d;
+  --color-zinc-950: #080206;
+  /* Angular: every rounded-* token comes down to a hair, only rounded-full stays. */
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 3px;
+  --radius-xl: 4px;
+  --radius-2xl: 4px;
+  --radius-3xl: 4px;
+  --font-sans: "Sora", "Exo 2", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --ruby-display: "Playfair Display", "Georgia", serif;
+  --ruby-chrome: linear-gradient(
+    180deg,
+    #fff 0%,
+    #dfe6ef 30%,
+    #8e9aaa 48%,
+    #f7fbff 52%,
+    #c7d2de 72%,
+    #8a8fa0 100%
+  );
+  --ruby-glow: 0 0 3px #ff7aa8, 0 0 11px #ff1464, 0 0 24px rgba(255, 20, 100, 0.75);
+  --micoll-hover: rgba(255, 20, 100, 0.16);
+  --micoll-hover-ink: #ffd6e4;
+}
+/* the titles are the star of this theme: white-hot serif with a neon glow */
+[data-accent="corruptruby"] h1 {
+  font-family: var(--ruby-display);
+  color: #fff4f8;
+  letter-spacing: 0;
+  text-shadow: var(--ruby-glow);
+}
+/* the page title on the dashboard: same font as the header, keeps the neon above */
+[data-accent="corruptruby"] .ruby-page-title,
+[data-accent="corruptruby"] .ruby-page-title span {
+  font-family: "Pyre Display", var(--ruby-display);
+  font-weight: 400;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+/* a black stage with the light coming from the top corner, under the theme's pictures */
+[data-accent="corruptruby"] .app-blobs {
+  display: none;
+}
+[data-accent="corruptruby"] .app-wallpaper {
+  background-color: #080206;
+  background-image:
+    radial-gradient(90vh 60vh at 88% -12%, rgba(255, 20, 100, 0.2), transparent 62%),
+    radial-gradient(70vh 50vh at 6% 108%, rgba(140, 10, 56, 0.22), transparent 62%);
+  background-repeat: no-repeat;
+}
+[data-accent="corruptruby"] .app-veil {
+  background-color: rgba(8, 2, 6, 0.25);
+}
+
+/* Pyre neon: everything that frames something is a lit tube. The cards share
+   the classic hooks (.classic-card, .classic-month), they're inert without the OG look
+   flag, so the plain markup can stay. */
+[data-accent="corruptruby"] h2 {
+  text-shadow: 0 0 9px rgba(255, 20, 100, 0.7);
+}
+[data-accent="corruptruby"] .app-header {
+  background-color: rgba(8, 2, 6, 0.55);
+  box-shadow:
+    0 1px 0 #ff1464,
+    0 6px 18px -6px rgba(255, 20, 100, 0.75);
+}
+[data-accent="corruptruby"] .app-header {
+  text-shadow: 0 0 8px rgba(255, 20, 100, 0.55);
+}
+/* the logo: a faint neon that beats twice and rests, like a slow heart */
+.ruby-logo {
+  filter: drop-shadow(0 0 3px rgba(255, 20, 100, 0.55));
+}
+[data-accent="corruptruby"] .app-header .ruby-logo {
+  animation: ruby-logo-beat 6s steps(90) infinite;
+}
+@keyframes ruby-logo-beat {
+  0%, 38%, 100% { filter: drop-shadow(0 0 3px rgba(255, 20, 100, 0.55)); }
+  8% { filter: drop-shadow(0 0 7px rgba(255, 20, 100, 0.85)); }
+  15% { filter: drop-shadow(0 0 4px rgba(255, 20, 100, 0.62)); }
+  23% { filter: drop-shadow(0 0 10px rgba(255, 45, 122, 0.95)); }
+}
+[data-animations="off"] .app-header .ruby-logo,
+html[data-fx-idle="1"] .app-header .ruby-logo {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="corruptruby"] .app-header .ruby-logo {
+    animation: none;
+  }
+}
+[data-accent="corruptruby"] .app-header input {
+  border: 1px solid rgba(255, 122, 168, 0.5);
+  border-radius: 3px;
+  background-color: rgba(8, 2, 6, 0.7);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+[data-accent="corruptruby"] .app-header input:focus {
+  border-color: #ffd6e4;
+  box-shadow:
+    0 0 10px #ff1464,
+    inset 0 0 6px rgba(255, 20, 100, 0.6);
+}
+[data-accent="corruptruby"] .app-header .ml-auto button:hover:not(:disabled) {
+  color: #fff1f6;
+  background-color: rgba(255, 20, 100, 0.14);
+  box-shadow:
+    0 0 9px rgba(255, 20, 100, 0.7),
+    inset 0 0 0 1px rgba(255, 122, 168, 0.6);
+}
+[data-accent="corruptruby"] header [data-lit] {
+  color: #fff1f6;
+  border: 1px solid #ff7aa8;
+  box-shadow:
+    0 0 10px #ff1464,
+    inset 0 0 6px #ff1464;
+  animation: ruby-lit-breathe 3.4s steps(34) infinite;
+}
+@keyframes ruby-lit-breathe {
+  0%, 100% { box-shadow: 0 0 7px #ff1464, inset 0 0 4px #ff1464; }
+  50% { box-shadow: 0 0 14px #ff1464, inset 0 0 8px #ff1464; }
+}
+/* the theme's chip: a dark tube that lights up. --on = picked, stays lit */
+[data-accent="corruptruby"] .ruby-chip {
+  color: #f8eef1;
+  border: 1px solid rgba(255, 122, 168, 0.5);
+  border-radius: 3px;
+  background-color: rgba(8, 2, 6, 0.66);
+  background-image: none;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+[data-accent="corruptruby"] .ruby-chip:hover:not(:disabled) {
+  color: #ffffff;
+  border-color: #ffd6e4;
+  background-color: rgba(255, 20, 100, 0.14);
+  box-shadow: 0 0 10px rgba(255, 20, 100, 0.7);
+}
+[data-accent="corruptruby"] .ruby-chip--on {
+  color: #ffffff;
+  border-color: #ffd6e4;
+  background-color: rgba(255, 20, 100, 0.18);
+  box-shadow:
+    0 0 10px #ff1464,
+    inset 0 0 8px rgba(255, 20, 100, 0.7);
+  text-shadow: 0 0 6px #ff7aa8;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="corruptruby"] header [data-lit] {
+    animation: none;
+  }
+}
+[data-accent="corruptruby"] .ruby-bar {
+  border: 1px solid rgba(255, 122, 168, 0.55);
+  border-radius: 4px;
+  background-color: rgba(8, 2, 6, 0.72);
+  box-shadow:
+    0 0 12px rgba(255, 20, 100, 0.45),
+    inset 0 0 14px rgba(255, 20, 100, 0.08);
+}
+[data-accent="corruptruby"] .classic-card {
+  border: 1.5px solid #ff7aa8;
+  background-color: #0c0408;
+  box-shadow: 0 0 12px rgba(255, 20, 100, 0.75);
+  text-shadow: 0 0 8px rgba(255, 20, 100, 0.8);
+  transition: box-shadow 0.18s ease;
+}
+[data-accent="corruptruby"] .classic-card:hover {
+  border-color: #ffd6e4;
+  box-shadow:
+    0 0 8px #ff1464,
+    0 0 24px rgba(255, 20, 100, 0.8);
+}
+/* cards without the frame (RubyCardFx): a light running round the rim. The turning
+   square sits in a masked ring, so only its transform moves. */
+[data-accent="corruptruby"]:not([data-template-font="off"]) .cc-template-type:not(.ruby-frame-name) {
+  font-family: var(--ruby-display);
+  letter-spacing: 0;
+}
+.ruby-run {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: 2.5px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+.ruby-run i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 320%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  background: conic-gradient(transparent 0 74%, #ff1464 88%, #ffd6e4 96%, #ff1464 99%, transparent);
+}
+.ruby-run-always {
+  animation: ruby-run-spin 6s linear infinite;
+}
+.ruby-run-lap {
+  opacity: 0;
+  animation: ruby-run-lap 20s linear infinite;
+}
+@keyframes ruby-run-spin {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+/* one lap in the first third of the cycle, then the rim rests */
+@keyframes ruby-run-lap {
+  0% { opacity: 0; transform: translate(-50%, -50%) rotate(0deg); }
+  2%, 29% { opacity: 1; }
+  32%, 100% { opacity: 0; transform: translate(-50%, -50%) rotate(360deg); }
+}
+.ruby-spark {
+  position: absolute;
+  bottom: -12px;
+  width: 1.5px;
+  border-radius: 1px;
+  background: linear-gradient(transparent, #ff7aa8, #ffd6e4);
+  box-shadow: 0 0 5px #ff1464;
+  opacity: 0;
+  animation: ruby-spark 5s linear both;
+}
+@keyframes ruby-spark {
+  0% { opacity: 0; transform: translate(0, 0); }
+  8% { opacity: 1; }
+  72% { opacity: 0.8; }
+  100% { opacity: 0; transform: translate(var(--drift), -110cqh); }
+}
+
+/* the "set type" corner (TypeCorner): a neon line along the cut */
+.ruby-cut-line {
+  stroke: #ff4d86;
+  stroke-width: 1.6;
+  filter: drop-shadow(0 0 2px #ff1464) drop-shadow(0 0 5px rgba(255, 20, 100, 0.75));
+  transition: stroke 0.18s ease;
+}
+.fx-corner:hover .ruby-cut-line {
+  stroke: #ff7aa8;
+  filter: drop-shadow(0 0 3px #ff1464) drop-shadow(0 0 9px #ff1464);
+}
+
+/* month cards (MonthCard): the rim's glow is the theme's aura, it grows with completion */
+.ruby-month {
+  border: 1.5px solid #5e3c47;
+  background-color: #0c0408;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.ruby-month--low,
+.ruby-month--mid,
+.ruby-month--max {
+  border-color: #ff7aa8;
+}
+.ruby-month--low {
+  box-shadow: 0 0 5px rgba(255, 20, 100, 0.45);
+}
+.ruby-month--mid {
+  box-shadow: 0 0 11px rgba(255, 20, 100, 0.7);
+}
+.ruby-month--max {
+  box-shadow:
+    0 0 12px #ff1464,
+    0 0 26px rgba(255, 20, 100, 0.75);
+  animation: ruby-month-breathe 3.2s steps(32) infinite;
+}
+@keyframes ruby-month-breathe {
+  50% {
+    box-shadow:
+      0 0 16px #ff1464,
+      0 0 36px rgba(255, 20, 100, 0.9);
+  }
+}
+.group:hover .ruby-month {
+  border-color: #ffd6e4;
+}
+.ruby-month-foot {
+  background-color: #0c0408;
+}
+.ruby-month-label {
+  color: #ffd6e4;
+  text-shadow: 0 0 7px #ff1464;
+}
+.ruby-gem {
+  display: block;
+  width: 9px;
+  height: 9px;
+  flex: none;
+  transform: rotate(45deg);
+  box-shadow: inset 0 0 0 1px #5e3c47;
+}
+.ruby-gem--on {
+  background: conic-gradient(#ff5c93, #9e0636, #e0115f, #4a0219, #ff5c93);
+  box-shadow: 0 0 6px #ff1464;
+}
+.ruby-check-mark {
+  filter: drop-shadow(0 0 3px #ff1464);
+}
+/* the year: a lit tube for the progress, a rose line without a template */
+.ruby-yearbar {
+  background: #26101a;
+  box-shadow: inset 0 0 0 1px rgba(255, 122, 168, 0.25);
+}
+.ruby-yearfill {
+  background: linear-gradient(90deg, #b80a47, #ff1464, #ff7aa8);
+  box-shadow: 0 0 8px #ff1464;
+  transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+[data-accent="corruptruby"] .ruby-rule {
+  background: linear-gradient(90deg, #ff1464, rgba(255, 20, 100, 0.25) 60%, transparent);
+  box-shadow: 0 0 6px rgba(255, 20, 100, 0.5);
+}
+
+/* the viewer: controls with a chrome rim that stays open at two corners, the clip-path
+   simply takes the line away there. Picked: the rim stays, pink glows from inside. */
+[data-accent="corruptruby"] .micoll-viewer :is(.viewer-btn, .viewer-chip) {
+  color: #f4f6fa;
+  border: 1.5px solid #8e95a3;
+  border-radius: 5px;
+  background-color: rgba(8, 2, 6, 0.7);
+  background-image: none;
+  box-shadow: none;
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+}
+[data-accent="corruptruby"] .micoll-viewer .viewer-btn:hover:not(:disabled) {
+  color: #ffffff;
+  border-color: #f4f6fa;
+  background-color: rgba(8, 2, 6, 0.7);
+}
+[data-accent="corruptruby"] .micoll-viewer .viewer-btn[data-active] {
+  color: #ffffff;
+  border-color: #c9d0da;
+  background-color: rgba(8, 2, 6, 0.7);
+  box-shadow: inset 0 0 10px 1px #ff1464;
+}
+[data-accent="corruptruby"] .micoll-viewer .viewer-topbar {
+  background-image: none;
+  border-bottom: 1px solid #8e95a3;
+}
+[data-accent="corruptruby"] .micoll-viewer .viewer-thumb {
+  border-radius: 0;
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+}
+/* the picked one: a rim on the inside, a ring would be cut off by the corners */
+[data-accent="corruptruby"] .micoll-viewer .viewer-thumb:is([data-sel], [data-current])::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 2px solid #ff1464;
+  pointer-events: none;
+}
+[data-accent="corruptruby"] .micoll-viewer input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, #8e95a3, #ff1464);
+  outline: none;
+}
+[data-accent="corruptruby"] .micoll-viewer input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 9px;
+  height: 18px;
+  border: 1px solid #8e95a3;
+  border-radius: 2px;
+  background: #f4f6fa;
+  cursor: pointer;
+}
+
+/* a cover without a picture: a dark ember, the same face on every tile (Thumb.tsx) */
+.ruby-face {
+  background:
+    radial-gradient(90% 70% at 82% 8%, rgba(224, 17, 84, 0.5), transparent 62%),
+    radial-gradient(70% 55% at 8% 100%, rgba(122, 7, 30, 0.55), transparent 66%),
+    linear-gradient(150deg, #2a0612, #0c0408 66%);
+}
+
+/* the moving "Ember" background (RubyEmberWall.tsx), sizes in the picture's 2560x1440 */
+.ruby-wall-haze {
+  position: absolute;
+  right: -200px;
+  top: -320px;
+  width: 1400px;
+  height: 1400px;
+  background: radial-gradient(closest-side, rgba(224, 17, 84, 0.34), transparent);
+  mix-blend-mode: screen;
+  animation: ruby-wall-haze 9s ease-in-out infinite;
+}
+@keyframes ruby-wall-haze {
+  0%, 100% { opacity: 0.25; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.06); }
+}
+.ruby-wall-arc {
+  filter: blur(9px);
+  mix-blend-mode: screen;
+  animation: ruby-wall-arc 5s ease-in-out infinite;
+}
+@keyframes ruby-wall-arc {
+  0%, 100% { opacity: 0.12; }
+  50% { opacity: 0.85; }
+}
+.ruby-wall-flare {
+  position: absolute;
+  height: 6px;
+  background: linear-gradient(90deg, transparent, #ff7aa8 45%, #ffe0ea 50%, #ff7aa8 55%, transparent);
+  mix-blend-mode: screen;
+  animation: ruby-wall-flare 6s ease-in-out infinite;
+}
+@keyframes ruby-wall-flare {
+  0%, 100% { opacity: 0.1; }
+  45% { opacity: 0.8; }
+  55% { opacity: 0.35; }
+}
+.ruby-wall-ember {
+  position: absolute;
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(transparent, #ff5c97, #ffd6e4);
+  box-shadow: 0 0 8px #ff2d7a;
+  opacity: 0;
+  animation: ruby-wall-ember 12s linear infinite;
+}
+@keyframes ruby-wall-ember {
+  0% { opacity: 0; transform: translate(0, 0) rotate(-22deg); }
+  10% { opacity: 1; }
+  72% { opacity: 0.75; }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(-22deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.ruby-wall-haze, .ruby-wall-arc, .ruby-wall-flare, .ruby-wall-ember) {
+    animation: none;
+  }
+}
+
+/* the frame option (RubyCardFrame.tsx) */
+.ruby-frame-glow {
+  animation: ruby-frame-glow 4s ease-in-out infinite;
+}
+@keyframes ruby-frame-glow {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+.ruby-haze {
+  position: absolute;
+  width: 88%;
+  height: 50%;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  background: radial-gradient(closest-side, rgba(255, 45, 122, 0.55), transparent);
+  animation: ruby-haze 9s ease-in-out infinite;
+}
+.ruby-haze--a {
+  left: -18%;
+  top: -17%;
+}
+.ruby-haze--b {
+  right: -24%;
+  bottom: 12%;
+  background: radial-gradient(closest-side, rgba(192, 16, 63, 0.5), transparent);
+  animation-duration: 11s;
+  animation-delay: -4s;
+}
+.ruby-haze--chrome {
+  left: auto;
+  right: -20%;
+  top: -15%;
+  background: radial-gradient(closest-side, rgba(192, 16, 63, 0.6), transparent);
+  animation-duration: 10s;
+}
+@keyframes ruby-haze {
+  0%, 100% { opacity: 0.55; transform: translate(0, 0) scale(1); }
+  50% { opacity: 0.9; transform: translate(-4%, 2%) scale(1.08); }
+}
+.ruby-grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.22;
+  mix-blend-mode: screen;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 .2 0 0 0 0 .45 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+.ruby-frame-fade {
+  position: absolute;
+  inset: 56% 0 0;
+  background: linear-gradient(180deg, transparent, rgba(20, 2, 8, 0.75) 50%, rgba(10, 1, 5, 0.96));
+}
+.ruby-frame-fade--chrome {
+  background: linear-gradient(180deg, transparent, rgba(40, 3, 14, 0.78) 50%, rgba(14, 1, 6, 0.96));
+}
+.ruby-ember {
+  position: absolute;
+  width: 2px;
+  border-radius: 2px;
+  background: #ff5c97;
+  box-shadow:
+    0 0 6px #ff2d7a,
+    0 0 12px rgba(255, 45, 122, 0.7);
+  opacity: 0;
+  animation: ruby-ember 6s linear both;
+}
+@keyframes ruby-ember {
+  0% { opacity: 0; transform: translate(0, 0) rotate(-28deg); }
+  15% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-13cqw, -40cqh) rotate(-28deg); }
+}
+[data-accent="corruptruby"] .ruby-frame-name {
+  font-family: "Italiana", var(--ruby-display);
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ffe9f0;
+  text-shadow:
+    0 0 6px #ff2d7a,
+    0 0 18px rgba(255, 45, 122, 0.75),
+    0 2px 10px rgba(10, 1, 5, 0.9);
+  animation: ruby-frame-flick 7s infinite;
+}
+@keyframes ruby-frame-flick {
+  0%, 92%, 95%, 100% { opacity: 1; }
+  93% { opacity: 0.6; }
+  97% { opacity: 0.75; }
+}
+/* the holo switch stops what isn't unmounted with it */
+html[data-fx-off~="holo.corruptruby"] :is(.ruby-frame-glow, .ruby-haze, .ruby-frame-name, .ruby-month--max) {
+  animation: none !important;
+}
+html[data-holo-freq="2"] :is(.ruby-run i, .ruby-frame-glow, .ruby-haze, .ruby-ember, .ruby-month--max) {
+  animation-play-state: paused !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.ruby-run i, .ruby-spark, .ruby-frame-glow, .ruby-haze, .ruby-ember, .ruby-frame-name, .ruby-month--max) {
+    animation: none;
+  }
+}
+[data-accent="corruptruby"] :is(.settings-glass, .glass-box, .settings-body nav) {
+  border-color: rgba(255, 122, 168, 0.28);
+  box-shadow: 0 0 14px -5px rgba(255, 20, 100, 0.55);
+}
+/* dialogs, right-click menus and dropdowns (lib/dialogTheme): near solid black, so the
+   text stays readable over the glowing cards behind them */
+[data-accent="corruptruby"] .ruby-panel {
+  border: 1px solid #ff7aa8;
+  background-color: rgba(12, 4, 8, 0.97);
+  box-shadow:
+    0 0 16px rgba(255, 20, 100, 0.55),
+    0 22px 44px -12px rgba(0, 0, 0, 0.75);
+}
+[data-accent="corruptruby"] .ruby-panel button:hover:not(:disabled) {
+  text-shadow: 0 0 7px rgba(255, 20, 100, 0.9);
+}
+/* picked tile (card shapes, app icons): only the rim burns, the inside stays dark */
+[data-accent="corruptruby"] .pick-on {
+  border: 2px solid #ff1464;
+  background-color: transparent;
+  box-shadow:
+    0 0 9px #ff1464,
+    0 0 18px #ff1464,
+    0 0 32px rgba(255, 20, 100, 0.85);
+}
+/* switches stay angular too: a small lit bar with a square knob */
+[data-accent="corruptruby"] .micoll-switch {
+  border-radius: 3px;
+}
+[data-accent="corruptruby"] .micoll-switch-knob {
+  border-radius: 2px;
+}
+[data-accent="corruptruby"] .micoll-switch[aria-checked="true"],
+[data-accent="corruptruby"] .micoll-switch[data-on] {
+  box-shadow: 0 0 9px #ff1464;
+}
+[data-accent="corruptruby"] .ruby-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, #8c0a38, #ff1464 60%, #ff7aa8);
+  box-shadow: 0 0 7px rgba(255, 20, 100, 0.65);
+  outline: none;
+}
+[data-accent="corruptruby"] .ruby-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 9px;
+  height: 18px;
+  border: 1px solid #ff7aa8;
+  border-radius: 2px;
+  background: #fff1f6;
+  box-shadow: 0 0 8px #ff1464;
+  cursor: pointer;
+}
+[data-accent="corruptruby"] .ruby-range:hover::-webkit-slider-thumb,
+[data-accent="corruptruby"] .ruby-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 13px #ff1464;
+}
+[data-accent="corruptruby"] .ruby-range:disabled {
+  opacity: 0.4;
+}
+[data-accent="corruptruby"] .ruby-code {
+  color: #ffd6e4;
+  border-radius: 2px;
+  background: rgba(255, 20, 100, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 122, 168, 0.4);
+}
+[data-accent="corruptruby"] .ruby-tile {
+  color: #ffd6e4;
+  border-radius: 3px;
+  background: rgba(8, 2, 6, 0.7);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 122, 168, 0.5),
+    0 0 8px rgba(255, 20, 100, 0.5);
+}
+
 [data-accent="sakura"] {
   /* Soft cherry blossom pink. */
   --color-brand-50: #fff5fa;
@@ -664,6 +1314,18 @@ textarea,
 
 /* Iridescent: a dark pearl thumb, the frame's four pastels sunk to deep tones and
    run top to bottom, on a barely-there lavender track. */
+/* Pyre: a thin lit tube, square ends. */
+[data-accent="corruptruby"] *::-webkit-scrollbar-track {
+  background: transparent;
+}
+[data-accent="corruptruby"] *::-webkit-scrollbar-thumb {
+  border-radius: 1px;
+  background: #8c0a38;
+}
+[data-accent="corruptruby"] *::-webkit-scrollbar-thumb:hover {
+  background: #ff1464;
+  box-shadow: 0 0 6px #ff1464;
+}
 [data-accent="iridescent"] *::-webkit-scrollbar-track {
   background: rgba(196, 181, 253, 0.04);
 }
@@ -3456,6 +4118,33 @@ img {
 }
 @keyframes aifx-in {
   from { opacity: 0; }
+}
+
+/* pyre: a rim of neon breathing around the picture, embers rising over it */
+.aifx-ruby-rim {
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 1.5px #ff1464,
+    inset 0 0 26px rgba(255, 20, 100, 0.5);
+  animation:
+    aifx-in 1.2s ease both,
+    aifx-ruby-rim 3.2s ease-in-out infinite;
+}
+@keyframes aifx-ruby-rim {
+  50% {
+    box-shadow:
+      inset 0 0 0 1.5px #ff7aa8,
+      inset 0 0 52px rgba(255, 20, 100, 0.8);
+  }
+}
+.aifx-ruby-embers {
+  inset: 0;
+  overflow: hidden;
+  container-type: size;
+}
+.aifx-ruby-embers .ruby-spark {
+  animation-iteration-count: infinite;
 }
 
 /* iridescent: quiet and precious. A faint pearl sheen, a hairline of shifting pastel
@@ -6444,21 +7133,21 @@ html[data-fx-off~="logo"] :is(.fx-logo, .fx-logo *, .cp-logo, .cp-logo *, .empty
 }
 
 /* Premium: card holo and frames (creator cards, month cards, card edges) */
-html:is([data-accent="iridescent"][data-fx-off~="holo.iridescent"], [data-accent="sakura"][data-fx-off~="holo.sakura"], [data-accent="cyberpunk"][data-fx-off~="holo.cyberpunk"])
+html:is([data-accent="iridescent"][data-fx-off~="holo.iridescent"], [data-accent="sakura"][data-fx-off~="holo.sakura"], [data-accent="cyberpunk"][data-fx-off~="holo.cyberpunk"], [data-accent="corruptruby"][data-fx-off~="holo.corruptruby"])
   :is(.micoll-holo, .cp-holo-bands, .cp-holo-prism, .cp-holo-spark span, .iri-holo-bands, .iri-holo-pearl, .iri-holo-prism, .sak-holo-bands, .sak-holo-pearl, .sak-holo-prism, .iri-card-spark, .sak-card-petal, .iri-aura, .iri-edge, .iri-card, .sak-edge, .iri-foot, .iri-kite--on, .cp-ring, .cp-glitch, .cp-flames, .cp-flames > span, .iri-tpl-band1, .iri-tpl-band2),
-html:is([data-accent="iridescent"][data-fx-off~="holo.iridescent"], [data-accent="sakura"][data-fx-off~="holo.sakura"], [data-accent="cyberpunk"][data-fx-off~="holo.cyberpunk"])
+html:is([data-accent="iridescent"][data-fx-off~="holo.iridescent"], [data-accent="sakura"][data-fx-off~="holo.sakura"], [data-accent="cyberpunk"][data-fx-off~="holo.cyberpunk"], [data-accent="corruptruby"][data-fx-off~="holo.corruptruby"])
   :is(.micoll-holo, .iri-aura, .iri-edge, .iri-card, .sak-edge, .cp-glitch)::before,
-html:is([data-accent="iridescent"][data-fx-off~="holo.iridescent"], [data-accent="sakura"][data-fx-off~="holo.sakura"], [data-accent="cyberpunk"][data-fx-off~="holo.cyberpunk"])
+html:is([data-accent="iridescent"][data-fx-off~="holo.iridescent"], [data-accent="sakura"][data-fx-off~="holo.sakura"], [data-accent="cyberpunk"][data-fx-off~="holo.cyberpunk"], [data-accent="corruptruby"][data-fx-off~="holo.corruptruby"])
   :is(.micoll-holo, .iri-aura, .iri-edge, .iri-card, .sak-edge, .cp-glitch)::after {
   animation: none !important;
 }
 
 /* Premium: theme shimmer (foil, lines, progress bars, switches, licence, viewer, Create Card) */
-html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-accent="sakura"][data-fx-off~="shimmer.sakura"], [data-accent="cyberpunk"][data-fx-off~="shimmer.cyberpunk"])
+html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-accent="sakura"][data-fx-off~="shimmer.sakura"], [data-accent="cyberpunk"][data-fx-off~="shimmer.cyberpunk"], [data-accent="corruptruby"][data-fx-off~="shimmer.corruptruby"])
   :is(.fav-title, .iri-fill, .sak-yearfill, .iri-pct, .sak-pct, .imp-fill, .crop-frame, .iri-home-plate, .micoll-viewer .viewer-btn, header [data-lit], .tb-hint, .tb-hint-blossom, .micoll-viewer .viewer-thumb, .collab-chip, .extra-on, .iri-lead--fine, .micoll-viewer .iri-ink, .iri-rule, .cp-rule, .iri-licence, .sak-licence, .cp-licence, .micoll-switch, .cp-check-base, .cp-check-ghost, .cp-create, .iri-crystal-fill, .iri-star-ink),
-html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-accent="sakura"][data-fx-off~="shimmer.sakura"], [data-accent="cyberpunk"][data-fx-off~="shimmer.cyberpunk"])
+html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-accent="sakura"][data-fx-off~="shimmer.sakura"], [data-accent="cyberpunk"][data-fx-off~="shimmer.cyberpunk"], [data-accent="corruptruby"][data-fx-off~="shimmer.corruptruby"])
   :is(.imp-fill, .crop-frame, .tb-hint, .micoll-viewer .viewer-thumb, .iri-lead--fine, .iri-licence, .sak-licence, .cp-licence, .cp-create)::before,
-html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-accent="sakura"][data-fx-off~="shimmer.sakura"], [data-accent="cyberpunk"][data-fx-off~="shimmer.cyberpunk"])
+html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-accent="sakura"][data-fx-off~="shimmer.sakura"], [data-accent="cyberpunk"][data-fx-off~="shimmer.cyberpunk"], [data-accent="corruptruby"][data-fx-off~="shimmer.corruptruby"])
   :is(.imp-fill, .crop-frame, .tb-hint, .micoll-viewer .viewer-thumb, .iri-lead--fine, .iri-licence, .sak-licence, .cp-licence, .cp-create)::after {
   animation: none !important;
 }
@@ -7254,4 +7943,21 @@ html[data-holo-freq="2"] :is(.sak-aura.sak-max, .sak-aura::before) {
 }
 @media (prefers-reduced-motion: reduce) {
   .sak-omikuji { animation: none; }
+}
+
+/* The header title in Pyre: polished silver, in the theme's own font. */
+.ruby-title {
+  font-family: "Pyre Display", var(--ruby-display);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1.3;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: var(--ruby-chrome);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: none;
+  filter: drop-shadow(0 0 5px rgba(255, 20, 100, 0.45));
 }

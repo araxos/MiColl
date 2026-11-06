@@ -70,6 +70,9 @@ interface BPeriod {
   year: number | null;
   month: number | null;
   number: number | null;
+  yearName: string | null;
+  yearPos?: number | null;
+  monthPos?: number | null;
   span: number;
   label: string;
   folderPath: string;
@@ -89,7 +92,7 @@ interface BArtist {
   noDates: boolean;
   /** Platform names that are effectively date-less (per-platform override or default). */
   noDatesPlatforms: string[];
-  /** Artist-level release style: "monthly" | "numbered" | "none". */
+  /** Artist-level release style: "monthly" | "numbered" | "none" | "custom". */
   releaseStyle: string;
   /** Effective release style per platform (override, else the artist default). */
   platformStyles: { platform: string; style: string }[];
@@ -159,10 +162,19 @@ export interface ArtistProposal {
   proposedStyle: ReleaseStyle;
 }
 
+/** The folders above a reward, for when the review picks the custom style. */
+export interface CustomLevels {
+  year: string | null;
+  month: string | null;
+  category: string | null;
+}
+
 export interface ImportPlan {
   multiArtist: boolean;
   rewards: DetectedReward[];
   artists: ArtistProposal[];
+  /** By reward folder. */
+  levels?: Record<string, CustomLevels>;
 }
 
 export interface ResolvedReward {
@@ -181,6 +193,9 @@ export interface ResolvedReward {
   extra?: boolean;
   /** The tier typed in the review (optional). */
   tier?: string | null;
+  /** Custom style: the typed names, year and month stay null then. */
+  customYear?: string | null;
+  customMonth?: string | null;
 }
 
 /** A release style choice from the import review (whole artist, or one platform if set). */
@@ -270,6 +285,8 @@ function mapReward(r: BReward): Reward {
  */
 function spanLabel(year: number | null, month: number | null, span: number, base: string): string {
   if (span <= 1 || year == null || month == null) return base;
+  // a custom name has no next month to run to
+  if (year < 1000 || month > 12) return `${base} ×${span}`;
   let ey = year;
   let em = month + span - 1;
   while (em > 12) {
@@ -288,7 +305,11 @@ function mapPeriodToMonth(p: BPeriod): Month {
     year: p.year,
     month: p.month,
     number: p.number ?? null,
+    yearName: p.yearName,
+    yearPos: p.yearPos,
+    monthPos: p.monthPos,
     label: spanLabel(p.year, p.month, span, p.label),
+    plainLabel: p.label,
     span,
     skipped: !!p.skipped,
     verified: !!p.verified,
@@ -575,6 +596,26 @@ export async function deletePeriod(periodId: string, alsoFiles: boolean): Promis
 }
 
 /** Create a new skipped month (folder + marker + DB period) for an artist/platform. */
+/** Save the order custom years (year null) or a year's cards were dragged into. */
+export async function reorderCustom(
+  artistId: string,
+  platform: string | null,
+  year: number | null,
+  order: number[],
+): Promise<void> {
+  await invoke("reorder_custom", { artistId: Number(artistId), platform, year, order });
+}
+
+/** A new break card of the custom style, by its names. */
+export async function addCustomBreak(
+  artistId: string,
+  platform: string | null,
+  yearName: string,
+  monthName: string,
+): Promise<void> {
+  await invoke("add_custom_break", { artistId: Number(artistId), platform, yearName, monthName });
+}
+
 export async function addSkippedPeriod(
   artistId: string,
   platform: string | null,
@@ -1827,6 +1868,32 @@ export async function createReward(periodId: string, name: string): Promise<numb
   return invoke<number>("create_reward", { periodId: Number(periodId), name });
 }
 
+/** ensurePeriod with the custom style's names. No year = the "Misc" bucket. */
+export async function ensureCustomPeriod(
+  artistId: string,
+  platform: string | null,
+  yearName: string | null,
+  monthName: string | null,
+): Promise<number> {
+  return invoke<number>("ensure_custom_period", {
+    artistId: Number(artistId),
+    platform,
+    yearName,
+    monthName,
+  });
+}
+
+/** Rename a custom year, or with month one of its cards. The folder follows. */
+export async function renameCustomPeriod(
+  artistId: string,
+  platform: string | null,
+  year: number,
+  month: number | null,
+  name: string,
+): Promise<void> {
+  await invoke("rename_custom_period", { artistId: Number(artistId), platform, year, month, name });
+}
+
 /** Add a "missing" placeholder card (no folder yet). Only without a template. */
 export async function createMissingReward(periodId: string, name: string): Promise<number> {
   return invoke<number>("create_missing_reward", { periodId: Number(periodId), name });
@@ -2090,7 +2157,9 @@ export interface CreateArtistArgs {
   years: number[];
   /** Whether to create 12 month subfolders under each year. */
   months: boolean;
-  /** How the creator releases. Only "monthly" gets year/month folders. */
+  /** The custom style's years, folders with these names go under each platform. */
+  yearNames?: string[];
+  /** How the creator releases. Only "monthly" and "custom" get folders below the platform. */
   releaseStyle: ReleaseStyle;
   /** Creator type(s), comma-separated (e.g. "Artist,Animator"). Null → none. */
   kind?: string | null;
@@ -2104,6 +2173,7 @@ export async function createArtist(args: CreateArtistArgs): Promise<void> {
     platforms: args.platforms,
     years: args.years,
     months: args.months,
+    yearNames: args.yearNames ?? [],
     releaseStyle: args.releaseStyle,
     kind: args.kind ?? null,
   });
@@ -2166,13 +2236,15 @@ export async function signTemplate(json: string): Promise<string> {
   return invoke<string>("sign_template", { json });
 }
 
-/** Issue a permanent premium-theme unlock key for a buyer (owner-only). */
+/** Issue a premium-theme unlock key for a buyer (owner-only). */
 export async function issueThemeKey(
+  pack: string,
   buyer: string,
   /** Test key: an end date (YYYY-MM-DD) or a number of days. Neither = permanent. */
   trial?: { expires?: string; days?: number },
 ): Promise<string> {
   return invoke<string>("issue_theme_key", {
+    pack,
     buyer,
     expires: trial?.expires ?? null,
     days: trial?.days ?? null,
@@ -2181,6 +2253,8 @@ export async function issueThemeKey(
 
 /** What a pasted key turns out to be. `until` is the last day a test key works. */
 export interface ThemeLicenseInfo {
+  /** The pack this key unlocks. */
+  pack: string;
   buyer: string;
   trial: boolean;
   until: string | null;

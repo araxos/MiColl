@@ -59,13 +59,17 @@ export function CollectionTabs({
         ? "hover:border-[#f9a8d4]/70"
         : accent === "iridescent"
           ? "hover:border-white/45"
-          : "hover:border-brand-500/60";
+          : accent === "corruptruby"
+            ? "hover:border-[#ff7aa8]/80"
+            : "hover:border-brand-500/60";
   const tabFill =
     accent === "cyberpunk"
       ? "hover:bg-[#fcee0a]/10 hover:text-[#fcee0a]"
       : accent === "sakura"
         ? "hover:bg-[#f9a8d4]/10"
-        : "hover:bg-white/10";
+        : accent === "corruptruby"
+          ? "hover:bg-[#ff1464]/12"
+          : "hover:bg-white/10";
   // tabs have no top edge, square corners on the hard-edged themes
   const tabShape = cn(
     glass ?? field,
@@ -169,6 +173,9 @@ export function CollectionTabs({
     ) : accent === "sakura" ? (
       // sakura: pink line that fades out at both ends
       <div className="h-px w-full bg-[linear-gradient(90deg,transparent,#f9a8d4_18%,#ea5ba6_50%,#f9a8d4_82%,transparent)] opacity-80" />
+    ) : accent === "corruptruby" ? (
+      // pyre: a neon line, burning out towards both ends
+      <div className="h-px w-full bg-[linear-gradient(90deg,transparent,#ff1464_16%,#ff7aa8_50%,#ff1464_84%,transparent)] shadow-[0_0_8px_rgba(255,20,100,0.7)]" />
     ) : (
       <div className={cn("w-full border-t", divider)} />
     );

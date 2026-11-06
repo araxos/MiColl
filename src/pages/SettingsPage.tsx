@@ -38,6 +38,7 @@ import {
   SquareDashed,
   Square,
   SquareCheck,
+  Flame,
   X,
   Smartphone,
 } from "lucide-react";
@@ -62,7 +63,7 @@ import { HealthPanel } from "@/components/HealthPanel";
 import { useData } from "@/store";
 import { useActions } from "@/actions";
 import * as api from "@/api/library";
-import { ACCENTS, applyAccent, getAccent, useAccent, useLicensee, useTrialUntil, toggleOnClass, isPremium, premiumUnlocked, THEME_PACKS, type AccentDef, type AccentKey } from "@/lib/theme";
+import { ACCENTS, accentUnlocked, applyAccent, getAccent, useAccent, useLicensee, useTrialUntil, toggleOnClass, isPremium, packOf, packUnlocked, premiumUnlocked, THEME_PACKS, usePackLicence, useVisiblePacks, type AccentDef, type AccentKey } from "@/lib/theme";
 import { SALES_OPEN } from "@/lib/sales";
 import { cn } from "@/lib/utils";
 import { isTauri } from "@/lib/tauri";
@@ -110,6 +111,8 @@ import { getAnimatedBg, setAnimatedBg } from "@/lib/animatedBg";
 import { getClassicLuxe, setClassicLuxe, useClassicLuxe } from "@/lib/classicLuxe";
 import { getCyberFrame, setCyberFrame } from "@/lib/cyberFrame";
 import { getSakuraFrame, setSakuraFrame } from "@/lib/sakuraFrame";
+import { getRubyFrame, setRubyFrame } from "@/lib/rubyFrame";
+import { getRubyAltLogo, setRubyAltLogo, useRubyAltLogo } from "@/lib/rubyLogo";
 import { getIriFrame, setIriFrame } from "@/lib/iriFrame";
 import { gpuInfo } from "@/lib/gpuInfo";
 import { getOptimizeLargeImages, setOptimizeLargeImages } from "@/lib/optimizeLarge";
@@ -126,7 +129,7 @@ import {
 } from "@/lib/tileShape";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { ThemedSelect } from "@/components/ThemedSelect";
-import { APP_ICONS, autoAppIcon, setAppIconChoice, useAppIconChoice } from "@/lib/appIcon";
+import { autoAppIcon, barred, listedAppIcons, setAppIconChoice, useAppIconChoice } from "@/lib/appIcon";
 import { useConcise, setConcise } from "@/lib/concise";
 import { resetAllWarnings } from "@/lib/warnings";
 import { useUpNavigate } from "@/lib/nav";
@@ -308,13 +311,24 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
   const licensee = useLicensee();
   /** A test key says so on the plate. */
   const trialUntil = useTrialUntil();
+  /** The same two for the Pyre pack, which has a key of its own. */
+  const pyreLicence = usePackLicence("corruptruby");
+  const packs = useVisiblePacks();
   const [unlockOpen, setUnlockOpen] = useState(false);
+  // which pack the dialog opens on, and if it also takes a key for an unlocked pack
+  const [unlockPack, setUnlockPack] = useState(THEME_PACKS[0].id);
+  const [unlockAddKey, setUnlockAddKey] = useState(false);
+  const openUnlock = (pack = THEME_PACKS[0].id, addKey = false) => {
+    setUnlockPack(pack);
+    setUnlockAddKey(addKey);
+    setUnlockOpen(true);
+  };
   // the premium accent clicked while locked, applied right after unlocking
   const [pendingAccent, setPendingAccent] = useState<AccentKey | null>(null);
   const chooseAccent = (key: AccentKey) => {
-    if (isPremium(key) && !premiumUnlocked()) {
+    if (!accentUnlocked(key)) {
       setPendingAccent(key);
-      setUnlockOpen(true);
+      openUnlock(packOf(key)?.id);
       return;
     }
     setAccent(key);
@@ -323,6 +337,8 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
   // cyberpunk card frame is in the swatch's right-click menu (only for that theme)
   const [cyberFrame, setCyberFrameOn] = useState(getCyberFrame());
   const [sakuraFrame, setSakuraFrameOn] = useState(getSakuraFrame());
+  const [rubyFrame, setRubyFrameOn] = useState(getRubyFrame());
+  const rubyAltLogo = useRubyAltLogo();
   const [iriFrame, setIriFrameOn] = useState(getIriFrame());
   // template display font, read as hook, the click reads the live value (menu stays open)
   const templateFont = useTemplateFont();
@@ -349,6 +365,16 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
               },
               info: "Petal-cut cards with a blossom in the notch — deep rose with a template, pale without. Replaces the card's holo effects with silk and drifting petals.",
             }
+          : key === "corruptruby"
+            ? {
+                is: rubyFrame,
+                read: getRubyFrame,
+                write: (v: boolean) => {
+                  setRubyFrameOn(v);
+                  setRubyFrame(v);
+                },
+                info: "Cut-corner cards with chrome shards and corner sigils — neon pink with a template, chrome and crimson without. Replaces the running light.",
+              }
           : key === "iridescent"
             ? {
                 is: iriFrame,
@@ -384,13 +410,16 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
       return;
     }
     // locked themes still show their menu, plus a line that it isn't unlocked yet
-    const isLocked = !premium;
+    const isLocked = !accentUnlocked(key);
     const on = { label: t("Turn off the card frame"), icon: <SquareDashed className="h-4 w-4" /> };
     const off = { label: t("Card frame on the dashboard"), icon: <SquareDashed className="h-4 w-4" /> };
     // the premium themes each have a display font for template cards
-    const hasFace = key === "iridescent" || key === "cyberpunk" || key === "sakura";
+    const hasFace =
+      key === "iridescent" || key === "cyberpunk" || key === "sakura" || key === "corruptruby";
     const fontOn = { label: t("Turn off the template font"), icon: <Type className="h-4 w-4" /> };
     const fontOff = { label: t("Template font on card names"), icon: <Type className="h-4 w-4" /> };
+    const logoOn = { label: t("Turn off the alternate logo"), icon: <Flame className="h-4 w-4" /> };
+    const logoOff = { label: t("Alternate MiColl logo"), icon: <Flame className="h-4 w-4" /> };
     openMenu(e, [
       {
         ...(frame.is ? on : off),
@@ -400,6 +429,17 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
         onClick: () => frame.write(!frame.read()),
       },
       { label: frame.info, info: true },
+      ...(key === "corruptruby"
+        ? [
+            {
+              ...(rubyAltLogo ? logoOn : logoOff),
+              keepOpen: true,
+              toggled: rubyAltLogo ? logoOff : logoOn,
+              onClick: () => setRubyAltLogo(!getRubyAltLogo()),
+            },
+            { label: "Swaps the MiColl logo for a silver flame M.", info: true as const },
+          ]
+        : []),
       ...(hasFace
         ? [
             {
@@ -412,6 +452,8 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
               label:
                 key === "iridescent"
                   ? "Creator cards with a template write their name in KDA. Off puts them back in the theme's normal font — and brings the verified check back."
+                  : key === "corruptruby"
+                    ? "Creator cards with a template write their name in Playfair Display. Off puts them back in the theme's normal font."
                   : key === "sakura"
                     ? "Creator cards with a template write their name in Kaisei Decol. Off puts them back in the theme's normal font — and brings the verified check back."
                     : "Creator cards with a template write their name in MiColl Cut. Off puts them back in the theme's normal font — and brings the verified check back.",
@@ -644,7 +686,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
 
   const renderSwatch = (a: AccentDef) => {
     const active = accent === a.key;
-    const locked = a.tier === "premium" && !premium;
+    const locked = !accentUnlocked(a.key);
     const fill = a.swatch ?? `linear-gradient(135deg, ${a.from}, ${a.to})`;
     return (
       <button
@@ -652,7 +694,14 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
         onClick={() => chooseAccent(a.key)}
         onContextMenu={(e) => accentMenu(e, a.key)}
         title={
-          a.key === "cyberpunk" || a.key === "sakura" || a.key === "iridescent"
+          a.key === "corruptruby"
+            ? (locked
+                ? tf("{name} — premium, unlock with a theme key.", { name: t(a.label) }) + " "
+                : "") +
+              tf("Right-click {name} for its card frame and template font options", {
+                name: t(a.label),
+              })
+            : a.key === "cyberpunk" || a.key === "sakura" || a.key === "iridescent"
             ? (locked
                 ? tf("{name} — premium, unlock with a theme key.", { name: t(a.label) }) + " "
                 : "") +
@@ -988,11 +1037,18 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
   const irid = accent === "iridescent";
   const sak = accent === "sakura";
   const cyber = accent === "cyberpunk";
+  const ruby = accent === "corruptruby";
   /** The license plate per premium theme, basic accents keep the simple chip. */
-  const platePremium = irid || sak || cyber;
+  const platePremium = irid || sak || cyber || ruby;
   // sliders: iridescent/sakura have their own style, others use the brand color
   const rangeClass =
-    accent === "iridescent" ? "iri-range" : accent === "sakura" ? "sak-range" : "accent-brand-500";
+    accent === "iridescent"
+      ? "iri-range"
+      : accent === "sakura"
+        ? "sak-range"
+        : accent === "corruptruby"
+          ? "ruby-range"
+          : "accent-brand-500";
   // these motion settings only affect premium themes, so they're greyed out on others
   const fxLive = isPremium(accent);
   // classic themes animate too (rising glints), unless the OG look is on
@@ -1017,11 +1073,13 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     ? "rounded bg-white/15 text-white ring-1 ring-inset ring-white/20"
     : sak
       ? "sak-code"
-      : "rounded bg-zinc-800 text-zinc-200";
+      : ruby
+        ? "ruby-code"
+        : "rounded bg-zinc-800 text-zinc-200";
 
   // "Back" sits on the wallpaper, premium themes get a dark glass pill so it's visible
   const premiumAccent =
-    accent === "iridescent" || accent === "sakura" || accent === "cyberpunk";
+    accent === "iridescent" || accent === "sakura" || accent === "cyberpunk" || ruby;
   // "No descriptions" (see lib/concise.ts): data-concise on the page + settings-desc on
   // texts
   const concise = useConcise();
@@ -1157,7 +1215,9 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
           ? "border-white/15 !bg-zinc-900/55 !text-zinc-100 hover:!bg-zinc-900/80"
           : accent === "sakura"
             ? "border-[#f9a8d4]/30 !bg-zinc-900/50 !text-zinc-100 hover:!bg-zinc-900/75"
-            : "!rounded-none border-[#fcee0a]/50 !bg-zinc-950/60 !text-zinc-100 hover:!bg-zinc-950/85",
+            : ruby
+              ? "ruby-chip"
+              : "!rounded-none border-[#fcee0a]/50 !bg-zinc-950/60 !text-zinc-100 hover:!bg-zinc-950/85",
       );
 
   return (
@@ -1208,7 +1268,9 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                     ? "rounded-lg border border-white/15 bg-zinc-900/55 backdrop-blur-md focus:border-white/40"
                     : accent === "sakura"
                       ? "rounded-lg border border-[#f9a8d4]/30 bg-zinc-900/50 backdrop-blur-md focus:border-[#f9a8d4]/70"
-                      : "rounded-none border border-[#fcee0a]/50 bg-zinc-950/60 backdrop-blur-md focus:border-[#fcee0a]/80"
+                      : ruby
+                        ? "rounded-lg border border-[#ff7aa8]/50 bg-[#080206]/70 backdrop-blur-md focus:border-[#ffd6e4] focus:shadow-[0_0_10px_#ff1464]"
+                        : "rounded-none border border-[#fcee0a]/50 bg-zinc-950/60 backdrop-blur-md focus:border-[#fcee0a]/80"
                   : // normal themes: a lighter glass tinted with the accent instead of near-black
                     "rounded-lg border border-brand-300/30 bg-brand-500/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.07)] backdrop-blur-md placeholder:text-brand-100/70 focus:border-brand-300/60 focus:bg-brand-500/15",
               )}
@@ -1240,7 +1302,9 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                       ? "rounded-lg border-white/15 bg-zinc-900/55 text-zinc-100"
                       : accent === "sakura"
                         ? "rounded-lg border-[#f9a8d4]/30 bg-zinc-900/50 text-zinc-100"
-                        : "rounded-none border-[#fcee0a]/50 bg-zinc-950/60 text-zinc-100",
+                        : ruby
+                          ? "rounded-lg border-[#ff7aa8]/50 bg-[#080206]/70 text-zinc-100"
+                          : "rounded-none border-[#fcee0a]/50 bg-zinc-950/60 text-zinc-100",
                   )
                 : "rounded-lg text-zinc-400",
             )}
@@ -1275,7 +1339,9 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                     className={cn(
                       "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors",
                       activeId === s.id
-                        ? premiumAccent
+                        ? ruby
+                          ? "ruby-chip ruby-chip--on font-medium"
+                          : premiumAccent
                           ? "bg-white/10 font-medium text-zinc-100"
                           : // normal themes: the picked section in the accent, not plain grey
                             "bg-brand-500/20 font-medium text-brand-50 ring-1 ring-inset ring-brand-300/30 [&>svg]:text-brand-200"
@@ -1325,39 +1391,56 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
         </div>
         {/* The premium themes are sold together, so they're one box with their name,
             unlock button and license plate. A second pack would be another box. */}
-        {THEME_PACKS.map((pack) => (
+        {packs.map((pack) => (
         <div
           key={pack.id}
           className={cn(
             "mt-6 rounded-xl border p-3",
-            irid ? iriInner : "border-yellow-300/20 bg-yellow-300/[0.03]",
+            irid
+              ? iriInner
+              : ruby
+                ? "border-[#ff7aa8]/35 bg-[#ff1464]/[0.05]"
+                : "border-yellow-300/20 bg-yellow-300/[0.03]",
           )}
         >
         <div className="mb-3">
         <div className="flex items-center gap-3">
-          <span className="text-xs font-bold uppercase tracking-widest text-yellow-300 [text-shadow:0_0_10px_rgba(250,204,21,0.85)]">
+          <span
+            className={cn(
+              "text-xs font-bold uppercase tracking-widest",
+              ruby
+                ? "text-[#ffd6e4] [text-shadow:0_0_10px_#ff1464]"
+                : "text-yellow-300 [text-shadow:0_0_10px_rgba(250,204,21,0.85)]",
+            )}
+          >
             ✦ {pack.name}
           </span>
           <BetaTag />
-          <div className="h-px flex-1 bg-gradient-to-r from-yellow-300/40 to-transparent" />
+          <div
+            className={cn(
+              "h-px flex-1 bg-gradient-to-r to-transparent",
+              ruby ? "from-[#ff7aa8]/60" : "from-yellow-300/40",
+            )}
+          />
           <button
-            onClick={() => {
+            // Alt+click: the key box even when this pack is unlocked (a hidden pack's key)
+            onClick={(e) => {
               setPendingAccent(null);
-              setUnlockOpen(true);
+              openUnlock(pack.id, e.altKey);
             }}
             className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-              premium
+              packUnlocked(pack.id)
                 ? "border-emerald-400/30 text-emerald-300/90 hover:bg-emerald-500/10"
                 : "border-yellow-300/40 text-yellow-200 hover:bg-yellow-300/10"
             }`}
           >
-            {premium ? t("Unlocked ✓") : SALES_OPEN ? t("Unlock — $5") : t("Unlock — coming soon")}
+            {packUnlocked(pack.id) ? t("Unlocked ✓") : SALES_OPEN ? t("Unlock — $5") : t("Unlock — coming soon")}
           </button>
         </div>
         </div>
         <div className="flex flex-wrap items-stretch gap-3">
           {ACCENTS.filter((a) => pack.accents.includes(a.key)).map(renderSwatch)}
-          {premium && licensee && (
+          {(pack === THEME_PACKS[0] ? premium && licensee : pyreLicence) && (
             /* ml-auto puts it at the right end of the row. Square so it reads like a plate,
                not a button. */
             /* iridescent: dark ink plate + pastel sheen on top, otherwise the text was
@@ -1373,6 +1456,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                 irid && "iri-licence border-white/20",
                 sak && "sak-licence border-[#f9a8d4]/30",
                 cyber && "cp-licence border-[#fcee0a]/40",
+                ruby && "border-[#ff7aa8]/45",
               )}
               // each premium theme: dark ink plate + a wash in its color (the ink keeps the
               // text readable)
@@ -1392,6 +1476,13 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                           "linear-gradient(100deg, rgba(249,168,212,0.22), rgba(255,214,233,0.10) 60%, rgba(255,255,255,0.03)), linear-gradient(rgba(42,20,33,0.72), rgba(42,20,33,0.72))",
                         boxShadow: "inset 0 1px 0 rgba(255,236,245,0.18)",
                       }
+                    : ruby
+                      ? {
+                          borderLeftColor: "#FF1464",
+                          background:
+                            "linear-gradient(100deg, rgba(255,20,100,0.2), rgba(255,20,100,0.05) 62%, transparent), linear-gradient(rgba(8,2,6,0.82), rgba(8,2,6,0.82))",
+                          boxShadow: "0 0 10px rgba(255,20,100,0.4)",
+                        }
                     : cyber
                       ? {
                           borderLeftColor: "#FCEE0A",
@@ -1410,10 +1501,22 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
               <span
                 className={cn(
                   "shrink-0 text-[9px] font-semibold uppercase leading-none tracking-[0.18em]",
-                  irid ? "text-white/70" : sak ? "text-[#ffd6e8]/80" : cyber ? "text-[#fcee0a]/80" : "text-zinc-500",
+                  irid
+                    ? "text-white/70"
+                    : sak
+                      ? "text-[#ffd6e8]/80"
+                      : ruby
+                        ? "text-[#ff7aa8]"
+                        : cyber
+                          ? "text-[#fcee0a]/80"
+                          : "text-zinc-500",
                 )}
               >
-                {trialUntil ? tf("Test key — until {date}", { date: trialUntil }) : t("Licensed to")}
+                {(pack === THEME_PACKS[0] ? trialUntil : pyreLicence?.until)
+                  ? tf("Test key — until {date}", {
+                      date: (pack === THEME_PACKS[0] ? trialUntil : pyreLicence?.until) ?? "",
+                    })
+                  : t("Licensed to")}
               </span>
               {/* engraved line between label and name */}
               {platePremium && (
@@ -1421,7 +1524,13 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                   aria-hidden
                   className={cn(
                     "h-3.5 w-px shrink-0",
-                    irid ? "bg-white/25" : sak ? "bg-[#ffd6e8]/30" : "bg-[#fcee0a]/35",
+                    irid
+                      ? "bg-white/25"
+                      : sak
+                        ? "bg-[#ffd6e8]/30"
+                        : ruby
+                          ? "bg-[#ff7aa8]/45"
+                          : "bg-[#fcee0a]/35",
                   )}
                 />
               )}
@@ -1430,14 +1539,14 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                   "truncate font-semibold leading-none",
                   irid
                     ? "text-sm tracking-[0.06em] text-white"
-                    : sak
+                    : sak || ruby
                       ? "text-sm tracking-[0.06em] text-[#fff2f8]"
                       : cyber
                         ? "font-mono text-sm uppercase tracking-[0.08em] text-[#eaffff]"
                         : "mt-1.5 text-[13px] tracking-wide text-zinc-100",
                 )}
               >
-                {licensee}
+                {pack === THEME_PACKS[0] ? licensee : pyreLicence?.buyer}
               </span>
             </div>
           )}
@@ -1506,7 +1615,9 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                       ? "The cyberpunk theme’s own backgrounds"
                       : sak
                         ? "The sakura theme’s own backgrounds"
-                        : "The iridescent theme’s own backgrounds",
+                        : ruby
+                          ? "The Pyre theme’s own backgrounds"
+                          : "The iridescent theme’s own backgrounds",
                   )}
                   className={cn(
                     "flex h-9 items-center gap-2 rounded-lg border border-zinc-800 px-3 text-sm font-medium transition-colors",
@@ -1662,15 +1773,15 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
               clipped */}
           <div className="-mx-1 mt-3 flex gap-2 overflow-x-auto px-1 pb-1.5">
             {/* the first tile shows what the accent would give */}
-            {[{ key: "auto" as const, label: t("Match theme"), url: autoAppIcon().url }, ...APP_ICONS].map(
+            {[{ key: "auto" as const, label: t("Match theme"), url: autoAppIcon().url }, ...listedAppIcons()].map(
               (opt, i) => {
                 const on = appIcon === opt.key;
                 // premium icons without license: shown but not selectable
-                const locked = "premium" in opt && opt.premium === true && !premium;
+                const locked = opt.key !== "auto" && barred(opt);
                 return (
                   <button
                     key={opt.key}
-                    onClick={() => (locked ? setUnlockOpen(true) : setAppIconChoice(opt.key))}
+                    onClick={() => (locked ? openUnlock() : setAppIconChoice(opt.key))}
                     title={
                       locked
                         ? tf("{name} — unlocks with the premium themes", { name: t(opt.label) })
@@ -1768,7 +1879,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                             // pastel here lands on a pastel wash and the little
                             // ratio preview inside, which is the whole point of the
                             // button, goes with it.
-                            irid
+                            irid || ruby
                             ? "pick-on text-white"
                             : (dlg.primary ?? "border-transparent bg-brand-500 text-white")
                           : cn("appearance-chip", dlg.menuRow),
@@ -1782,9 +1893,11 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                             ? // Unfilled on iridescent: the button is no longer a
                               // solid block, so a dark wash inside the preview would
                               // be the only heavy thing on the row.
-                              irid
-                              ? "border-current bg-white/20"
-                              : "border-current bg-black/15"
+                              ruby
+                              ? "border-[#ff1464] bg-[#ff1464]/20"
+                              : irid
+                                ? "border-current bg-white/20"
+                                : "border-current bg-black/15"
                             : "border-zinc-500 bg-zinc-700/60",
                         )}
                       />
@@ -2302,7 +2415,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
                         key={r.id}
                         className={cn("flex items-center gap-3 rounded-xl border p-3", irid ? iriInner : "glass-box border-zinc-800 bg-zinc-900")}
                       >
-                        <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", irid ? iriTile : sak ? "sak-tile" : "bg-zinc-800 text-zinc-300")}>
+                        <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", irid ? iriTile : sak ? "sak-tile" : ruby ? "ruby-tile" : "bg-zinc-800 text-zinc-300")}>
                           <HardDrive className="h-4 w-4" />
                         </div>
                         <div className="min-w-0 flex-1">
@@ -2647,9 +2760,11 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
 
       {unlockOpen && (
         <ThemeUnlockDialog
+          initialPack={unlockPack}
+          addKey={unlockAddKey}
           onUnlocked={() => {
-            setPremium(true);
-            if (pendingAccent) {
+            setPremium(premiumUnlocked());
+            if (pendingAccent && accentUnlocked(pendingAccent)) {
               setAccent(pendingAccent);
               applyAccent(pendingAccent);
             }
@@ -2745,6 +2860,7 @@ const SHIMMER_DESC: Record<string, string> = {
   iridescent: "The flowing pearl foil on titles, lines, progress bars, the licence and active buttons.",
   sakura: "The blooming switches and the shimmer on progress bars and the licence.",
   cyberpunk: "Flickering lines, switch cells, the licence scan and the Create Card glitch.",
+  corruptruby: "The glowing ruby lines and sparks.",
 };
 
 /** The premium theme's own look for its section: its font, name and colour. */
@@ -2756,6 +2872,7 @@ const PREMIUM_FX_LOOK: Record<string, { name: string; font: string; title: strin
   },
   sakura: { name: "Sakura", font: '"Zen Maru Gothic", sans-serif', title: "text-pink-300" },
   cyberpunk: { name: "Cyberpunk", font: '"Orbitron", sans-serif', title: "text-[#fcee0a]" },
+  corruptruby: { name: "Pyre", font: "inherit", title: "text-[#ff4d86]" },
 };
 
 /**

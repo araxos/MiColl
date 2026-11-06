@@ -7,7 +7,7 @@
 use crate::db;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -902,12 +902,23 @@ pub struct ArtistProposal {
     pub proposed_style: String,
 }
 
+/// The folders above a reward, for when the review picks the custom style.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomLevels {
+    pub year: Option<String>,
+    pub month: Option<String>,
+    pub category: Option<String>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportPlan {
     pub multi_artist: bool,
     pub rewards: Vec<DetectedReward>,
     pub artists: Vec<ArtistProposal>,
+    /// By reward folder.
+    pub levels: HashMap<String, CustomLevels>,
 }
 
 /// A reward with all levels filled in (after the user fixed unknowns).
@@ -934,6 +945,11 @@ pub struct ResolvedReward {
     /// The tier typed in the import review (optional).
     #[serde(default)]
     pub tier: Option<String>,
+    /// Custom style: the names typed in the review, year and month are left empty then.
+    #[serde(default)]
+    pub custom_year: Option<String>,
+    #[serde(default)]
+    pub custom_month: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -1282,7 +1298,117 @@ fn make_plan(multi_artist: bool, rewards: Vec<DetectedReward>) -> ImportPlan {
             ArtistProposal { name, proposed_style: proposed_style.to_string() }
         })
         .collect();
-    ImportPlan { multi_artist, rewards, artists }
+    let levels = rewards
+        .iter()
+        .filter_map(|r| {
+            let l = period_levels(&r.folder, r.platform.as_deref(), &r.artist)?;
+            // the last one is the reward itself
+            let (_, above) = l.split_last()?;
+            Some((
+                r.folder.clone(),
+                CustomLevels {
+                    year: above.first().cloned(),
+                    month: above.get(1).cloned(),
+                    category: above.get(2).cloned(),
+                },
+            ))
+        })
+        .collect();
+    ImportPlan { multi_artist, rewards, artists, levels }
+}
+
+/// The folders from the platform's (else the creator's) down to this one, itself included.
+/// None if neither is in the path. Empty for that folder itself.
+fn period_levels(folder: &str, platform: Option<&str>, artist: &str) -> Option<Vec<String>> {
+    let comps: Vec<String> = Path::new(folder)
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().to_string())
+        .collect();
+    let at = |word: &str| comps.iter().rposition(|c| is_dir_word(c, &crate::organize::sanitize(word)));
+    let from = at(artist).map(|i| i + 1);
+    let plat = crate::organize::sanitize(platform.unwrap_or(UNSORTED_DIR));
+    let search = from.unwrap_or(0);
+    let under = comps[search..].iter().position(|c| is_dir_word(c, &plat)).map(|i| search + i + 1);
+    let start = under.or(from)?;
+    Some(comps[start..].to_vec())
+}
+
+/// The numbers of the custom names typed in the review ("Misc" and empty = no period).
+fn custom_period(
+    conn: &Connection,
+    artist_id: i64,
+    r: &ResolvedReward,
+) -> rusqlite::Result<(Option<i64>, Option<i64>)> {
+    let Some(year) = custom_word(r.custom_year.as_deref()) else {
+        return Ok((r.year, r.month));
+    };
+    let platform = r.platform.as_deref();
+    let y = db::custom_year(conn, artist_id, platform, &year)?;
+    let m = custom_word(r.custom_month.as_deref())
+        .map(|name| db::custom_month(conn, artist_id, platform, y, &name))
+        .transpose()?;
+    Ok((Some(y), m))
+}
+
+/// A typed name as its folder is called.
+pub fn custom_word(name: Option<&str>) -> Option<String> {
+    let name = name?.trim();
+    let word = crate::organize::sanitize(name);
+    (!name.is_empty() && word != "_" && !is_dir_word(&word, MISC_DIR)).then_some(word)
+}
+
+/// Custom style: the folders under the platform are the year and the month, whatever
+/// they're called. A rescan has no review, so the names are read from the disk here.
+fn apply_custom(
+    conn: &Connection,
+    plan: &mut ImportPlan,
+    default_platform: Option<&str>,
+) -> rusqlite::Result<()> {
+    let mut creators: HashMap<(String, Option<String>), Option<i64>> = HashMap::new();
+    let mut kept = Vec::with_capacity(plan.rewards.len());
+    for mut r in std::mem::take(&mut plan.rewards) {
+        let platform = r.platform.clone().or_else(|| default_platform.map(String::from));
+        let key = (r.artist.clone(), platform.clone());
+        let artist_id = match creators.get(&key) {
+            Some(id) => *id,
+            None => {
+                let id = db::custom_artist(conn, &r.artist, platform.as_deref())?;
+                creators.insert(key, id);
+                id
+            }
+        };
+        let levels = artist_id.and_then(|_| period_levels(&r.folder, platform.as_deref(), &r.artist));
+        let (Some(artist_id), Some(levels)) = (artist_id, levels) else {
+            kept.push(r);
+            continue;
+        };
+        if levels.is_empty() || is_dir_word(&levels[0], MISC_DIR) {
+            kept.push(r);
+            continue;
+        }
+        // a year or month folder without own files is no reward, only what's in it
+        let own_files = dir_has_any_content(Path::new(&r.folder));
+        if levels.len() <= 2 && !own_files {
+            continue;
+        }
+        let plat = platform.as_deref();
+        let year = db::custom_year(conn, artist_id, plat, &levels[0])?;
+        // a second level with files: a month we know is that month's own gallery,
+        // anything else a reward directly in the year (that's where those land)
+        let month = match levels.len() {
+            1 => None,
+            2 => db::custom_month_known(conn, artist_id, plat, year, &levels[1])?,
+            _ => Some(db::custom_month(conn, artist_id, plat, year, &levels[1])?),
+        };
+        r.year = Some(year);
+        r.month = month;
+        r.number = None;
+        r.root = levels.len() == 1 || (levels.len() == 2 && month.is_some());
+        r.category = if levels.len() > 3 { Some(levels[2].clone()) } else { None };
+        kept.push(r);
+    }
+    plan.rewards = kept;
+    Ok(())
 }
 
 /// Analyze a folder WITHOUT writing anything. Detects one artist or a library of
@@ -1440,19 +1566,21 @@ fn commit_inner(
         if seen_artists.insert(r.artist.clone()) {
             sum.artists += 1;
         }
-        let label = match (r.number, r.year, r.month) {
+        let (year, month) = custom_period(conn, artist_id, r)?;
+        let label = match (r.number, year, month) {
             (Some(n), _, _) => fmt_number_label(n),
-            (None, Some(y), m) => fmt_label(y, m),
+            (None, Some(y), m) => db::custom_label(conn, artist_id, r.platform.as_deref(), y, m)?
+                .unwrap_or_else(|| fmt_label(y, m)),
             (None, None, _) => "Misc".to_string(),
         };
         let needs_review = r.platform.is_none();
-        let key = period_key(&r.artist, r.platform.as_deref(), r.year, r.month, r.number);
+        let key = period_key(&r.artist, r.platform.as_deref(), year, month, r.number);
         let period_id = upsert_period(
             conn,
             artist_id,
             r.platform.as_deref(),
-            r.year,
-            r.month,
+            year,
+            month,
             r.number,
             &label,
             &key,
@@ -1534,6 +1662,8 @@ fn auto_resolve(plan: ImportPlan, default_platform: Option<&str>) -> Vec<Resolve
             root: d.root,
             extra: false,
             tier: None,
+            custom_year: None,
+            custom_month: None,
         })
         .collect()
 }
@@ -1553,6 +1683,7 @@ pub fn plan_root(conn: &Connection, root: &db::Root) -> rusqlite::Result<Vec<Res
     refresh_known_platforms(conn)?;
     let mut plan = analyze(&root.path);
     apply_bundles(conn, &mut plan)?;
+    apply_custom(conn, &mut plan, root.default_platform.as_deref())?;
     Ok(auto_resolve(plan, root.default_platform.as_deref()))
 }
 
@@ -1571,6 +1702,7 @@ pub fn plan_artist_dir(
     }
     plan.multi_artist = false;
     apply_bundles(conn, &mut plan)?;
+    apply_custom(conn, &mut plan, default_platform)?;
     Ok(auto_resolve(plan, default_platform))
 }
 
@@ -1775,6 +1907,8 @@ pub(crate) mod tests {
             root: false,
             extra: false,
             tier: None,
+            custom_year: None,
+            custom_month: None,
         }];
         let fresh_of = |f: &str| -> i64 {
             conn.query_row("SELECT fresh FROM rewards WHERE folder_path = ?1", params![f], |r| {
@@ -2134,6 +2268,8 @@ pub(crate) mod tests {
             root: false,
             extra: false,
             tier: None,
+            custom_year: None,
+            custom_month: None,
         }];
         commit(&conn, &bundled_import, None).unwrap();
 
@@ -2832,6 +2968,8 @@ pub(crate) mod tests {
                 root: false,
                 extra: false,
                 tier: None,
+                custom_year: None,
+                custom_month: None,
             })
             .collect();
         commit(&conn, &folded, None).unwrap();
@@ -2854,6 +2992,8 @@ pub(crate) mod tests {
             root: false,
             extra: false,
             tier: None,
+            custom_year: None,
+            custom_month: None,
         };
         let split = vec![
             mk(month.join("CharY"), "CharY"),

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ChevronLeft, Plus, PanelRight, BadgeCheck, ClipboardList, Trash2, Coffee, CopyCheck, RefreshCw, Star, Heart, Images, Calendar, CalendarOff, Check, FolderPlus, Hash, HardDrive, DatabaseBackup, BellOff, Info } from "lucide-react";
+import { ChevronLeft, Plus, PanelRight, BadgeCheck, ClipboardList, Trash2, Coffee, CopyCheck, RefreshCw, Star, Heart, Images, Calendar, CalendarOff, Check, FolderPlus, Hash, HardDrive, DatabaseBackup, BellOff, Info, Pencil } from "lucide-react";
 import { SakuraBlossomIcon } from "@/lib/classIcons";
+import { RubyCheckMark } from "@/components/RubyCardFrame";
 import { Layout, scrollPageToTop } from "@/components/Layout";
 import { MonthCard } from "@/components/MonthCard";
 import { RewardGrid } from "@/components/RewardGrid";
@@ -44,6 +45,9 @@ import * as api from "@/api/library";
 import { type MenuItem } from "@/components/ContextMenu";
 import { onPageDetails } from "@/lib/pageDetails";
 import { TileGate } from "@/components/TileGate";
+import { byPlace, customMonthNames, customYearNames, moveWithin } from "@/lib/customOrder";
+import { NameCombo } from "@/components/NameCombo";
+import { useDragReorder } from "@/lib/useDragReorder";
 import { YearDetails } from "@/components/YearDetails";
 
 export function ArtistPage({ onLock }: { onLock: () => void }) {
@@ -64,6 +68,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
   const irid = accent === "iridescent";
   const sakura = accent === "sakura";
   const cyber = accent === "cyberpunk";
+  const ruby = accent === "corruptruby";
   // iridescent: frosted pills instead of a dark border
   const iriOutline = irid
     ? "border-white/20 bg-white/10 text-zinc-100 hover:bg-white/20"
@@ -83,7 +88,9 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
         ? "border border-[#f9a8d4]/30 !bg-zinc-900/50 !text-zinc-100 backdrop-blur-md hover:!bg-zinc-900/75"
         : accent === "cyberpunk"
           ? "!rounded-none border border-[#fcee0a]/50 !bg-zinc-950/60 !text-zinc-100 backdrop-blur-md hover:!bg-zinc-950/85"
-          : undefined;
+          : accent === "corruptruby"
+            ? "ruby-chip"
+            : undefined;
   // frosted dark glass boxes on iridescent (readable text, background shows through).
   // translateZ(0) stops the black flicker over WebGL.
   // Only the material, so the collection tabs can use it without radius/padding.
@@ -94,6 +101,8 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
   const menuSurface =
     accent === "cyberpunk"
       ? "rounded-none border border-[#fcee0a]/70 bg-zinc-950/95 ring-1 ring-inset ring-[#00e5ff]/15 shadow-[0_0_20px_rgba(252,238,10,0.2)] [clip-path:polygon(0_0,100%_0,100%_calc(100%-9px),calc(100%-9px)_100%,0_100%)]"
+      : ruby
+        ? "ruby-panel rounded-xl"
       : irid
         ? "iri-menu rounded-2xl border border-white/15 bg-zinc-900/70 backdrop-blur-2xl ring-1 ring-inset ring-white/10"
         : "rounded-xl border border-brand-500/40 bg-zinc-900 ring-1 ring-inset ring-brand-500/15";
@@ -145,6 +154,8 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
   const [skipPickerOpen, setSkipPickerOpen] = useState(false);
   const [skipYear, setSkipYear] = useState(String(new Date().getFullYear()));
   const [skipMonth, setSkipMonth] = useState(String(new Date().getMonth() + 1));
+  const [skipYearName, setSkipYearName] = useState("");
+  const [skipMonthName, setSkipMonthName] = useState("");
   // the virtual "Fav. Wallpaper" folder opens in the viewer
   const [favViewer, setFavViewer] = useState<{ items: ViewerItem[]; index: number } | null>(null);
   // viewer for a month that holds its files directly (single reward)
@@ -212,7 +223,12 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
     if (!artist || !backed || !platform) return;
     setSkipPickerOpen(false);
     const plat = platform.name === "Unsorted" ? null : platform.name;
-    await api.addSkippedPeriod(artist.id, plat, Number(skipYear) || null, Number(skipMonth) || null);
+    if (platform.releaseStyle === "custom") {
+      await api.addCustomBreak(artist.id, plat, skipYearName.trim(), skipMonthName.trim());
+      setSkipMonthName("");
+    } else {
+      await api.addSkippedPeriod(artist.id, plat, Number(skipYear) || null, Number(skipMonth) || null);
+    }
     await refresh();
   };
 
@@ -250,7 +266,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
           }),
       },
       // release style of this platform, picking another re-labels the timeline
-      ...(["monthly", "numbered", "none"] as const).map((s) => {
+      ...(["monthly", "numbered", "custom", "none"] as const).map((s) => {
         const meta = {
           monthly: {
             label: t("Releases: monthly (year & month)"),
@@ -263,6 +279,10 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
           none: {
             label: t("Releases: no schedule (posts without dates)"),
             icon: <CalendarOff className="h-4 w-4" />,
+          },
+          custom: {
+            label: t("Releases: custom (your own names)"),
+            icon: <Pencil className="h-4 w-4" />,
           },
         }[s];
         const active = (p.releaseStyle ?? "monthly") === s;
@@ -344,15 +364,44 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
       arr.push(m);
       map.set(m.year, arr);
     }
+    const custom = platform?.releaseStyle === "custom";
+    if (custom) {
+      for (const months of map.values()) {
+        months.sort((a, b) => byPlace(a.monthPos, a.month ?? 0, b.monthPos, b.month ?? 0));
+      }
+    }
     return [...map.entries()].sort((a, b) => {
       if (a[0] === null) return 1;
       if (b[0] === null) return -1;
-      return b[0] - a[0];
+      return custom ? byPlace(a[1][0]?.yearPos, a[0], b[1][0]?.yearPos, b[0]) : b[0] - a[0];
     });
-  }, [visibleMonths]);
+  }, [visibleMonths, platform?.releaseStyle]);
+
+  // custom style: drag a year by its heading (not while a search hides some of them)
+  const placeYears = useDragReorder(
+    "years",
+    "y",
+    platform?.releaseStyle === "custom" && backed && !needle,
+    (id, at) => {
+      if (!artist || !platform) return;
+      const years = groups.flatMap(([y]) => (y === null ? [] : [String(y)]));
+      void api
+        .reorderCustom(
+          artist.id,
+          platform.name === "Unsorted" ? null : platform.name,
+          null,
+          moveWithin(years, id, at.id, at.side).map(Number),
+        )
+        .then(refresh)
+        .catch((e) => showToast({ tone: "error", title: t("Couldn’t save the order"), detail: `${e}` }));
+    },
+  );
 
   // years (or drop numbers) for the "New folder" picker, newest first
-  const platformYears = useMemo(() => {
+  const platformYears = useMemo<(number | string)[]>(() => {
+    if (platform?.releaseStyle === "custom") {
+      return customYearNames(platform.months);
+    }
     const vals =
       platform?.releaseStyle === "numbered"
         ? (platform?.months ?? []).map((m) => m.number)
@@ -365,22 +414,25 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
   const createFolder = async (name: string, year?: string) => {
     setNewFolderOpen(false);
     const trimmed = (year ?? "").trim();
-    const val = trimmed ? Number(trimmed) : null;
+    const isCustom = platform?.releaseStyle === "custom";
+    const val = trimmed && !isCustom ? Number(trimmed) : null;
     if (!artist || !platform || !backed) return;
     if (val != null && !Number.isInteger(val)) return; // a typed value must be valid
     const plat = platform.name === "Unsorted" ? null : platform.name;
     const isNumbered = platform.releaseStyle === "numbered";
     try {
-      const periodId = isNumbered
-        ? await api.ensurePeriod(artist.id, plat, null, null, val)
-        : await api.ensurePeriod(artist.id, plat, val, null);
+      const periodId = isCustom
+        ? await api.ensureCustomPeriod(artist.id, plat, trimmed || null, null)
+        : isNumbered
+          ? await api.ensurePeriod(artist.id, plat, null, null, val)
+          : await api.ensurePeriod(artist.id, plat, val, null);
       await api.createReward(String(periodId), name);
       await refresh();
       showToast({
         tone: "success",
         title: `Created “${name}”`,
         detail: `${plat ?? "Unsorted"} · ${
-          isNumbered ? (val != null ? `#${val}` : "Unsorted") : val ?? "Misc"
+          isCustom ? trimmed || "Misc" : isNumbered ? (val != null ? `#${val}` : "Unsorted") : val ?? "Misc"
         }`,
       });
     } catch (e) {
@@ -506,6 +558,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
   const style = platform?.releaseStyle ?? (platform?.noDates ? "none" : "monthly");
   const dateless = style === "none";
   const numbered = style === "numbered";
+  const custom = style === "custom";
 
   // open a month: a single reward jumps into the viewer, else show the rewards
   /** One reward's gallery as viewer items (same folder order as the month page). */
@@ -907,6 +960,8 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
             accent === "cyberpunk" && "p-4",
             // sakura: the dashboard's rose glass bar (index.css .sak-dash-bar)
             sakura && "sak-dash-bar p-4",
+            // corruptruby: the dashboard's neon bar (index.css .ruby-bar)
+            accent === "corruptruby" && "ruby-bar p-4",
           )}
         >
         {/* cyberpunk: a HUD plate behind the block (index.css .cp-artist-plate). A layer
@@ -938,7 +993,9 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                     : // sakura: the rose glass of its platform tabs (index.css .sak-chip)
                       sakura
                       ? "sak-chip"
-                      : "classic-chip border-zinc-700 bg-zinc-900",
+                      : ruby
+                        ? "ruby-chip"
+                        : "classic-chip border-zinc-700 bg-zinc-900",
                 )}
                 title={tf("Class: {label} — {desc} · right-click to remove", {
                   label: t(cl.label),
@@ -962,7 +1019,9 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                   : // sakura: rose glass in the small petal cut
                     sakura
                     ? "sak-chip sak-petal-cut--sm"
-                    : "classic-chip rounded-md border-zinc-700 bg-zinc-900",
+                    : ruby
+                      ? "ruby-chip"
+                      : "classic-chip rounded-md border-zinc-700 bg-zinc-900",
               )}
               title={tf("Creator type: {label} · right-click to remove", { label: t(ct.label) })}
             >
@@ -1091,13 +1150,17 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                   active
                     ? irid
                       ? "pick-on text-white"
-                      : "classic-chip-on border-brand-500/50 bg-brand-500/15 text-brand-200"
+                      : ruby
+                        ? "ruby-chip ruby-chip--on"
+                        : "classic-chip-on border-brand-500/50 bg-brand-500/15 text-brand-200"
                     : irid
                       ? "border-white/20 bg-white/10 text-zinc-200 hover:bg-white/20"
                       : // The unpicked sakura tab: frosted rose glass with a lit top
                         // edge, instead of the grey zinc chip every other accent uses.
                         sakura
                         ? "sak-chip"
+                        : ruby
+                          ? "ruby-chip"
                         : cyber
                           ? // like the viewer's idle buttons: dark glass, cyan edge, yellow on hover
                             "border-[#00e5ff]/30 bg-zinc-950/70 text-zinc-200 hover:border-[#fcee0a]/55 hover:text-[#fcee0a]"
@@ -1114,6 +1177,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                     irid && "!bg-white/15 !ring-white/30",
                     // no zinc chip on a rose tab
                     sakura && !active && "!bg-[#f9a8d4]/20 !ring-[#f9a8d4]/35",
+                    ruby && "!bg-[#ff1464]/15 !ring-[#ff7aa8]/40",
                     // square like the tab
                     cyber && "!rounded-none",
                     // classic premium look: a brand count instead of the zinc one (index.css)
@@ -1207,8 +1271,8 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
             )}
           </div>
 
-          {/* add a break month (monthly only) */}
-          {style === "monthly" && platform && (
+          {/* add a break month */}
+          {(style === "monthly" || custom) && platform && (
             <div className="relative">
               <Button
                 variant="outline"
@@ -1234,6 +1298,34 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                     <p className="mb-2 text-xs text-zinc-400">
                       {tf("Mark a skipped month on {platform}.", { platform: platform.name })}
                     </p>
+                    {custom ? (
+                      <div className="space-y-2">
+                        <NameCombo
+                          live
+                          typos
+                          value={skipYearName}
+                          onCommit={setSkipYearName}
+                          suggestions={customYearNames(platform.months)}
+                          placeholder={t("Year name")}
+                          className={cn(
+                            "h-8 w-full px-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-500",
+                            field,
+                          )}
+                        />
+                        <NameCombo
+                          live
+                          typos
+                          value={skipMonthName}
+                          onCommit={setSkipMonthName}
+                          suggestions={customMonthNames(platform.months, skipYearName)}
+                          placeholder={t("Month name")}
+                          className={cn(
+                            "h-8 w-full px-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-500",
+                            field,
+                          )}
+                        />
+                      </div>
+                    ) : (
                     <div className="flex items-center gap-2">
                       <input
                         value={skipYear}
@@ -1253,10 +1345,12 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                         minWidth={120}
                       />
                     </div>
+                    )}
                     <Button
                       variant="primary"
                       size="sm"
                       className="mt-3 w-full"
+                      disabled={custom && (!skipYearName.trim() || !skipMonthName.trim())}
                       onClick={() => void addBreak()}
                     >
                       <Coffee className="h-4 w-4" />
@@ -1355,6 +1449,10 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                 <YearSection
                   key={year ?? "misc"}
                   year={year}
+                  yearName={months.find((m) => m.yearName)?.yearName ?? null}
+                  custom={custom}
+                  yearDrag={custom && year != null ? placeYears : undefined}
+                  draggable={custom && !needle}
                   platform={platform?.name ?? null}
                   rule={
                     yearRules.find(
@@ -1390,12 +1488,17 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
             title={numbered ? t("New drop") : t("New folder")}
             initial={numbered ? t("New drop") : t("New folder")}
             years={platformYears}
+            yearWords={custom}
             hint={
               numbered
                 ? t(
                     "Pick a drop number, type a new one, or leave it blank to file under “Unsorted”. The “#” folder is created on disk too.",
                   )
-                : t(
+                : custom
+                  ? t(
+                      "Pick a year name, type a new one, or leave it blank to file under “Misc”. The folder is created on disk too.",
+                    )
+                  : t(
                     "Pick a year, type a new one, or leave it blank to file under “Misc”. The folder (and the year, if new) is created on disk too.",
                   )
             }
@@ -1529,6 +1632,10 @@ function NumberedSection({
  */
 function YearSection({
   year,
+  yearName,
+  custom,
+  yearDrag,
+  draggable,
   platform,
   rule,
   onSdChanged,
@@ -1544,6 +1651,14 @@ function YearSection({
   glass,
 }: {
   year: number | null;
+  /** The year's name in the custom style. */
+  yearName: string | null;
+  /** The custom style: years and month cards can be renamed. */
+  custom: boolean;
+  /** Custom style: this year's heading drags it. */
+  yearDrag?: ReturnType<typeof useDragReorder>;
+  /** Custom style: years and cards can be dragged right now. */
+  draggable: boolean;
   /** The platform tab of this year (for the MiSD year rule). */
   platform: string | null;
   /** The MiSD rule for this year, if any. */
@@ -1567,8 +1682,35 @@ function YearSection({
   const t = useT();
   const tf = useTf();
   const tp = useTp();
-  const { openMenu, requestDelete } = useActions();
+  const { openMenu, requestDelete, showToast } = useActions();
   const { backed } = useData();
+  // custom style: drag the cards of this year
+  const canDrag = draggable && backed && year != null;
+  const placeMonths = useDragReorder(`months-${year}`, "x", canDrag, (id, at) => {
+    const order = monthPeriods.map((m) => String(m.month));
+    void api
+      .reorderCustom(
+        artistId,
+        platform === "Unsorted" ? null : platform,
+        year,
+        moveWithin(order, id, at.id, at.side).map(Number),
+      )
+      .then(onSdChanged)
+      .catch((e) => showToast({ tone: "error", title: t("Couldn’t save the order"), detail: `${e}` }));
+  });
+  // what the rename dialog is open for
+  const [renaming, setRenaming] = useState<Month | "year" | null>(null);
+  const renameMonth = useCallback((m: Month) => setRenaming(m), []);
+  const rename = (name: string) => {
+    const target = renaming;
+    setRenaming(null);
+    if (year == null || !target) return;
+    const month = target === "year" ? null : target.month;
+    void api
+      .renameCustomPeriod(artistId, platform === "Unsorted" ? null : platform, year, month, name)
+      .then(onSdChanged)
+      .catch((e) => showToast({ tone: "error", title: t("Couldn’t rename"), detail: `${e}` }));
+  };
   // place for the inline grid's buttons
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   // clip while animating, overflow when open so the month glows aren't cut
@@ -1584,16 +1726,20 @@ function YearSection({
     });
   };
   const hasInline = yearRewards.length > 0;
+  // custom cards aren't months, so they aren't counted as such
   const subtitle =
-    monthPeriods.length > 0
-      ? tp("{n} months", monthPeriods.length)
-      : tp("{n} rewards", yearRewards.length);
+    monthPeriods.length === 0
+      ? tp("{n} rewards", yearRewards.length)
+      : custom
+        ? null
+        : tp("{n} months", monthPeriods.length);
 
   // premium themes: the divider becomes a year progress bar
   const irid = !!glass;
   const accent = useAccent();
   const sakura = accent === "sakura";
   const cyber = accent === "cyberpunk";
+  const ruby = accent === "corruptruby";
   const gutter = cardGutter(accent);
   const trackedMonths = monthPeriods.filter((m) => m.officialTotal != null);
   const yearTotal = trackedMonths.reduce((s, m) => s + (m.officialTotal || 0), 0);
@@ -1604,7 +1750,7 @@ function YearSection({
   const yearPct = yearTotal > 0 ? yearOwned / yearTotal : null;
 
   // right-click the year header -> delete the whole year (asks if it has files)
-  const label = year != null ? String(year) : "Misc";
+  const label = yearName ?? (year != null ? String(year) : "Misc");
 
   // MiSD for the whole year. It saves a rule for the year (see sd_mark_year) so
   // later rewards get queued too. Stopping the rule is its own entry,
@@ -1672,6 +1818,9 @@ function YearSection({
   const yearMenu = (e: React.MouseEvent) =>
     openMenu(e, [
       { label: t("Details"), icon: <Info className="h-4 w-4" />, onClick: () => setDetailsOpen(true) },
+      ...(custom && year != null
+        ? [{ label: t("Rename"), icon: <Pencil className="h-4 w-4" />, onClick: () => setRenaming("year") }]
+        : []),
       ...(sdItems.length
         ? [{ label: "MiSD", icon: <HardDrive className="h-4 w-4" />, children: sdItems }]
         : []),
@@ -1690,20 +1839,37 @@ function YearSection({
 
   return (
     <section
-      className={cn(glass)}
+      className={cn(glass, yearDrag && "relative", yearDrag?.dragId === String(year) && "opacity-40")}
       // dropping in the year area pre-fills the year
       data-drop-year={year ?? undefined}
+      data-reorder={yearDrag ? "years" : undefined}
+      data-reorder-id={yearDrag ? year ?? undefined : undefined}
     >
-      <div className="mb-3 flex items-center gap-3" onContextMenu={yearMenu}>
+      {yearDrag?.dropAt?.id === String(year) && (
+        <span
+          className={cn(
+            "pointer-events-none absolute inset-x-0 z-10 h-[3px] rounded-full bg-brand-400 text-brand-400 shadow-[0_0_10px_currentColor]",
+            yearDrag.dropAt.side === "before" ? "-top-2.5" : "-bottom-2.5",
+          )}
+        />
+      )}
+      <div
+        className={cn("mb-3 flex items-center gap-3", canDrag && yearDrag && "cursor-grab select-none")}
+        onContextMenu={yearMenu}
+        onPointerDown={canDrag && yearDrag ? (e) => yearDrag.start(e, String(year)) : undefined}
+      >
         <button
           type="button"
           onClick={toggle}
-          className="group flex items-center gap-3 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          className={cn(
+            "group flex items-center gap-3 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-brand-500",
+            canDrag && yearDrag && "cursor-grab",
+          )}
           aria-expanded={!collapsed}
           title={collapsed ? t("Expand year") : t("Collapse year")}
         >
           <h2 className="text-lg font-semibold text-zinc-100 transition-colors group-hover:text-white">
-            {year ?? t("Misc")}
+            {yearName ?? year ?? t("Misc")}
           </h2>
           {verified &&
             // template mark in the theme's style
@@ -1721,6 +1887,10 @@ function YearSection({
                   <Check className="h-2 w-2 text-white" strokeWidth={3.5} />
                 </span>
               </span>
+            ) : ruby ? (
+              <span aria-label={t("Whole year verified by a template")}>
+                <RubyCheckMark className="block h-6 w-6" />
+              </span>
             ) : cyber ? (
               <span className="cp-check relative h-5 w-5" aria-label={t("Whole year verified by a template")}>
                 <Check className="cp-check-base absolute inset-0 h-5 w-5" strokeWidth={3} />
@@ -1736,21 +1906,33 @@ function YearSection({
               <BadgeCheck className="h-5 w-5 text-brand-400" aria-label={t("Whole year verified by a template")} />
             ))}
           {/* "3 months" / "12 rewards", white on iridescent */}
-          <span className={cn("text-xs", irid ? "text-white" : "text-zinc-500")}>{subtitle}</span>
+          {subtitle && <span className={cn("text-xs", irid ? "text-white" : "text-zinc-500")}>{subtitle}</span>}
         </button>
-        {yearPct != null && (irid || sakura || cyber) ? (
+        {yearPct != null && (irid || sakura || cyber || ruby) ? (
           // year progress bar + % per premium theme (see .*-yearbar in index.css)
           <div className="flex flex-1 items-center gap-2">
             <div
               className={cn(
                 "h-1.5 flex-1 overflow-hidden",
-                irid ? "iri-bar rounded-full" : sakura ? "sak-yearbar rounded-full" : "cp-yearbar",
+                irid
+                  ? "iri-bar rounded-full"
+                  : sakura
+                    ? "sak-yearbar rounded-full"
+                    : ruby
+                      ? "ruby-yearbar"
+                      : "cp-yearbar",
               )}
             >
               <div
                 className={cn(
                   "h-full",
-                  irid ? "iri-fill rounded-full" : sakura ? "sak-yearfill rounded-full" : "cp-yearfill",
+                  irid
+                    ? "iri-fill rounded-full"
+                    : sakura
+                      ? "sak-yearfill rounded-full"
+                      : ruby
+                        ? "ruby-yearfill"
+                        : "cp-yearfill",
                 )}
                 style={{ width: `${Math.max(3, Math.round(yearPct * 100))}%` }}
               />
@@ -1762,7 +1944,9 @@ function YearSection({
                   ? "iri-pct"
                   : sakura
                     ? "sak-pct"
-                    : "font-mono text-[#fcee0a] [text-shadow:0_0_10px_rgba(252,238,10,0.55)]",
+                    : ruby
+                      ? "ruby-month-label"
+                      : "font-mono text-[#fcee0a] [text-shadow:0_0_10px_rgba(252,238,10,0.55)]",
               )}
             >
               {Math.round(yearPct * 100)}%
@@ -1774,7 +1958,15 @@ function YearSection({
           <div
             className={cn(
               "h-px flex-1",
-              irid ? "iri-rule" : cyber ? "cp-rule" : sakura ? "sak-rule" : "bg-zinc-800",
+              irid
+                ? "iri-rule"
+                : cyber
+                  ? "cp-rule"
+                  : sakura
+                    ? "sak-rule"
+                    : ruby
+                      ? "ruby-rule"
+                      : "bg-zinc-800",
             )}
           />
         )}
@@ -1811,7 +2003,34 @@ function YearSection({
                     className="grid"
                     style={{ gridColumn: m.skipped ? "span 1" : "span 2" }}
                   >
-                    <MonthCard month={m} onOpen={onOpenMonth} hideYear />
+                    {canDrag ? (
+                      <div
+                        data-reorder={`months-${year}`}
+                        data-reorder-id={m.month ?? undefined}
+                        onPointerDown={(e) => placeMonths.start(e, String(m.month))}
+                        className={cn(
+                          "relative grid cursor-grab select-none [&_img]:[-webkit-user-drag:none]",
+                          placeMonths.dragId === String(m.month) && "cursor-grabbing opacity-40",
+                        )}
+                      >
+                        <MonthCard month={m} onOpen={onOpenMonth} hideYear onRename={renameMonth} />
+                        {placeMonths.dropAt?.id === String(m.month) && (
+                          <span
+                            className={cn(
+                              "pointer-events-none absolute inset-y-1 z-10 w-[3px] rounded-full bg-brand-400 text-brand-400 shadow-[0_0_10px_currentColor]",
+                              placeMonths.dropAt.side === "before" ? "-left-2" : "-right-2",
+                            )}
+                          />
+                        )}
+                      </div>
+                    ) : (
+                      <MonthCard
+                        month={m}
+                        onOpen={onOpenMonth}
+                        hideYear
+                        onRename={custom ? renameMonth : undefined}
+                      />
+                    )}
                   </TileGate>
                 ))}
               </div>
@@ -1832,7 +2051,7 @@ function YearSection({
       </AnimatePresence>
       {detailsOpen && (
         <YearDetails
-          label={year != null ? String(year) : t("Misc")}
+          label={yearName ?? (year != null ? String(year) : t("Misc"))}
           artistName={artistName}
           platform={platform}
           verified={verified}
@@ -1841,6 +2060,18 @@ function YearSection({
           onClose={() => setDetailsOpen(false)}
         />
       )}
+      <AnimatePresence>
+        {renaming && (
+          <NewFolderDialog
+            title={t("Rename")}
+            initial={renaming === "year" ? label : (renaming.plainLabel ?? renaming.label)}
+            confirmLabel={t("Rename")}
+            hint={t("The folder on disk is renamed too.")}
+            onCreate={rename}
+            onClose={() => setRenaming(null)}
+          />
+        )}
+      </AnimatePresence>
     </section>
   );
 }

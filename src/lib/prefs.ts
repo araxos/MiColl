@@ -58,6 +58,8 @@ const SYNCED = [
   "micoll.holoFreq",
   "micoll.glassButtons",
   "micoll.sakuraFrame",
+  "micoll.rubyFrame",
+  "micoll.rubyAltLogo",
   "micoll.cyberFrame",
   "micoll.iriFrame",
   "micoll.templateFont",
@@ -87,7 +89,8 @@ const SYNCED_PREFIXES = ["micoll.tileShape.for."] as const;
      · sfwMode - per device on purpose
      · phoneBridge - a restored backup or a portable copy mustn't open the collection to
        the network by itself (phoneBridge.ts)
-     · premiumUnlocked, licensee, trialUntil - come from the licence in the DB anyway
+     · premiumUnlocked, packUnlocked.*, packLicence.*, licensee, trialUntil - come from
+       the licence in the DB anyway
      · needsReviewDismissed, quickImportWarned, iridSnapshot - one-time stuff
    micoll.tileShape (old key, migrated once) and micoll.viewerGrid (removed) aren't
    settings. */

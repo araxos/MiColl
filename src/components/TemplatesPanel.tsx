@@ -65,12 +65,16 @@ export function TemplatesPanel({
         ? "text-[#f9a8d4]"
         : accent === "cyberpunk"
           ? "text-[#00e5ff]"
-          : "text-brand-400";
+          : accent === "corruptruby"
+            ? "text-[#ff7aa8]"
+            : "text-brand-400";
   // badge colors: iridescent gets holo pink (its brand looks like the purple theme)
   const badgeAccent =
     accent === "iridescent"
       ? "bg-[#f5c2ff]/16 text-[#f5c2ff] ring-1 ring-inset ring-[#f5c2ff]/30"
-      : "bg-brand-600/20 text-brand-200";
+      : accent === "corruptruby"
+        ? "bg-[#ff1464]/14 text-[#ffd6e4] ring-1 ring-inset ring-[#ff7aa8]/40"
+        : "bg-brand-600/20 text-brand-200";
   // light frosted rows on iridescent
   const irid = accent === "iridescent";
   const [templates, setTemplates] = useState<api.TemplatePreview[]>([]);

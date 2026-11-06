@@ -2,7 +2,9 @@ import { useAccent, type AccentKey } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { DASHBOARD_ICONS } from "@/lib/appIcon";
 import { markPhase } from "@/lib/markClock";
+import { useRubyAltLogo } from "@/lib/rubyLogo";
 import logoUrl from "@/assets/micoll-logo.png";
+import pyreFlameUrl from "@/assets/icons/micoll-logo-pyre-flame.svg";
 
 /**
  * Gradient colors per theme for the app icon mark. Only the color changes.
@@ -26,6 +28,7 @@ const MARK_GRADIENTS: Partial<Record<AccentKey, string[]>> = {
 export function BrandMark({ className, solid }: { className?: string; solid?: string }) {
   const accent = useAccent();
   const stops = MARK_GRADIENTS[accent];
+  const rubyAlt = useRubyAltLogo();
 
   // solid: the logo shape in one flat color ("currentColor" works: CyberLogo colours it)
   if (solid) {
@@ -46,9 +49,17 @@ export function BrandMark({ className, solid }: { className?: string; solid?: st
 
   // purple/blue/green/yellow have their own artwork, rose uses the original file,
   // premium accents draw the mark in Layout
-  const own = DASHBOARD_ICONS[accent];
+  const own = accent === "corruptruby" && rubyAlt ? pyreFlameUrl : DASHBOARD_ICONS[accent];
   if (own) {
-    return <img src={own} alt="" draggable={false} className={cn("object-contain", className)} />;
+    return (
+      <img
+        src={own}
+        alt=""
+        draggable={false}
+        // pyre: a soft neon that beats like a heart (index.css .ruby-logo)
+        className={cn("object-contain", accent === "corruptruby" && "ruby-logo fx-logo", className)}
+      />
+    );
   }
 
   // no artwork and no gradient -> the normal icon

@@ -130,7 +130,7 @@ export interface Reward {
  * How a creator releases: monthly (year/month), numbered (#51, no dates),
  * or none (no schedule, one bucket per platform).
  */
-export type ReleaseStyle = "monthly" | "numbered" | "none";
+export type ReleaseStyle = "monthly" | "numbered" | "none" | "custom";
 
 export interface Month {
   id: string;
@@ -138,6 +138,13 @@ export interface Month {
   month: number | null;
   /** Year like 2025, or null for "Misc". */
   year: number | null;
+  /** The year's name in the custom style ("Summer"), its number means nothing then. */
+  yearName?: string | null;
+  /** Custom style: the dragged position of the year and the card (null = not dragged). */
+  yearPos?: number | null;
+  monthPos?: number | null;
+  /** The label without its span ("Part 1 ×3" -> "Part 1"). */
+  plainLabel?: string;
   /** Drop number for numbered creators ("#51"), null otherwise. */
   number?: number | null;
   /** Folder label like "01.25" or "Misc" (a span shows as "2025-03-04"). */

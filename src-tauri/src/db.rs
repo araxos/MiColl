@@ -148,6 +148,12 @@ pub struct Period {
     pub month: Option<i64>,
     /// Drop number for numbered periods ("#51"). None otherwise.
     pub number: Option<i64>,
+    /// The year's name in the custom style ("Summer"). None for a real year.
+    pub year_name: Option<String>,
+    /// Where the custom style's drag put the year and this card. None = not dragged yet,
+    /// those follow in the order they were made.
+    pub year_pos: Option<i64>,
+    pub month_pos: Option<i64>,
     /// How many months this period covers (1 = normal). March+April = month=3, span=2.
     pub span: i64,
     pub label: String,
@@ -188,7 +194,7 @@ pub struct Artist {
     pub no_dates: bool,
     /// Platforms of this artist without dates (override or the artist default).
     pub no_dates_platforms: Vec<String>,
-    /// How the creator releases: "monthly" | "numbered" | "none" (no_dates = "none").
+    /// How the creator releases: "monthly" | "numbered" | "none" | "custom" (no_dates = "none").
     pub release_style: String,
     /// Release style per platform (override or the artist default).
     pub platform_styles: Vec<PlatformStyle>,
@@ -622,6 +628,32 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             PRIMARY KEY(artist_id, platform)
         );
 
+        -- The names of the "custom" release style. Periods keep plain numbers, so all
+        -- that groups them stays the same; these are what the user sees and what the
+        -- folders are called. month 0 = the year itself. A year without a row is a real
+        -- one ("2025"), a month without one is "03".
+        -- The order the custom style's years (month 0) and cards were dragged into. Its
+        -- own table: real years and months are in the order too but have no name.
+        CREATE TABLE IF NOT EXISTS custom_order (
+            id        INTEGER PRIMARY KEY,
+            artist_id INTEGER NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+            platform  TEXT NOT NULL,
+            year      INTEGER NOT NULL,
+            month     INTEGER NOT NULL,
+            position  INTEGER NOT NULL,
+            UNIQUE(artist_id, platform, year, month)
+        );
+
+        CREATE TABLE IF NOT EXISTS custom_names (
+            id        INTEGER PRIMARY KEY,
+            artist_id INTEGER NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+            platform  TEXT NOT NULL,
+            year      INTEGER NOT NULL,
+            month     INTEGER NOT NULL,
+            name      TEXT NOT NULL,
+            UNIQUE(artist_id, platform, year, month)
+        );
+
         -- A reward two creators made together. The files and the `rewards` row stay
         -- exactly where they are (in the owning creator's period); this table only
         -- says "also credit it to artist X". `get_library` uses it to project a
@@ -899,7 +931,7 @@ pub fn set_period_preview(conn: &Connection, period_id: i64, image: &str) -> rus
 }
 
 /// The release styles a creator/platform can use.
-pub const RELEASE_STYLES: [&str; 3] = ["monthly", "numbered", "none"];
+pub const RELEASE_STYLES: [&str; 4] = ["monthly", "numbered", "none", "custom"];
 
 fn valid_style(style: &str) -> rusqlite::Result<()> {
     if RELEASE_STYLES.contains(&style) {
@@ -954,6 +986,318 @@ pub fn set_platform_release_style(
          DO UPDATE SET no_dates = excluded.no_dates, release_style = excluded.release_style",
         params![artist_id, platform, style],
     )?;
+    Ok(())
+}
+
+/* ---- custom release style ------------------------------------------- */
+
+/// Month numbers 1-12 are real months ("03"), so named ones start above.
+const FIRST_NAMED_MONTH: i64 = 13;
+
+fn custom_scope(platform: Option<&str>) -> &str {
+    platform.unwrap_or("Unsorted")
+}
+
+/// A folder name that is a real year, so it never needs a name.
+pub fn real_year(name: &str) -> Option<i64> {
+    let t = name.trim();
+    (t.len() == 4 && t.bytes().all(|b| b.is_ascii_digit())).then(|| t.parse().ok()).flatten()
+}
+
+/// A folder name that is a real month ("03").
+pub fn real_month(name: &str) -> Option<i64> {
+    let t = name.trim();
+    if t.len() != 2 || !t.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    t.parse().ok().filter(|m| (1..=12).contains(m))
+}
+
+/// The number that has this name in one year (month 0: the years themselves).
+/// Compared in Rust: on disk "Ä" and "ä" are one folder, SQLite's NOCASE is ASCII only.
+fn custom_number(
+    conn: &Connection,
+    artist_id: i64,
+    platform: Option<&str>,
+    year: Option<i64>,
+    name: &str,
+) -> rusqlite::Result<Option<i64>> {
+    let want = name.trim().to_lowercase();
+    let mut stmt = conn.prepare_cached(
+        "SELECT year, month, name FROM custom_names
+          WHERE artist_id = ?1 AND platform = ?2 AND (?3 IS NULL AND month = 0 OR year = ?3 AND month <> 0)",
+    )?;
+    let rows = stmt.query_map(params![artist_id, custom_scope(platform), year], |r| {
+        Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?))
+    })?;
+    for row in rows {
+        let (y, m, n) = row?;
+        if n.to_lowercase() == want {
+            return Ok(Some(if year.is_some() { m } else { y }));
+        }
+    }
+    Ok(None)
+}
+
+fn insert_custom_name(
+    conn: &Connection,
+    artist_id: i64,
+    platform: Option<&str>,
+    year: i64,
+    month: i64,
+    name: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO custom_names(artist_id, platform, year, month, name) VALUES(?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(artist_id, platform, year, month) DO UPDATE SET name = excluded.name",
+        params![artist_id, custom_scope(platform), year, month, name],
+    )?;
+    Ok(())
+}
+
+/// The year number of a custom name: a real year stays itself, a word gets the next free
+/// number below the real years.
+pub fn custom_year(
+    conn: &Connection,
+    artist_id: i64,
+    platform: Option<&str>,
+    name: &str,
+) -> rusqlite::Result<i64> {
+    if let Some(y) = real_year(name) {
+        return Ok(y);
+    }
+    if let Some(y) = custom_number(conn, artist_id, platform, None, name)? {
+        return Ok(y);
+    }
+    let next: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(year), 0) + 1 FROM (
+             SELECT year FROM custom_names WHERE artist_id = ?1 AND platform = ?2 AND year < 1000
+             UNION ALL
+             SELECT year FROM periods WHERE artist_id = ?1 AND COALESCE(platform, 'Unsorted') = ?2 AND year < 1000
+         )",
+        params![artist_id, custom_scope(platform)],
+        |r| r.get(0),
+    )?;
+    insert_custom_name(conn, artist_id, platform, next, 0, name.trim())?;
+    Ok(next)
+}
+
+/// The month number of a custom name inside a year (see custom_year).
+pub fn custom_month(
+    conn: &Connection,
+    artist_id: i64,
+    platform: Option<&str>,
+    year: i64,
+    name: &str,
+) -> rusqlite::Result<i64> {
+    if let Some(m) = custom_month_known(conn, artist_id, platform, year, name)? {
+        return Ok(m);
+    }
+    let next: i64 = conn.query_row(
+        "SELECT MAX(COALESCE(MAX(month), 0) + 1, ?4) FROM (
+             SELECT month FROM custom_names WHERE artist_id = ?1 AND platform = ?2 AND year = ?3
+             UNION ALL
+             SELECT month FROM periods
+              WHERE artist_id = ?1 AND COALESCE(platform, 'Unsorted') = ?2 AND year = ?3
+         )",
+        params![artist_id, custom_scope(platform), year, FIRST_NAMED_MONTH],
+        |r| r.get(0),
+    )?;
+    insert_custom_name(conn, artist_id, platform, year, next, name.trim())?;
+    Ok(next)
+}
+
+/// Is this a month the year already has? Nothing is created.
+pub fn custom_month_known(
+    conn: &Connection,
+    artist_id: i64,
+    platform: Option<&str>,
+    year: i64,
+    name: &str,
+) -> rusqlite::Result<Option<i64>> {
+    match real_month(name) {
+        Some(m) => Ok(Some(m)),
+        None => custom_number(conn, artist_id, platform, Some(year), name),
+    }
+}
+
+/// A year's number if that name exists already. Nothing is created.
+pub fn custom_year_known(
+    conn: &Connection,
+    artist_id: i64,
+    platform: Option<&str>,
+    name: &str,
+) -> rusqlite::Result<Option<i64>> {
+    match real_year(name) {
+        Some(y) => Ok(Some(y)),
+        None => custom_number(conn, artist_id, platform, None, name),
+    }
+}
+
+/// The name of a year (month 0) or a month, if it has one.
+pub fn custom_name(
+    conn: &Connection,
+    artist_id: i64,
+    platform: Option<&str>,
+    year: i64,
+    month: i64,
+) -> rusqlite::Result<Option<String>> {
+    conn.prepare_cached(
+        "SELECT name FROM custom_names WHERE artist_id = ?1 AND platform = ?2 AND year = ?3 AND month = ?4",
+    )?
+    .query_row(params![artist_id, custom_scope(platform), year, month], |r| r.get(0))
+    .optional()
+}
+
+/// A period's label with its names. None = it has none, the normal label applies.
+pub fn custom_label(
+    conn: &Connection,
+    artist_id: i64,
+    platform: Option<&str>,
+    year: i64,
+    month: Option<i64>,
+) -> rusqlite::Result<Option<String>> {
+    let year_name = custom_name(conn, artist_id, platform, year, 0)?;
+    match month {
+        None => Ok(year_name),
+        Some(m) => Ok(custom_name(conn, artist_id, platform, year, m)?
+            .or_else(|| year_name.map(|_| format!("{m:02}")))),
+    }
+}
+
+/// A period's label with its names, by id.
+pub fn period_custom_label(conn: &Connection, period_id: i64) -> rusqlite::Result<Option<String>> {
+    let row: Option<(i64, Option<String>, Option<i64>, Option<i64>)> = conn
+        .query_row(
+            "SELECT artist_id, platform, year, month FROM periods WHERE id = ?1",
+            params![period_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?;
+    match row {
+        Some((artist_id, platform, Some(year), month)) => {
+            custom_label(conn, artist_id, platform.as_deref(), year, month)
+        }
+        _ => Ok(None),
+    }
+}
+
+/// The creator's id if this platform uses the custom style.
+pub fn custom_artist(
+    conn: &Connection,
+    artist: &str,
+    platform: Option<&str>,
+) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT a.id,
+                COALESCE(
+                    pnd.release_style,
+                    CASE WHEN pnd.no_dates = 1 THEN 'none' END,
+                    a.release_style,
+                    CASE WHEN a.no_dates = 1 THEN 'none' ELSE 'monthly' END
+                )
+         FROM artists a
+         LEFT JOIN platform_no_dates pnd ON pnd.artist_id = a.id AND pnd.platform = ?2
+         WHERE a.name = ?1",
+        params![artist, custom_scope(platform)],
+        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+    )
+    .optional()
+    .map(|row| row.filter(|(_, style)| style == "custom").map(|(id, _)| id))
+}
+
+/// Save a dragged order: the years (year None), or the cards of a year.
+pub fn set_custom_order(
+    conn: &Connection,
+    artist_id: i64,
+    platform: Option<&str>,
+    year: Option<i64>,
+    order: &[i64],
+) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    for (position, number) in order.iter().enumerate() {
+        let (y, m) = match year {
+            Some(y) => (y, *number),
+            None => (*number, 0),
+        };
+        tx.execute(
+            "INSERT INTO custom_order(artist_id, platform, year, month, position) VALUES(?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(artist_id, platform, year, month) DO UPDATE SET position = excluded.position",
+            params![artist_id, custom_scope(platform), y, m, position as i64],
+        )?;
+    }
+    tx.commit()
+}
+
+/// All dragged orders: creator, platform, year, month (0 = the year itself), position.
+pub fn all_custom_order(conn: &Connection) -> rusqlite::Result<Vec<(String, String, i64, i64, i64)>> {
+    let mut stmt = conn.prepare(
+        "SELECT a.name, o.platform, o.year, o.month, o.position
+           FROM custom_order o
+           JOIN artists a ON a.id = o.artist_id",
+    )?;
+    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?;
+    rows.collect()
+}
+
+/// Every creator's style (platform None) and every platform's own, for reading folders
+/// without asking per folder.
+pub fn release_styles(conn: &Connection) -> rusqlite::Result<Vec<(String, Option<String>, String)>> {
+    let mut stmt = conn.prepare(
+        "SELECT a.name, NULL,
+                COALESCE(a.release_style, CASE WHEN a.no_dates = 1 THEN 'none' ELSE 'monthly' END)
+           FROM artists a
+         UNION ALL
+         SELECT a.name, pnd.platform,
+                COALESCE(
+                    pnd.release_style,
+                    CASE WHEN pnd.no_dates = 1 THEN 'none' END,
+                    a.release_style,
+                    CASE WHEN a.no_dates = 1 THEN 'none' ELSE 'monthly' END
+                )
+           FROM platform_no_dates pnd
+           JOIN artists a ON a.id = pnd.artist_id",
+    )?;
+    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+    rows.collect()
+}
+
+/// All custom names: creator, platform, year, month (0 = the year itself), name.
+pub fn all_custom_names(conn: &Connection) -> rusqlite::Result<Vec<(String, String, i64, i64, String)>> {
+    let mut stmt = conn.prepare(
+        "SELECT a.name, c.platform, c.year, c.month, c.name
+           FROM custom_names c
+           JOIN artists a ON a.id = c.artist_id",
+    )?;
+    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?;
+    rows.collect()
+}
+
+/// Save a new name and put it on the periods it labels.
+pub fn rename_custom(
+    conn: &Connection,
+    artist_id: i64,
+    platform: Option<&str>,
+    year: i64,
+    month: Option<i64>,
+    name: &str,
+) -> rusqlite::Result<()> {
+    insert_custom_name(conn, artist_id, platform, year, month.unwrap_or(0), name)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, month FROM periods
+          WHERE artist_id = ?1 AND COALESCE(platform, 'Unsorted') = ?2 AND year = ?3
+            AND (?4 IS NULL OR month = ?4)",
+    )?;
+    let periods = stmt
+        .query_map(params![artist_id, custom_scope(platform), year, month], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (id, m) in periods {
+        if let Some(label) = custom_label(conn, artist_id, platform, year, m)? {
+            conn.execute("UPDATE periods SET label = ?2 WHERE id = ?1", params![id, label])?;
+        }
+    }
     Ok(())
 }
 
@@ -1940,6 +2284,21 @@ pub fn mark_all_rewards_seen(conn: &Connection) -> rusqlite::Result<usize> {
     conn.execute("UPDATE rewards SET fresh = 0 WHERE fresh <> 0", [])
 }
 
+/// The creator with this name in any spelling of its case. Compared in Rust: on disk
+/// "Ä" and "ä" are one folder, SQLite's NOCASE is ASCII only.
+pub fn artist_named(conn: &Connection, name: &str) -> rusqlite::Result<Option<String>> {
+    let want = name.trim().to_lowercase();
+    let mut stmt = conn.prepare("SELECT name FROM artists")?;
+    let names = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    for known in names {
+        let known = known?;
+        if known.trim().to_lowercase() == want {
+            return Ok(Some(known));
+        }
+    }
+    Ok(None)
+}
+
 /// Create or update a user-made artist (manual = 1 keeps it without rewards).
 pub fn create_artist(
     conn: &Connection,
@@ -2815,8 +3174,17 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
         let mut periods: Vec<Period> = Vec::new();
         {
             let mut stmt = conn.prepare_cached(
-                "SELECT id, platform, year, month, span, label, folder_path, needs_review, preview_image, official_total, skipped, verified, open_as_cards, number
-                 FROM periods WHERE artist_id = ?1
+                "SELECT id, platform, year, month, span, label, folder_path, needs_review, preview_image, official_total, skipped, verified, open_as_cards, number,
+                        (SELECT c.name FROM custom_names c
+                          WHERE c.artist_id = p.artist_id AND c.platform = COALESCE(p.platform, 'Unsorted')
+                            AND c.year = p.year AND c.month = 0),
+                        (SELECT o.position FROM custom_order o
+                          WHERE o.artist_id = p.artist_id AND o.platform = COALESCE(p.platform, 'Unsorted')
+                            AND o.year = p.year AND o.month = 0),
+                        (SELECT o.position FROM custom_order o
+                          WHERE o.artist_id = p.artist_id AND o.platform = COALESCE(p.platform, 'Unsorted')
+                            AND o.year = p.year AND o.month = p.month)
+                 FROM periods p WHERE artist_id = ?1
                  ORDER BY year DESC, month DESC, number DESC, label DESC",
             )?;
             let rows = stmt.query_map(params![artist.id], |r| {
@@ -2826,6 +3194,9 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                     year: r.get(2)?,
                     month: r.get(3)?,
                     number: r.get(13)?,
+                    year_name: r.get(14)?,
+                    year_pos: r.get(15)?,
+                    month_pos: r.get(16)?,
                     span: r.get(4)?,
                     label: r.get(5)?,
                     folder_path: r.get(6)?,
@@ -2932,6 +3303,9 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                         year: want_year,
                         month: want_month,
                         number: want_number,
+                        year_name: None,
+                        year_pos: None,
+                        month_pos: None,
                         span: b.span,
                         label: b.label.clone(),
                         folder_path: b.folder_path.clone(),
@@ -3433,6 +3807,18 @@ mod tests {
         assert!(db.is_poisoned());
         let one: i64 = db.conn().query_row("SELECT 1", [], |r| r.get(0)).unwrap();
         assert_eq!(one, 1);
+    }
+
+    /// "nora" is Nora: making it would overwrite her or add a second one in one folder.
+    #[test]
+    fn a_name_is_found_in_any_case() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        create_artist(&conn, "Nora", None, false).unwrap();
+        create_artist(&conn, "Ärger", None, false).unwrap();
+        assert_eq!(artist_named(&conn, " nora ").unwrap().as_deref(), Some("Nora"));
+        assert_eq!(artist_named(&conn, "ÄRGER").unwrap().as_deref(), Some("Ärger"));
+        assert_eq!(artist_named(&conn, "Nor").unwrap(), None);
     }
 
     /// Emptying a creator must not delete the creator (aliases, links, notes... must stay).

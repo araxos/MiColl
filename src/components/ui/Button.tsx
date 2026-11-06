@@ -56,6 +56,16 @@ const premium: Partial<Record<string, Partial<Record<Variant, string>>>> = {
     secondary:
       "!rounded-none border border-[#fcee0a]/35 bg-zinc-950/60 text-zinc-100 hover:border-[#fcee0a]/70 hover:bg-[#fcee0a]/10",
   },
+  corruptruby: {
+    // a lit neon tube: pale core, pink glow outside and in
+    primary:
+      "border-[1.5px] border-[#ffd6e4] bg-[#ff1464]/10 text-white [text-shadow:0_0_6px_#ff7aa8] shadow-[0_0_10px_#ff1464,inset_0_0_8px_#ff1464] hover:bg-[#ff1464]/25 hover:shadow-[0_0_16px_#ff1464,inset_0_0_10px_#ff1464]",
+    outline:
+      "border border-[#ff7aa8]/50 bg-[#080206]/60 text-zinc-100 hover:border-[#ff7aa8] hover:shadow-[0_0_10px_rgba(255,20,100,0.65)]",
+    ghost: "text-zinc-200 hover:bg-[#ff1464]/15 hover:text-white",
+    secondary:
+      "border border-[#ff7aa8]/35 bg-[#ff1464]/10 text-zinc-100 hover:border-[#ff7aa8]/70 hover:bg-[#ff1464]/20",
+  },
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(

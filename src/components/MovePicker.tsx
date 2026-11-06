@@ -10,6 +10,8 @@ import { addPlatform, usePlatformOptions } from "@/lib/platformRegistry";
 import { cn } from "@/lib/utils";
 import { useT, useTf, useTp } from "@/lib/i18n";
 import { ownRewards } from "@/types";
+import { NameCombo } from "@/components/NameCombo";
+import { customMonthNames, customYearNames } from "@/lib/customOrder";
 
 const MONTH_NAMES = [
   "january", "february", "march", "april", "may", "june",
@@ -142,6 +144,8 @@ export function MovePicker({
       /** null = the "Misc" bucket (a real destination). */
       year: number | null;
       month: number | null;
+      /** Custom style: the typed names, set instead of year and month. */
+      custom?: { year: string | null; month: string | null };
     };
   }) => void;
   onClose: () => void;
@@ -175,6 +179,8 @@ export function MovePicker({
   const artist = artists.find((a) => a.id === aId);
   const platform = artist?.platforms.find((p) => p.id === pId);
   const month = platform?.months.find((m) => m.id === mId);
+  // years and months have names here, not numbers
+  const custom = platform?.releaseStyle === "custom";
   // collab-only months and borrowed rewards can't be targets (no DB row, other creator's
   // files)
   const months = (platform?.months ?? []).filter((m) => !m.collabOnly);
@@ -193,23 +199,27 @@ export function MovePicker({
 
   // create a new period and move into it. An empty year = the "Misc" bucket
   const yearBlank = !newYear.trim();
-  const newYearNum = yearBlank ? null : Number(newYear.trim());
+  const newYearNum = yearBlank || custom ? null : Number(newYear.trim());
   const parsedMonth = parseMonth(newMonth);
   const monthBlank = !newMonth.trim();
-  const newMonthNum = monthBlank ? null : parsedMonth ?? null;
+  const newMonthNum = monthBlank || custom ? null : parsedMonth ?? null;
   const yearOk =
     yearBlank ||
+    custom ||
     (newYearNum !== null && Number.isInteger(newYearNum) && newYearNum >= 1900 && newYearNum <= 2999);
   // a month without a year isn't allowed (folders are <Year>/<MM>)
-  const monthOk = monthBlank || (parsedMonth !== undefined && !yearBlank);
+  const monthOk = monthBlank || ((custom || parsedMonth !== undefined) && !yearBlank);
   const newValid = !!aId && yearOk && monthOk;
   const newError = !yearOk
     ? "Year must be 1900–2999, or empty for Misc."
-    : !monthBlank && parsedMonth === undefined
+    : !monthBlank && parsedMonth === undefined && !custom
       ? "Month: 1–12 or a name like “Mar”."
       : !monthBlank && yearBlank
         ? "A month needs a year — Misc holds no months."
         : "";
+  const newLabel = custom
+    ? [newYear.trim(), newMonth.trim()].filter(Boolean).join(" › ") || "Misc"
+    : destLabel(newYearNum, newMonthNum);
   const confirmNew = () => {
     if (!newValid || !aId) return;
     const plat = platform?.name ?? newPlat ?? null;
@@ -221,6 +231,7 @@ export function MovePicker({
         platform: plat,
         year: newYearNum,
         month: newMonthNum,
+        custom: custom ? { year: newYear.trim() || null, month: newMonth.trim() || null } : undefined,
       },
     });
   };
@@ -394,7 +405,9 @@ export function MovePicker({
                     }}
                   >
                     <Folder className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
-                    <span className="truncate">{m.label}</span>
+                    <span className="truncate">
+                      {m.yearName && m.month != null ? `${m.yearName} › ${m.label}` : m.label}
+                    </span>
                     {/* "2026" and "Misc" get a description so they look like destinations */}
                     {monthHint(m) && (
                       <span className="shrink-0 text-[10px] text-zinc-500">{monthHint(m)}</span>
@@ -410,6 +423,7 @@ export function MovePicker({
                       active={false}
                       onClick={() => {
                         setNewOpen(true);
+                        if (custom) setNewYear("");
                         setMId(null);
                         setRId(null);
                       }}
@@ -419,26 +433,54 @@ export function MovePicker({
                     </PickerRow>
                   ) : (
                     <div className="space-y-1.5 px-1.5 py-1.5">
-                      <input
-                        autoFocus
-                        inputMode="numeric"
-                        placeholder={t("Year — empty for Misc")}
-                        value={newYear}
-                        onChange={(e) => setNewYear(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && newValid) confirmNew();
-                        }}
-                        className={cn(dlg.input, "h-8 px-2")}
-                      />
-                      <input
-                        placeholder={t("Month — 1–12 or “Mar”")}
-                        value={newMonth}
-                        onChange={(e) => setNewMonth(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && newValid) confirmNew();
-                        }}
-                        className={cn(dlg.input, "h-8 px-2")}
-                      />
+                      {custom ? (
+                        <>
+                          <NameCombo
+                            live
+                            typos
+                            autoFocus
+                            value={newYear}
+                            onCommit={setNewYear}
+                            suggestions={customYearNames(months)}
+                            placeholder={t("Year name — leave blank for Misc")}
+                            onEnter={() => newValid && confirmNew()}
+                            className={cn(dlg.input, "h-8 px-2")}
+                          />
+                          <NameCombo
+                            live
+                            typos
+                            value={newMonth}
+                            onCommit={setNewMonth}
+                            suggestions={customMonthNames(months, newYear)}
+                            placeholder={t("Month name — optional")}
+                            onEnter={() => newValid && confirmNew()}
+                            className={cn(dlg.input, "h-8 px-2")}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <input
+                            autoFocus
+                            inputMode="numeric"
+                            placeholder={t("Year — empty for Misc")}
+                            value={newYear}
+                            onChange={(e) => setNewYear(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && newValid) confirmNew();
+                            }}
+                            className={cn(dlg.input, "h-8 px-2")}
+                          />
+                          <input
+                            placeholder={t("Month — 1–12 or “Mar”")}
+                            value={newMonth}
+                            onChange={(e) => setNewMonth(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && newValid) confirmNew();
+                            }}
+                            className={cn(dlg.input, "h-8 px-2")}
+                          />
+                        </>
+                      )}
                       {/* preview of the folder name (empty year -> Misc, empty month -> the
                           year itself) */}
                       <p className={cn("truncate text-[11px]", newValid ? "text-zinc-500" : "text-amber-300")}>
@@ -446,9 +488,9 @@ export function MovePicker({
                           ? newPlat
                             ? tf("Creates “{platform} › {period}”", {
                                 platform: newPlat,
-                                period: destLabel(newYearNum, newMonthNum),
+                                period: newLabel,
                               })
-                            : tf("Creates “{period}”", { period: destLabel(newYearNum, newMonthNum) })
+                            : tf("Creates “{period}”", { period: newLabel })
                           : newError}
                       </p>
                       <div className="flex justify-end gap-1.5">
@@ -524,6 +566,8 @@ export function NewFolderDialog({
   hint,
   years,
   initialYear,
+  yearWords = false,
+  confirmLabel,
 }: {
   onCreate: (name: string, year?: string) => void;
   onClose: () => void;
@@ -534,9 +578,13 @@ export function NewFolderDialog({
   /** Optional help text under the input. */
   hint?: string;
   /** Existing years (newest first). Shows the year picker when set. */
-  years?: number[];
+  years?: (number | string)[];
   /** Pre-filled year (newest existing, else this year). */
   initialYear?: string;
+  /** The custom style: a year is any word. */
+  yearWords?: boolean;
+  /** The button, "Create" by default. */
+  confirmLabel?: string;
 }) {
   const t = useT();
   const [name, setName] = useState(initial);
@@ -544,7 +592,7 @@ export function NewFolderDialog({
   // start empty so the datalist shows all years
   const [year, setYear] = useState(initialYear ?? "");
   // name is needed, year is optional (empty = Misc, otherwise 4 digits)
-  const yearOk = !showYear || year.trim() === "" || /^\d{4}$/.test(year.trim());
+  const yearOk = !showYear || yearWords || year.trim() === "" || /^\d{4}$/.test(year.trim());
   const valid = !!name.trim() && yearOk;
   const submit = () => valid && onCreate(name.trim(), showYear ? year.trim() : undefined);
 
@@ -576,23 +624,39 @@ export function NewFolderDialog({
         />
         {showYear && (
           <>
-            <input
-              list="micoll-folder-years"
-              inputMode="numeric"
-              value={year}
-              onChange={(e) => setYear(e.target.value.replace(/[^0-9]/g, "").slice(0, 4))}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && valid) submit();
-                if (e.key === "Escape") onClose();
-              }}
-              placeholder={t("Year (optional) — pick, type a new one, or leave blank for Misc")}
-              className={cn(inputClass, "mt-2")}
-            />
-            <datalist id="micoll-folder-years">
-              {(years ?? []).map((y) => (
-                <option key={y} value={String(y)} />
-              ))}
-            </datalist>
+            {yearWords ? (
+              <NameCombo
+                live
+                typos
+                value={year}
+                onCommit={setYear}
+                suggestions={(years ?? []).map(String)}
+                placeholder={t("Year name (optional) — pick, type a new one, or leave blank for Misc")}
+                onEnter={() => valid && submit()}
+                onEscape={onClose}
+                className={cn(inputClass, "mt-2")}
+              />
+            ) : (
+              <>
+                <input
+                  list="micoll-folder-years"
+                  inputMode="numeric"
+                  value={year}
+                  onChange={(e) => setYear(e.target.value.replace(/[^0-9]/g, "").slice(0, 4))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && valid) submit();
+                    if (e.key === "Escape") onClose();
+                  }}
+                  placeholder={t("Year (optional) — pick, type a new one, or leave blank for Misc")}
+                  className={cn(inputClass, "mt-2")}
+                />
+                <datalist id="micoll-folder-years">
+                  {(years ?? []).map((y) => (
+                    <option key={y} value={String(y)} />
+                  ))}
+                </datalist>
+              </>
+            )}
             {year.trim() === "" && (
               <p className="mt-1 text-xs text-zinc-500">{t("No year → filed under “Misc”.")}</p>
             )}
@@ -605,7 +669,7 @@ export function NewFolderDialog({
           </Button>
           <Button variant="primary" disabled={!valid} onClick={submit} className={createClass}>
             <Check className="h-4 w-4" />
-            {t("Create")}
+            {confirmLabel ?? t("Create")}
           </Button>
         </div>
       </motion.div>

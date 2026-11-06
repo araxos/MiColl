@@ -222,7 +222,13 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
               )}
             </span>
           )}
-          <span className="text-[15px] font-semibold tracking-tight text-zinc-100">
+          <span
+            className={
+              accent === "corruptruby"
+                ? "ruby-title"
+                : "text-[15px] font-semibold tracking-tight text-zinc-100"
+            }
+          >
             {t("Dashboard")}
           </span>
         </button>

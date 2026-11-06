@@ -68,7 +68,9 @@ export function CoverCropModal({
         ? "bg-[#0e0c18]/85"
         : accent === "sakura"
           ? "bg-[#1d121a]/88"
-          : "bg-black/80";
+          : accent === "corruptruby"
+            ? "bg-[#080206]/90"
+            : "bg-black/80";
   // top and bottom bars get a solid background so text and buttons stay readable
   const bar =
     accent === "cyberpunk"
@@ -77,7 +79,9 @@ export function CoverCropModal({
         ? "bg-[#0e0c18]"
         : accent === "sakura"
           ? "bg-[#1d121a]"
-          : "bg-zinc-950";
+          : accent === "corruptruby"
+            ? "bg-[#0c0408]"
+            : "bg-zinc-950";
   // handle color (the frame edge is .crop-frame in CSS)
   const handleFill =
     accent === "cyberpunk"
@@ -86,7 +90,9 @@ export function CoverCropModal({
         ? "bg-white"
         : accent === "sakura"
           ? "bg-[#f9a8d4]"
-          : "bg-brand-400";
+          : accent === "corruptruby"
+            ? "bg-[#ff7aa8] shadow-[0_0_8px_#ff1464]"
+            : "bg-brand-400";
   const ghostBtn = cn("rounded-lg px-4 py-2 text-sm transition-colors disabled:opacity-50", dlg.menuRow);
 
   const [src, setSrc] = useState("");

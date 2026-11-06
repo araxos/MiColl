@@ -240,6 +240,8 @@ export function StartPage({ onLock }: { onLock: () => void }) {
         : sakura
           ? // dark rose glass, petal-cut corners, lit top edge (index.css .sak-menu)
             "sak-menu"
+          : accent === "corruptruby"
+            ? "ruby-panel rounded-xl"
           : irid
           ? // 85%, not 70%: these three open straight over the animated shader at the
             // top of the page, where a thin fill let the moving colours read through
@@ -748,6 +750,8 @@ export function StartPage({ onLock }: { onLock: () => void }) {
               "rounded-2xl border border-white/12 bg-zinc-900/28 px-4 py-2.5 backdrop-blur-xl [transform:translateZ(0)]",
             // sakura: frosted rose glass with petal-cut corners (index.css .sak-dash-bar)
             sakura && "sak-dash-bar px-4 py-2.5",
+            // corruptruby: black glass with a neon rim (index.css .ruby-bar)
+            accent === "corruptruby" && "ruby-bar px-4 py-2.5",
           )}
         >
           {/* cyberpunk: a red glow band from under the top bar to under the title, a lit
@@ -767,7 +771,7 @@ export function StartPage({ onLock }: { onLock: () => void }) {
               className={cn("group flex items-center gap-2 rounded-lg outline-none", !irid && "-translate-y-0.5")}
               title={t("Filter by creator type")}
             >
-              <h1 className="text-3xl font-bold leading-none tracking-tight text-zinc-50">
+              <h1 className="ruby-page-title text-3xl font-bold leading-none tracking-tight text-zinc-50">
                 {graveyard ? t("Graveyard") : t("Creators")}{" "}
                 <span className="text-xl font-medium text-white">({typeCount})</span>
               </h1>
@@ -1076,7 +1080,7 @@ export function StartPage({ onLock }: { onLock: () => void }) {
                 <UserPlus className="h-4 w-4" strokeWidth={casualLead ? 2.5 : 2} />
                 {t("Create Card")}
               </Button>
-              <ImportFolderButton labeled className={cn(iriOutline, sakura && "sak-chip sak-petal-cut")} />
+              <ImportFolderButton labeled className={cn(iriOutline, sakura && "sak-chip sak-petal-cut", accent === "corruptruby" && "ruby-chip")} />
             </div>
           </div>
         ) : filtered.length === 0 ? (

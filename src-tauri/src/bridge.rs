@@ -137,6 +137,13 @@ struct MonthDto {
     /// the release number set in MiColl (periods.number, left out when there's none)
     #[serde(skip_serializing_if = "Option::is_none")]
     number: Option<i64>,
+    /// custom release style: the year's name, year is null then (left out otherwise).
+    /// A named card has a month above 12 that only sorts, its name is the label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    year_name: Option<String>,
+    /// where a custom platform sorts it (the year, then the card)
+    #[serde(skip)]
+    place: (i64, i64),
 }
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -450,7 +457,110 @@ fn month_dto(root: &Path, moved: &SdView, dir: &Path, year: Option<i32>, month: 
         chosen_cover: None,
         own_cover: None,
         number: None,
+        year_name: None,
+        // Misc is last
+        place: (i64::MAX, 0),
     })
+}
+
+/// Above any dragged position.
+const NOT_DRAGGED: i64 = 1 << 32;
+
+/// The custom style as the folders need it, loaded once per scan. Everything by lowercase
+/// name: on disk "Ä" and "ä" are one folder.
+#[derive(Default)]
+struct CustomView {
+    styles: HashMap<(String, Option<String>), String>,
+    years: HashMap<(String, String, String), i64>,
+    months: HashMap<(String, String, i64, String), i64>,
+    /// dragged positions by creator, platform, year, month (0 = the year)
+    order: HashMap<(String, String, i64, i64), i64>,
+}
+
+impl CustomView {
+    fn load(conn: &rusqlite::Connection) -> Self {
+        let mut view = CustomView::default();
+        for (artist, platform, style) in db::release_styles(conn).unwrap_or_default() {
+            view.styles.insert((artist.to_lowercase(), platform.map(|p| p.to_lowercase())), style);
+        }
+        for (artist, platform, year, month, name) in db::all_custom_names(conn).unwrap_or_default() {
+            let (a, p, n) = (artist.to_lowercase(), platform.to_lowercase(), name.to_lowercase());
+            if month == 0 {
+                view.years.insert((a, p, n), year);
+            } else {
+                view.months.insert((a, p, year, n), month);
+            }
+        }
+        for (artist, platform, year, month, position) in db::all_custom_order(conn).unwrap_or_default() {
+            view.order.insert((artist.to_lowercase(), platform.to_lowercase(), year, month), position);
+        }
+        view
+    }
+    /// A dragged position, else after those in the order it was made.
+    fn place(&self, artist: &str, platform: &str, year: i64, month: i64) -> i64 {
+        let key = (artist.to_lowercase(), platform.to_lowercase(), year, month);
+        self.order.get(&key).copied().unwrap_or(NOT_DRAGGED + if month == 0 { year } else { month })
+    }
+    fn covers(&self, artist: &str, platform: &str) -> bool {
+        let a = artist.to_lowercase();
+        let own = self.styles.get(&(a.clone(), Some(platform.to_lowercase())));
+        own.or_else(|| self.styles.get(&(a, None))).is_some_and(|s| s == "custom")
+    }
+    fn year(&self, artist: &str, platform: &str, name: &str) -> Option<i64> {
+        self.years.get(&(artist.to_lowercase(), platform.to_lowercase(), name.to_lowercase())).copied()
+    }
+    fn month(&self, artist: &str, platform: &str, year: i64, name: &str) -> Option<i64> {
+        self.months.get(&(artist.to_lowercase(), platform.to_lowercase(), year, name.to_lowercase())).copied()
+    }
+}
+
+/// One year folder of a custom platform, read like indexer::apply_custom does: a known
+/// month or a folder that only holds folders is a card, the rest are rewards in the year.
+fn custom_months(root: &Path, moved: &SdView, view: &CustomView, artist: &str, platform: &str, ydir: &Path) -> Vec<MonthDto> {
+    let yname = name_of(ydir);
+    let real = is_year(&yname);
+    let number = if real { yname.parse().ok() } else { view.year(artist, platform, &yname) };
+    let year = number.filter(|_| real).map(|y| y as i32);
+    let year_name = (!real).then(|| yname.clone());
+    // a year no scan has seen yet goes behind the known ones
+    let year_place = number.map_or(NOT_DRAGGED * 2, |y| view.place(artist, platform, y, 0));
+    let mut months = Vec::new();
+    let mut cards = HashSet::new();
+    // a card the scan hasn't seen yet, it still needs a month that only sorts
+    let mut spare = 1000;
+    for mdir in moved.subdirs(ydir) {
+        let name = name_of(&mdir);
+        let date = db::real_month(&name);
+        let known = date.or_else(|| number.and_then(|y| view.month(artist, platform, y, &name)));
+        if known.is_none() && (moved.subdirs(&mdir).is_empty() || make_reward(root, moved, &mdir, &name, false).is_some()) {
+            continue;
+        }
+        cards.insert(rel(root, &mdir));
+        let month = known.unwrap_or_else(|| {
+            spare += 1;
+            spare
+        }) as u32;
+        let label = match (date, year) {
+            (Some(m), Some(y)) => format!("{:02}.{:02}", m, y % 100),
+            _ => name,
+        };
+        if let Some(mut m) = month_dto(root, moved, &mdir, year, Some(month), label, platform) {
+            m.year_name = year_name.clone();
+            let card = number.map_or(month as i64, |y| view.place(artist, platform, y, month as i64));
+            m.place = (year_place, card);
+            months.push(m);
+        }
+    }
+    // what's left of the year folder are the rewards right in it
+    if let Some(mut m) = month_dto(root, moved, ydir, year, None, yname.clone(), platform) {
+        m.rewards.retain(|r| !cards.contains(&r.folder_path));
+        if !m.rewards.is_empty() {
+            m.year_name = year_name;
+            m.place = (year_place, -1);
+            months.push(m);
+        }
+    }
+    months
 }
 
 /// Top-level folders that aren't creators: the graveyard, hidden and `_` folders.
@@ -460,28 +570,33 @@ fn is_artist_dir(p: &Path) -> bool {
 }
 
 /// The creators on top, then the graveyard's (a name that's on top too is left out there).
-fn scan(root: &Path, moved: &SdView) -> Vec<ArtistDto> {
-    let mut artists = scan_dir(root, moved, root, false);
+fn scan(root: &Path, moved: &SdView, custom: &CustomView) -> Vec<ArtistDto> {
+    let mut artists = scan_dir(root, moved, custom, root, false);
     let grave = moved.subdirs(root).into_iter().find(|d| name_of(d).eq_ignore_ascii_case(indexer::GRAVEYARD_DIR));
     if let Some(grave) = grave {
         let top: HashSet<String> = artists.iter().map(|a| a.name.to_lowercase()).collect();
-        artists.extend(scan_dir(root, moved, &grave, true).into_iter().filter(|a| !top.contains(&a.name.to_lowercase())));
+        artists.extend(scan_dir(root, moved, custom, &grave, true).into_iter().filter(|a| !top.contains(&a.name.to_lowercase())));
     }
     artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     artists
 }
 
-fn scan_dir(root: &Path, moved: &SdView, dir: &Path, graveyard: bool) -> Vec<ArtistDto> {
+fn scan_dir(root: &Path, moved: &SdView, custom: &CustomView, dir: &Path, graveyard: bool) -> Vec<ArtistDto> {
     let mut artists = Vec::new();
     for adir in moved.subdirs(dir).into_iter().filter(|d| is_artist_dir(d)) {
         let mut platforms = Vec::new();
         for pdir in moved.subdirs(&adir) {
             let pname = name_of(&pdir);
+            let aname = name_of(&adir);
+            let named = custom.covers(&aname, &pname);
             let mut months = Vec::new();
             for ydir in moved.subdirs(&pdir) {
                 let yname = name_of(&ydir);
+                let misc = yname.eq_ignore_ascii_case("misc");
+                if named && !misc {
+                    months.extend(custom_months(root, moved, custom, &aname, &pname, &ydir));
                 // "Misc" is the year level of undated rewards (Misc/Misc/Reward)
-                if is_year(&yname) || yname.eq_ignore_ascii_case("misc") {
+                } else if is_year(&yname) || misc {
                     let year: Option<i32> = yname.parse().ok().filter(|_| is_year(&yname));
                     for mdir in moved.subdirs(&ydir) {
                         let m = parse_month(&name_of(&mdir));
@@ -499,7 +614,11 @@ fn scan_dir(root: &Path, moved: &SdView, dir: &Path, graveyard: bool) -> Vec<Art
             if months.is_empty() {
                 continue;
             }
-            months.sort_by(|a, b| b.year.cmp(&a.year).then(b.month.cmp(&a.month)));
+            if named {
+                months.sort_by_key(|m| m.place);
+            } else {
+                months.sort_by(|a, b| b.year.cmp(&a.year).then(b.month.cmp(&a.month)));
+            }
             platforms.push(PlatformDto { id: id_for(&rel(root, &pdir)), name: pname, months });
         }
         if platforms.is_empty() {
@@ -1289,7 +1408,8 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
         // scanned fresh each time, so moves and renames in MiColl show up right away
         "/api/gallery" => {
             let view = moved.get();
-            let mut artists = scan(&root, view);
+            let custom = { let c = sh.src.db().conn(); CustomView::load(&c) };
+            let mut artists = scan(&root, view, &custom);
             let counts = { let c = sh.src.db().conn(); version_counts(&c, view) }.unwrap_or_default();
             if !counts.is_empty() {
                 let images = artists
@@ -2592,6 +2712,70 @@ pub fn phone_bridge_trust_network(id: String, allow: bool, db: State<Db>, state:
     let mut out = info(&key, &folder, &trusted)?;
     out.running = inner.server.is_some();
     Ok(out)
+}
+
+#[cfg(test)]
+mod custom_tests {
+    use super::*;
+
+    /// the phone gets the same years and cards as the desktop, from the same folders
+    #[test]
+    fn custom_platforms_are_read_by_their_names() {
+        let base = std::env::temp_dir().join(format!("micoll_bridge_custom_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let put = |f: &str| {
+            let p = base.join("Nora/Patreon").join(f);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, b"x").unwrap();
+        };
+        put("Sommer/Teil 1/Set/01.jpg");
+        put("Sommer/Teil 2/02.jpg");
+        put("Sommer/Loose/03.jpg");
+        put("Sommer/Neu/Set/04.jpg");
+        put("Sommer/Pause/_SKIPPED.txt");
+        put("2025/03/Set/05.jpg");
+        put("Misc/Undated/06.jpg");
+
+        let mut view = CustomView::default();
+        view.styles.insert(("nora".into(), None), "custom".into());
+        view.years.insert(("nora".into(), "patreon".into(), "sommer".into()), 1);
+        for (name, m) in [("teil 1", 13), ("teil 2", 14), ("pause", 15)] {
+            view.months.insert(("nora".into(), "patreon".into(), 1, name.into()), m);
+        }
+        let artists = scan(&base, &SdView::default(), &view);
+        let months = &artists[0].platforms[0].months;
+        let find = |label: &str| months.iter().find(|m| m.label == label).unwrap_or_else(|| panic!("no {label}"));
+
+        let card = find("Teil 1");
+        assert_eq!((card.year, card.month, card.year_name.as_deref()), (None, Some(13), Some("Sommer")));
+        assert_eq!(card.rewards[0].title, "Set");
+        // its own gallery stays one reward of that card
+        assert_eq!(find("Teil 2").rewards.len(), 1);
+        assert!(find("Pause").skipped);
+        // a word folder of folders nobody scanned yet is a card too
+        assert!(find("Neu").month.unwrap() > 12);
+        // the year's own card only has what's right in it
+        let whole = find("Sommer");
+        assert_eq!(whole.month, None);
+        assert_eq!(whole.rewards.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), ["Loose"]);
+        // real dates and Misc read as always
+        let dated = find("03.25");
+        assert_eq!((dated.year, dated.month, dated.year_name.as_deref()), (Some(2025), Some(3), None));
+        assert!(months.iter().any(|m| m.label == "Undated" && m.year.is_none() && m.year_name.is_none()));
+
+        // the bridge sends a custom platform in the desktop's order
+        view.order.insert(("nora".into(), "patreon".into(), 1, 14), 0);
+        view.order.insert(("nora".into(), "patreon".into(), 1, 13), 1);
+        let sorted = scan(&base, &SdView::default(), &view);
+        let labels: Vec<&str> = sorted[0].platforms[0].months.iter().map(|m| m.label.as_str()).collect();
+        assert_eq!(labels[..3], ["Sommer", "Teil 2", "Teil 1"]);
+        assert_eq!(labels.last(), Some(&"Undated"));
+
+        // nothing changes for a platform that isn't custom
+        let plain = scan(&base, &SdView::default(), &CustomView::default());
+        assert!(plain[0].platforms[0].months.iter().all(|m| m.year_name.is_none()));
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
 
 #[cfg(test)]

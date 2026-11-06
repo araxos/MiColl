@@ -216,6 +216,7 @@ function ReviewModal({
               accent === "cyberpunk" && "shadow-[0_0_14px_rgba(252,238,10,0.35)]",
               accent === "iridescent" && "shadow-[0_0_16px_rgba(196,181,253,0.4)]",
               accent === "sakura" && "shadow-[0_0_14px_rgba(236,72,153,0.35)]",
+              accent === "corruptruby" && "shadow-[0_0_14px_rgba(255,20,100,0.7)]",
             )}
           >
             <Tags className="h-4 w-4" />

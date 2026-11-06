@@ -11,6 +11,7 @@ import {
   CalendarDays,
   CalendarOff,
   Hash,
+  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useData } from "@/store";
@@ -20,10 +21,15 @@ import { CREATOR_TYPES } from "@/lib/creatorTypes";
 import type { ReleaseStyle } from "@/types";
 import { usePlatformOptions, addPlatform as registerPlatform } from "@/lib/platformRegistry";
 import { initials, cn } from "@/lib/utils";
-import { useT } from "@/lib/i18n";
+import { useT, useTf } from "@/lib/i18n";
+import { useNavigate } from "react-router-dom";
 import * as api from "@/api/library";
+import { uniqueNames } from "@/lib/customOrder";
 
-/** How the creator releases (same 3 options as the import review and the platform menu). */
+/** Like the import: case, spaces, dots and dashes don't tell creators apart. */
+const normName = (s: string) => s.toLowerCase().replace(/[\s_.\-]+/g, "");
+
+/** How the creator releases (same options as the import review and the platform menu). */
 const RELEASE_STYLES: { key: ReleaseStyle; label: string; hint: string; Icon: typeof Hash }[] = [
   {
     key: "monthly",
@@ -36,6 +42,12 @@ const RELEASE_STYLES: { key: ReleaseStyle; label: string; hint: string; Icon: ty
     label: "Numbered drops",
     hint: "Each drop its own card (#51, #52) — no dates",
     Icon: Hash,
+  },
+  {
+    key: "custom",
+    label: "Custom",
+    hint: "Your own names for years and cards (Summer, Part 1 …)",
+    Icon: Pencil,
   },
   {
     key: "none",
@@ -51,6 +63,8 @@ const RELEASE_STYLES: { key: ReleaseStyle; label: string; hint: string; Icon: ty
  */
 export function AddArtistSheet({ onClose }: { onClose: () => void }) {
   const t = useT();
+  const tf = useTf();
+  const navigate = useNavigate();
   const { refresh, artists } = useData();
   const accent = useAccent();
   const irid = accent === "iridescent";
@@ -77,6 +91,8 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
       // sakura uses .sak-chip (its own border and radius win over the classes above)
       sakura
         ? cn("sak-chip sak-petal-cut", on && "sak-chip--lead")
+        : accent === "corruptruby"
+          ? cn("ruby-chip", on && "ruby-chip--on")
         : on
           ? irid
             ? "pick-on text-white"
@@ -128,11 +144,15 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
   const [newYear, setNewYear] = useState("");
   // off by default
   const [months, setMonths] = useState(false);
+  // custom style: its years, comma separated
+  const [yearNames, setYearNames] = useState("");
+  const names = useMemo(() => uniqueNames(yearNames.split(",").map((n) => n.trim())), [yearNames]);
 
   const [managed, setManaged] = useState(false);
   const [collectionRoot, setCollectionRoot] = useState("");
   const [baseDir, setBaseDir] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -236,11 +256,26 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
     return null;
   }, [baseDir, managed, collectionRoot, name]);
 
-  const canCreate = name.trim().length > 0 && !busy;
+  // who this name already is: the same name stops the create, it would change that
+  // creator. An alias or a near spelling can be someone else, so it only asks
+  const existing = useMemo(() => {
+    const low = name.trim().toLowerCase();
+    if (!low) return null;
+    const same = artists.find((a) => a.name.trim().toLowerCase() === low);
+    if (same) return { artist: same, same: true };
+    const key = normName(name);
+    const near = artists.find(
+      (a) => normName(a.name) === key || (a.aliases ?? []).some((al) => normName(al) === key),
+    );
+    return near ? { artist: near, same: false } : null;
+  }, [name, artists]);
+
+  const canCreate = name.trim().length > 0 && !busy && !existing?.same;
 
   const create = async () => {
     if (!canCreate) return;
     setBusy(true);
+    setCreateError(null);
     try {
       await api.createArtist({
         name: name.trim(),
@@ -249,6 +284,7 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
         platforms: [...platforms],
         years: dated ? [...years] : [],
         months,
+        yearNames: style === "custom" ? names : [],
         releaseStyle: style,
         // keep the CREATOR_TYPES order no matter the click order
         kind: kinds.size
@@ -259,6 +295,7 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
       onClose();
     } catch (e) {
       console.error("create artist failed", e);
+      setCreateError(String(e));
       setBusy(false);
     }
   };
@@ -314,6 +351,28 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
                   placeholder={t("e.g. Misato Katsuragi")}
                   className={cn("h-9 w-full", fieldCls)}
                 />
+                {existing && (
+                  <div className="mt-1.5 flex items-center gap-2 text-xs text-amber-300">
+                    <span className="min-w-0 flex-1 truncate">
+                      {tf("Already exists as “{name}”.", { name: existing.artist.name })}
+                    </span>
+                    <button
+                      onClick={() => {
+                        navigate(`/artist/${existing.artist.id}`);
+                        onClose();
+                      }}
+                      className={cn(
+                        "shrink-0 px-2 py-1 text-xs font-medium",
+                        premium
+                          ? dlg.control
+                          : "rounded-md border border-brand-500/40 bg-brand-500/15 text-brand-100 hover:bg-brand-500/25",
+                      )}
+                    >
+                      {t("Open")}
+                    </button>
+                  </div>
+                )}
+                {createError && <p className="mt-1.5 text-xs text-rose-300">{createError}</p>}
               </div>
               <div>
                 <div className="mb-1 text-xs font-medium text-zinc-400">
@@ -452,6 +511,24 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
                   />
                   {t("Create 12 month subfolders (01–12) under each year")}
                 </label>
+              </>
+            )}
+
+            {style === "custom" && (
+              <>
+                <div className="mt-4 text-xs font-medium text-zinc-400">{t("Year names")}</div>
+                <input
+                  value={yearNames}
+                  onChange={(e) => setYearNames(e.target.value)}
+                  placeholder={t("Summer, Winter …")}
+                  title={t("Separated by commas, each one becomes a folder")}
+                  className={cn("mt-1.5 h-8 w-full", fieldCls)}
+                />
+                {names.length > 0 && platforms.size === 0 && (
+                  <p className="mt-1 text-xs text-amber-300">
+                    {t("Pick a platform too, these folders go inside it.")}
+                  </p>
+                )}
               </>
             )}
 

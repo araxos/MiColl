@@ -17,7 +17,7 @@ import { SdNoticeDialog } from "@/components/SdNoticeDialog";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useData } from "@/store";
 import { useActions } from "@/actions";
-import { KEEP_FOLDERS_KEY, folderPathOf, setRewardCover, exportFiles, createReward, createMissingReward, ensurePeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, setRewardsTier, setRewardNotes, type SdMode } from "@/api/library";
+import { KEEP_FOLDERS_KEY, folderPathOf, setRewardCover, exportFiles, createReward, createMissingReward, ensurePeriod, ensureCustomPeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, setRewardsTier, setRewardNotes, type SdMode } from "@/api/library";
 import { isTauri } from "@/lib/tauri";
 import { useCardSize } from "@/lib/useCardSize";
 import { useDragOut } from "@/lib/dragOut";
@@ -234,12 +234,20 @@ export function RewardGrid({
 
   /** Create a new year/month, then move the rewards into it. */
   const doMoveToNewPeriod = async (
-    np: { artistId: string; platform: string | null; year: number | null; month: number | null },
+    np: {
+      artistId: string;
+      platform: string | null;
+      year: number | null;
+      month: number | null;
+      custom?: { year: string | null; month: string | null };
+    },
     ids: string[],
   ) => {
     if (!ids.length) return;
     try {
-      const periodId = await ensurePeriod(np.artistId, np.platform, np.year, np.month);
+      const periodId = np.custom
+        ? await ensureCustomPeriod(np.artistId, np.platform, np.custom.year, np.custom.month)
+        : await ensurePeriod(np.artistId, np.platform, np.year, np.month);
       const n = await moveRewards(ids, String(periodId));
       await refresh();
       exitSelect();

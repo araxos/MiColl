@@ -1,9 +1,10 @@
 import { memo, useCallback, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Check, FolderOpen, Trash2, RotateCcw, Coffee, BadgeCheck, CopyCheck, RefreshCw, HardDrive, DatabaseBackup, Sparkle, CalendarRange } from "lucide-react";
+import { Check, FolderOpen, Trash2, RotateCcw, Coffee, BadgeCheck, CopyCheck, RefreshCw, HardDrive, DatabaseBackup, Sparkle, CalendarRange, Pencil } from "lucide-react";
 import { SakuraBlossomIcon } from "@/lib/classIcons";
 import { openDuplicates } from "@/lib/duplicates";
+import { RubyCheckMark, RubyEmbers } from "@/components/RubyCardFrame";
 import { MonthMosaic } from "@/components/MonthMosaic";
 import { Cover } from "@/components/Cover";
 import { ProgressRing } from "@/components/ui/ProgressRing";
@@ -38,12 +39,15 @@ function MonthCardBase({
   month,
   onOpen: onOpenMonth,
   hideYear = false,
+  onRename,
 }: {
   month: Month;
   /** Called with the month id. One function for the whole grid so memo works. */
   onOpen: (monthId: string) => void;
   /** Remove the year from the label (the section heading already shows it). */
   hideYear?: boolean;
+  /** Custom style: the card has a name to change. */
+  onRename?: (month: Month) => void;
 }) {
   const t = useT();
   const tf = useTf();
@@ -107,7 +111,7 @@ function MonthCardBase({
   const state = monthCompleteness(month);
   // under a "2026" heading: "2026-04" -> "04", multi-year spans keep the full label
   const label = (() => {
-    if (!hideYear || month.year == null) return month.label;
+    if (!hideYear || month.year == null || month.yearName) return month.label;
     const stripped = month.label.replace(new RegExp(`^${month.year}[-\\s]?`), "");
     if (stripped === month.label) return month.label; // didn't start with this year
     const m = /^(\d{1,2})$/.exec(stripped);
@@ -193,6 +197,7 @@ function MonthCardBase({
   const cyber = accent === "cyberpunk";
   const irid = accent === "iridescent";
   const sakura = accent === "sakura";
+  const ruby = accent === "corruptruby";
   // classic = blossom badge, minimal = the frame glows. Right-click the mark to switch.
   const markStyle = useVerifiedMark();
   const litEdge = sakura && month.verified && markStyle === "minimal";
@@ -476,8 +481,8 @@ function MonthCardBase({
             },
           ]
         : []),
-      // breaks only exist for monthly creators
-      ...(month.number == null
+      // breaks only exist for months and custom cards, not for a custom year's own card
+      ...(month.number == null && (!onRename || month.month != null)
         ? [
             {
               label: skipped ? t("Unmark skipped (break)") : t("Mark as skipped (break)"),
@@ -489,10 +494,19 @@ function MonthCardBase({
           ]
         : []),
     ];
+    if (onRename) {
+      items.push({
+        label: t("Rename"),
+        icon: <Pencil className="h-4 w-4" />,
+        onClick: () => onRename(month),
+      });
+    }
     // a reward folder for several months (no template needed): the card reads "03–05"
     if (!skipped && month.number == null && month.year != null && month.month != null) {
       const startYear = month.year;
       const startMonth = month.month;
+      // a named card has no next month, it only counts them
+      const named = startYear < 1000 || startMonth > 12;
       const pad = (n: number) => String(n).padStart(2, "0");
       const until = (n: number) => {
         const m = startMonth + n - 1;
@@ -503,11 +517,11 @@ function MonthCardBase({
       items.push({
         label: t("Spans months"),
         icon: <CalendarRange className="h-4 w-4" />,
-        hint: month.span > 1 ? until(month.span) : undefined,
+        hint: month.span > 1 ? (named ? `×${month.span}` : until(month.span)) : undefined,
         children: [1, 2, 3, 4, 6, 12].map((n) => ({
           label: n === 1 ? t("Only this month") : tp("{n} months", n, { n }),
           icon: month.span === n ? <Check className="h-4 w-4" /> : <span className="h-4 w-4" />,
-          hint: n > 1 ? until(n) : undefined,
+          hint: n > 1 && !named ? until(n) : undefined,
           onClick: () => {
             if (backed && month.span !== n) void setPeriodSpan(month.id, n).then(() => refresh());
           },
@@ -864,6 +878,85 @@ function MonthCardBase({
           </div>
         </motion.button>
       </motion.div>
+    );
+  }
+
+  // ── corruptruby: neon card, three ruby gems instead of numbers ──
+  // the rim glows stronger with completion, a finished month wears the sigil check and now
+  // and then lets off embers. Months without a template keep the card, one empty gem
+  // and their count.
+  if (ruby) {
+    const complete = tracked && pctInt >= 100;
+    // the third gem is kept for a finished month
+    const gems = complete ? 3 : Math.min(2, cpFilled);
+    return (
+      <motion.button
+        ref={tracked ? sceneRef : undefined}
+        layout
+        whileHover={{ y: -3 }}
+        whileTap={{ scale: 0.98 }}
+        transition={{ type: "spring", stiffness: 400, damping: 28 }}
+        onClick={onOpen}
+        data-kbd-tile
+        onContextMenu={onContextMenu}
+        data-drop-year={month.year ?? undefined}
+        data-drop-month={month.month ?? undefined}
+        className="group relative block h-full w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+      >
+        <div
+          className={cn(
+            "ruby-month relative flex h-full w-full flex-col overflow-hidden rounded-xl",
+            tracked && cpTier !== "none" && `ruby-month--${cpTier}`,
+          )}
+        >
+          <div className="relative aspect-square w-full grow overflow-hidden">
+            <div className="h-full w-full transition-transform duration-500 group-hover:scale-105">
+              {month.coverImage ? (
+                <Cover path={month.coverImage} seed={month.label} rounded="rounded-none" />
+              ) : (
+                <MonthMosaic covers={mosaic.map((r) => r.cover)} seed={month.label} />
+              )}
+            </div>
+            {complete && anim && (
+              <div aria-hidden className="pointer-events-none absolute inset-0 z-10 overflow-hidden [container-type:size]">
+                <RubyEmbers count={6} />
+              </div>
+            )}
+            {(complete || month.verified) && (
+              <div
+                className="absolute left-2 top-1.5 z-10 w-7"
+                aria-label={month.verified ? t("Verified by a template") : undefined}
+              >
+                <RubyCheckMark className="block w-full" />
+              </div>
+            )}
+            {sdChip}
+          </div>
+
+          <div className="ruby-month-foot relative flex items-center justify-between gap-2 px-3 py-2.5">
+            <div className="ruby-month-label min-w-0 max-w-full truncate text-xs font-bold">{label}</div>
+            {tracked ? (
+              // gems and % swap in a fixed size box, h-4 keeps the footer height
+              <div className="group/pips relative flex h-4 shrink-0 items-center">
+                <div className="flex items-center gap-[7px] pr-0.5 transition-opacity duration-150 group-hover/pips:opacity-0">
+                  {[0, 1, 2].map((i) => (
+                    <span key={i} className={cn("ruby-gem", i < gems && "ruby-gem--on")} />
+                  ))}
+                </div>
+                {/* right aligned so "100%" isn't clipped */}
+                <span className="ruby-month-label pointer-events-none absolute inset-y-0 right-0 flex items-center whitespace-nowrap text-sm font-extrabold tabular-nums opacity-0 transition-opacity duration-150 group-hover/pips:opacity-100">
+                  {pctInt}%
+                </span>
+              </div>
+            ) : (
+              <div className="flex shrink-0 items-center gap-2 text-[11px] font-medium text-[#ffd6e4]">
+                <span className="ruby-gem" />
+                {tp("{n} rewards", owned)}
+              </div>
+            )}
+          </div>
+        </div>
+      </motion.button>
     );
   }
 

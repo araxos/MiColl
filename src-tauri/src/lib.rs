@@ -1308,9 +1308,15 @@ fn managed_month_dir(
         // numbered drop: "#51" (same as organize writes)
         p = p.join(indexer::fmt_number_label(n));
     } else if let Some(y) = year {
-        p = p.join(y.to_string());
+        // the custom style's folders have its names
+        let custom = db::custom_artist(conn, artist, platform).ok().flatten();
+        let named = |m: i64| {
+            let name = custom.and_then(|id| db::custom_name(conn, id, platform, y, m).ok().flatten());
+            name.map(|n| organize::sanitize(&n))
+        };
+        p = p.join(named(0).unwrap_or_else(|| y.to_string()));
         if let Some(m) = month {
-            p = p.join(format!("{:02}", m));
+            p = p.join(named(m).unwrap_or_else(|| format!("{:02}", m)));
         }
     }
     Some(p)
@@ -1368,21 +1374,55 @@ fn add_skipped_period(
     year: Option<i64>,
     month: Option<i64>,
 ) -> Result<(), String> {
+    add_break(&app, &db.conn(), artist_id, platform.as_deref(), year, month)
+}
+
+/// Create a new break card of the custom style, by its names.
+#[tauri::command]
+fn add_custom_break(
+    app: AppHandle,
+    db: State<Db>,
+    artist_id: i64,
+    platform: Option<String>,
+    year_name: String,
+    month_name: String,
+) -> Result<(), String> {
     let conn = db.conn();
-    let (artist_name, _) = db::artist_info(&conn, artist_id)
+    let plat = platform.as_deref();
+    let (Some(year), Some(month)) = (
+        indexer::custom_word(Some(&year_name)),
+        indexer::custom_word(Some(&month_name)),
+    ) else {
+        return Err("A break needs a year name and a month name.".into());
+    };
+    let y = db::custom_year(&conn, artist_id, plat, &year).map_err(map_err)?;
+    let m = db::custom_month(&conn, artist_id, plat, y, &month).map_err(map_err)?;
+    add_break(&app, &conn, artist_id, plat, Some(y), Some(m))
+}
+
+fn add_break(
+    app: &AppHandle,
+    conn: &rusqlite::Connection,
+    artist_id: i64,
+    platform: Option<&str>,
+    year: Option<i64>,
+    month: Option<i64>,
+) -> Result<(), String> {
+    let (artist_name, _) = db::artist_info(conn, artist_id)
         .map_err(map_err)?
         .ok_or_else(|| "Artist not found".to_string())?;
     let label = match (year, month) {
-        (Some(y), m) => indexer::fmt_label(y, m),
+        (Some(y), m) => db::custom_label(conn, artist_id, platform, y, m)
+            .map_err(map_err)?
+            .unwrap_or_else(|| indexer::fmt_label(y, m)),
         _ => "Misc".to_string(),
     };
-    let key = indexer::period_key(&artist_name, platform.as_deref(), year, month, None);
-    db::upsert_skipped_period(&conn, artist_id, platform.as_deref(), year, month, &label, &key)
-        .map_err(map_err)?;
-    if let Some(dir) = managed_month_dir(&conn, &artist_name, platform.as_deref(), year, month, None) {
+    let key = indexer::period_key(&artist_name, platform, year, month, None);
+    db::upsert_skipped_period(conn, artist_id, platform, year, month, &label, &key).map_err(map_err)?;
+    if let Some(dir) = managed_month_dir(conn, &artist_name, platform, year, month, None) {
         let _ = std::fs::create_dir_all(&dir);
         let _ = std::fs::write(dir.join(db::SKIP_MARKER), SKIP_NOTE);
-        allow_asset_dir(&app, &dir.to_string_lossy());
+        allow_asset_dir(app, &dir.to_string_lossy());
     }
     Ok(())
 }
@@ -1456,7 +1496,7 @@ fn snap_artist(conn: &rusqlite::Connection, artist_id: i64) -> history::Snapshot
         &format!("SELECT r.id FROM rewards r JOIN periods p ON p.id = r.period_id WHERE p.artist_id = {artist_id}"),
     );
     snap.add(conn, "reward_collabs", &format!("artist_id = {artist_id}"), &[]);
-    for t in ["platform_no_dates", "applied_templates", "sd_year_rules"] {
+    for t in ["platform_no_dates", "applied_templates", "sd_year_rules", "custom_names", "custom_order"] {
         snap.add(conn, t, &format!("artist_id = {artist_id}"), &[]);
     }
     snap.add(conn, "roots", &format!("label = (SELECT name FROM artists WHERE id = {artist_id})"), &[]);
@@ -1474,12 +1514,13 @@ fn real_path(p: &str) -> Option<String> {
 fn period_place(conn: &rusqlite::Connection, period_id: i64) -> (Option<String>, Option<String>) {
     match db::period_scope(conn, period_id).ok().flatten() {
         Some((artist, platform, year, month, number)) => {
-            let when = match (number, year, month) {
+            let named = db::period_custom_label(conn, period_id).ok().flatten();
+            let when = named.unwrap_or_else(|| match (number, year, month) {
                 (Some(n), _, _) => indexer::fmt_number_label(n),
                 (None, Some(y), Some(m)) => format!("{y}-{m:02}"),
                 (None, Some(y), None) => y.to_string(),
                 _ => "Misc".to_string(),
-            };
+            });
             let platform = platform.unwrap_or_else(|| "Unsorted".to_string());
             (Some(artist), Some(format!("{platform} › {when}")))
         }
@@ -2638,31 +2679,149 @@ fn ensure_period(
     number: Option<i64>,
 ) -> Result<i64, String> {
     let conn = db.conn();
-    let (artist, _no_dates) = db::artist_info(&conn, artist_id)
+    ensure_period_in(&conn, artist_id, platform.as_deref(), year, month, number)
+}
+
+/// ensure_period on a held connection.
+fn ensure_period_in(
+    conn: &rusqlite::Connection,
+    artist_id: i64,
+    platform: Option<&str>,
+    year: Option<i64>,
+    month: Option<i64>,
+    number: Option<i64>,
+) -> Result<i64, String> {
+    let (artist, _no_dates) = db::artist_info(conn, artist_id)
         .map_err(map_err)?
         .ok_or_else(|| "Artist not found.".to_string())?;
-    let key = indexer::period_key(&artist, platform.as_deref(), year, month, number);
-    if let Some(id) = db::period_id_by_key(&conn, &key).map_err(map_err)? {
+    let key = indexer::period_key(&artist, platform, year, month, number);
+    if let Some(id) = db::period_id_by_key(conn, &key).map_err(map_err)? {
         return Ok(id); // already exists — reuse it
     }
     // drop number -> "#N", no year -> "Misc"
     let label = match (number, year) {
         (Some(n), _) => indexer::fmt_number_label(n),
-        (None, Some(y)) => indexer::fmt_label(y, month),
+        (None, Some(y)) => db::custom_label(conn, artist_id, platform, y, month)
+            .map_err(map_err)?
+            .unwrap_or_else(|| indexer::fmt_label(y, month)),
         (None, None) => "Misc".to_string(),
     };
-    indexer::upsert_period(
-        &conn,
-        artist_id,
-        platform.as_deref(),
-        year,
-        month,
-        number,
-        &label,
-        &key,
-        platform.is_none(),
-    )
-    .map_err(map_err)
+    indexer::upsert_period(conn, artist_id, platform, year, month, number, &label, &key, platform.is_none())
+        .map_err(map_err)
+}
+
+/// ensure_period with the custom style's names. No year = the "Misc" bucket.
+#[tauri::command]
+fn ensure_custom_period(
+    db: State<Db>,
+    artist_id: i64,
+    platform: Option<String>,
+    year_name: Option<String>,
+    month_name: Option<String>,
+) -> Result<i64, String> {
+    let conn = db.conn();
+    let plat = platform.as_deref();
+    let year = indexer::custom_word(year_name.as_deref())
+        .map(|n| db::custom_year(&conn, artist_id, plat, &n))
+        .transpose()
+        .map_err(map_err)?;
+    let month = match year {
+        Some(y) => indexer::custom_word(month_name.as_deref())
+            .map(|n| db::custom_month(&conn, artist_id, plat, y, &n))
+            .transpose()
+            .map_err(map_err)?,
+        None => None,
+    };
+    ensure_period_in(&conn, artist_id, plat, year, month, None)
+}
+
+/// Save the order custom years (year None) or a year's cards were dragged into.
+#[tauri::command]
+fn reorder_custom(
+    db: State<Db>,
+    artist_id: i64,
+    platform: Option<String>,
+    year: Option<i64>,
+    order: Vec<i64>,
+) -> Result<(), String> {
+    let conn = db.conn();
+    db::set_custom_order(&conn, artist_id, platform.as_deref(), year, &order).map_err(map_err)?;
+    let _ = db::checkpoint(&conn);
+    Ok(())
+}
+
+/// Rename a custom year, or with month one of its cards. The folder follows.
+#[tauri::command]
+fn rename_custom_period(
+    app: AppHandle,
+    db: State<Db>,
+    artist_id: i64,
+    platform: Option<String>,
+    year: i64,
+    month: Option<i64>,
+    name: String,
+) -> Result<(), String> {
+    let conn = db.conn();
+    let plat = platform.as_deref();
+    let Some(new) = indexer::custom_word(Some(&name)) else {
+        return Err("Enter a name (not “Misc”).".into());
+    };
+    // the next scan would read these as a real year or month
+    let date_like = match month {
+        Some(_) => db::real_month(&new).is_some(),
+        None => db::real_year(&new).is_some(),
+    };
+    if date_like {
+        return Err(format!("“{new}” looks like a date, pick another name."));
+    }
+    let (artist, _) = db::artist_info(&conn, artist_id).map_err(map_err)?.ok_or("Creator not found.")?;
+    let year_dir = db::custom_name(&conn, artist_id, plat, year, 0)
+        .map_err(map_err)?
+        .unwrap_or_else(|| year.to_string());
+    let old = match month {
+        None => year_dir.clone(),
+        Some(m) => db::custom_name(&conn, artist_id, plat, year, m)
+            .map_err(map_err)?
+            .unwrap_or_else(|| format!("{m:02}")),
+    };
+    if old == new {
+        return Ok(());
+    }
+    let taken = match month {
+        None => db::custom_year_known(&conn, artist_id, plat, &new),
+        Some(_) => db::custom_month_known(&conn, artist_id, plat, year, &new),
+    }
+    .map_err(map_err)?;
+    if taken.is_some_and(|n| n != month.unwrap_or(year)) {
+        return Err(format!("“{new}” already exists."));
+    }
+
+    // the folder first, a failed move leaves the name as it was
+    if let Some(dir) = artist_dir_on_disk(&conn, artist_id, &artist) {
+        let mut old_dir = dir.join(organize::sanitize(plat.unwrap_or("Unsorted"))).join(organize::sanitize(&year_dir));
+        if month.is_some() {
+            old_dir = old_dir.join(organize::sanitize(&old));
+        }
+        if old_dir.is_dir() {
+            let new_dir = old_dir.with_file_name(&new);
+            let old_s = old_dir.to_string_lossy().to_string();
+            let new_s = new_dir.to_string_lossy().to_string();
+            // case-only rename is the same folder on Windows, that's fine
+            let case_only = old_s.to_lowercase() == new_s.to_lowercase();
+            if !case_only && new_dir.exists() {
+                return Err(format!(
+                    "A folder already exists at {}. Rename or remove it first.",
+                    new_dir.display()
+                ));
+            }
+            move_tree(&old_dir, &new_dir).map_err(map_err)?;
+            relink_dir(&conn, &old_s, &new_s).map_err(map_err)?;
+            allow_asset_dir(&app, &new_s);
+        }
+    }
+    db::rename_custom(&conn, artist_id, plat, year, month, &new).map_err(map_err)?;
+    db::checkpoint(&conn);
+    Ok(())
 }
 
 /// Add a wish: a "missing" reward for something the user wants.
@@ -3280,7 +3439,7 @@ fn set_artist_no_dates(db: State<Db>, artist_id: i64, no_dates: bool) -> Result<
     db::set_artist_no_dates_by_id(&conn, artist_id, no_dates).map_err(map_err)
 }
 
-/// Set how a creator releases: "monthly" | "numbered" | "none" (keeps no_dates in sync).
+/// Set how a creator releases: "monthly" | "numbered" | "none" | "custom" (keeps no_dates in sync).
 #[tauri::command]
 fn set_artist_release_style(db: State<Db>, artist_id: i64, style: String) -> Result<(), String> {
     let conn = db.conn();
@@ -4354,7 +4513,8 @@ fn sanitize_name(s: &str) -> String {
 
 /// Create a user-made artist: optionally empty folders (Platform[/Year/01..12]),
 /// a preview image and the release style.
-/// Only "monthly" gets year/month folders, numbered and none stop at the platform.
+/// "monthly" gets year/month folders and "custom" its year_names, the others stop at the
+/// platform.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 fn create_artist(
@@ -4366,6 +4526,7 @@ fn create_artist(
     platforms: Vec<String>,
     years: Vec<i64>,
     months: bool,
+    year_names: Vec<String>,
     release_style: Option<String>,
     kind: Option<String>,
 ) -> Result<(), String> {
@@ -4374,12 +4535,22 @@ fn create_artist(
     if clean.is_empty() {
         return Err("Artist name is required.".into());
     }
+    // this only makes new creators: it would change an existing one's style and type
+    if let Some(known) = db::artist_named(&conn, &clean).map_err(map_err)? {
+        return Err(format!("“{known}” already exists."));
+    }
     let style = release_style.as_deref().unwrap_or("monthly");
     if !db::RELEASE_STYLES.contains(&style) {
         return Err(format!("Unknown release style '{style}'."));
     }
     let dated = style == "monthly";
     let no_dates = style == "none";
+    // the custom style's years, as their folders are called
+    let words: Vec<String> = year_names
+        .iter()
+        .filter(|_| style == "custom")
+        .filter_map(|n| indexer::custom_word(Some(n)))
+        .collect();
 
     // where to create folders (if at all)
     let managed = db::get_setting(&conn, "managed_enabled")
@@ -4408,6 +4579,9 @@ fn create_artist(
         }
         for p in &platforms {
             let pdir = base.join(sanitize_name(p));
+            for word in &words {
+                let _ = std::fs::create_dir_all(pdir.join(word));
+            }
             if !dated || years.is_empty() {
                 let _ = std::fs::create_dir_all(&pdir);
             } else {
@@ -4442,17 +4616,17 @@ fn create_artist(
     // folders: the chosen years/months for monthly, one "Misc" otherwise.
     // Same keys as the indexer, so content dropped in later merges in.
     let seed = |plat: &str, year: Option<i64>, month: Option<i64>| {
-        let key = indexer::period_key(&clean, Some(plat), year, month, None);
-        let label = match year {
-            Some(y) => indexer::fmt_label(y, month),
-            None => "Misc".to_string(),
-        };
-        indexer::upsert_period(&conn, artist_id, Some(plat), year, month, None, &label, &key, false)
-            .map(|_| ())
+        seed_period(&conn, artist_id, &clean, plat, year, month)
     };
     for p in &platforms {
         let p = p.as_str();
-        if dated && !years.is_empty() {
+        if !words.is_empty() {
+            // in the order they were typed, that's the order they sort in
+            for word in &words {
+                let y = db::custom_year(&conn, artist_id, Some(p), word).map_err(map_err)?;
+                seed(p, Some(y), None).map_err(map_err)?;
+            }
+        } else if dated && !years.is_empty() {
             for &y in &years {
                 if months {
                     for m in 1..=12 {
@@ -4466,6 +4640,25 @@ fn create_artist(
             seed(p, None, None).map_err(map_err)?;
         }
     }
+    Ok(())
+}
+
+/// An empty period for a new creator's folder.
+fn seed_period(
+    conn: &rusqlite::Connection,
+    artist_id: i64,
+    artist: &str,
+    platform: &str,
+    year: Option<i64>,
+    month: Option<i64>,
+) -> rusqlite::Result<()> {
+    let key = indexer::period_key(artist, Some(platform), year, month, None);
+    let label = match year {
+        Some(y) => db::custom_label(conn, artist_id, Some(platform), y, month)?
+            .unwrap_or_else(|| indexer::fmt_label(y, month)),
+        None => "Misc".to_string(),
+    };
+    indexer::upsert_period(conn, artist_id, Some(platform), year, month, None, &label, &key, false)?;
     Ok(())
 }
 
@@ -4586,7 +4779,27 @@ fn import_clashes(
         if r.root {
             continue;
         }
-        let key = indexer::period_key(&r.artist, r.platform.as_deref(), r.year, r.month, r.number);
+        let (year, month) = match indexer::custom_word(r.custom_year.as_deref()) {
+            // names that don't exist yet are a brand-new period too
+            Some(name) => {
+                let plat = r.platform.as_deref();
+                let Some(id) = db::artist_id_by_name(&conn, &r.artist).map_err(map_err)? else {
+                    continue;
+                };
+                let Some(y) = db::custom_year_known(&conn, id, plat, &name).map_err(map_err)? else {
+                    continue;
+                };
+                match indexer::custom_word(r.custom_month.as_deref()) {
+                    Some(m) => match db::custom_month_known(&conn, id, plat, y, &m).map_err(map_err)? {
+                        Some(m) => (Some(y), Some(m)),
+                        None => continue,
+                    },
+                    None => (Some(y), None),
+                }
+            }
+            None => (r.year, r.month),
+        };
+        let key = indexer::period_key(&r.artist, r.platform.as_deref(), year, month, r.number);
         let Some(period_id) = db::period_id_by_key(&conn, &key).map_err(map_err)? else {
             continue; // brand-new period: nothing can be in it yet
         };
@@ -4654,7 +4867,7 @@ fn import_clashes(
 #[serde(rename_all = "camelCase")]
 struct StyleChoice {
     artist: String,
-    /// "monthly" | "numbered" | "none"
+    /// "monthly" | "numbered" | "none" | "custom"
     style: String,
     platform: Option<String>,
 }
@@ -9788,7 +10001,10 @@ fn deactivate_template(db: State<Db>, json: String) -> Result<(), String> {
     };
     // reset every covered period to "untracked"
     for ck in template::coverage(&t) {
-        let key = indexer::period_key(name, Some(&ck.platform), ck.year, ck.month, None);
+        let Some((year, month)) = ck.numbers(&conn, artist_id).map_err(map_err)? else {
+            continue;
+        };
+        let key = indexer::period_key(name, Some(&ck.platform), year, month, None);
         if let Some(pid) = db::period_id_by_key(&conn, &key).map_err(map_err)? {
             db::clear_period_official_total(&conn, pid).map_err(map_err)?;
             db::clear_period_verified(&conn, pid).map_err(map_err)?;
@@ -9823,10 +10039,11 @@ fn sign_template(json: String) -> Result<String, String> {
     signing::sign_template(&json)
 }
 
-/// Make a premium theme key for a buyer (owner only). expires (YYYY-MM-DD) or days
-/// for a test key, neither = permanent.
+/// Make a premium theme key for a buyer (owner only). pack = the pack's id, expires
+/// (YYYY-MM-DD) or days for a test key, neither = permanent.
 #[tauri::command]
 fn issue_theme_key(
+    pack: String,
     buyer: String,
     expires: Option<String>,
     days: Option<u32>,
@@ -9839,13 +10056,15 @@ fn issue_theme_key(
             return Err("A test key ends on a date or after a run of days, not both.".into())
         }
     };
-    signing::issue_theme_key(&buyer, trial)
+    signing::issue_theme_key(&pack, &buyer, trial)
 }
 
 /// What a pasted key is.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ThemeLicenseInfo {
+    /// The pack this key unlocks.
+    pack: String,
     /// The buyer name, shown in Settings.
     buyer: String,
     /// True for a test key.
@@ -9869,7 +10088,8 @@ fn trial_window(started: i64, days: u32, today: i64) -> (i64, bool) {
 #[tauri::command]
 fn verify_theme_license(db: State<Db>, token: String) -> Result<ThemeLicenseInfo, String> {
     let lic = signing::verify_theme_key(&token)?;
-    let trial = lic.product == signing::THEME_TRIAL_PRODUCT;
+    let (pack, trial) = signing::theme_product(&lic.product)
+        .ok_or("This key unlocks a different product.")?;
     let mut until = lic.expires.clone();
     if let Some(days) = lic.days {
         let fp = signing::theme_key_fingerprint(&token)?;
@@ -9891,6 +10111,7 @@ fn verify_theme_license(db: State<Db>, token: String) -> Result<ThemeLicenseInfo
         until = Some(last_date);
     }
     Ok(ThemeLicenseInfo {
+        pack: pack.to_string(),
         buyer: lic.buyer,
         trial,
         until,
@@ -10159,6 +10380,8 @@ fn sd_backup_drop(db: State<Db>, reward_ids: Option<Vec<i64>>) -> Result<sd::SdS
 
 /// period_key -> {normalized titles} of a template, to diff template versions.
 fn template_expected(
+    conn: &rusqlite::Connection,
+    artist_id: i64,
     t: &template::TemplateFile,
     artist: &str,
 ) -> std::collections::HashMap<String, std::collections::HashSet<String>> {
@@ -10167,7 +10390,11 @@ fn template_expected(
     for plat in &t.platforms {
         let platform = plat.name.trim();
         for per in &plat.periods {
-            let key = indexer::period_key(artist, Some(platform), per.year, per.month, None);
+            // a custom name that's gone has no period left to compare with
+            let Ok(Some((year, month))) = per.numbers(conn, artist_id, Some(platform), false) else {
+                continue;
+            };
+            let key = indexer::period_key(artist, Some(platform), year, month, None);
             let set = map.entry(key).or_default();
             for rw in &per.rewards {
                 let title = rw.title.trim();
@@ -10204,7 +10431,7 @@ fn reconcile_dropped_rewards(
     for at in db::applied_templates(conn, artist_id).map_err(map_err)? {
         if let Some(raw) = at.raw.as_deref() {
             if let Ok(tt) = template::parse(raw) {
-                for (k, set) in template_expected(&tt, artist) {
+                for (k, set) in template_expected(conn, artist_id, &tt, artist) {
                     keep.entry(k).or_default().extend(set);
                 }
             }
@@ -10253,7 +10480,9 @@ fn reconcile_dropped_rewards(
                     Some(id) => id,
                     None => {
                         let label = match p_year {
-                            Some(y) => indexer::fmt_label(y, None),
+                            Some(y) => db::custom_label(conn, artist_id, p_platform.as_deref(), y, None)
+                                .map_err(map_err)?
+                                .unwrap_or_else(|| indexer::fmt_label(y, None)),
                             None => "Misc".to_string(),
                         };
                         indexer::upsert_period(
@@ -10307,11 +10536,11 @@ async fn apply_template(
         let label = template::template_label(&t);
         db::artist_id_by_name(&conn, &artist_name)
             .map_err(map_err)?
-            .and_then(|aid| db::applied_templates(&conn, aid).ok())
-            .and_then(|ats| ats.into_iter().find(|a| a.name == label))
-            .and_then(|a| a.raw)
-            .and_then(|raw| template::parse(&raw).ok())
-            .map(|old| template_expected(&old, &artist_name))
+            .and_then(|aid| {
+                let old = db::applied_templates(&conn, aid).ok()?.into_iter().find(|a| a.name == label)?;
+                let old = template::parse(&old.raw?).ok()?;
+                Some(template_expected(&conn, aid, &old, &artist_name))
+            })
             .unwrap_or_default()
     };
 
@@ -10942,6 +11171,8 @@ pub fn run() {
             set_period_span,
             set_period_skipped,
             add_skipped_period,
+            add_custom_break,
+            reorder_custom,
             reveal_period,
             delete_period,
             fill_reward,
@@ -10949,6 +11180,8 @@ pub fn run() {
             create_reward,
             create_missing_reward,
             ensure_period,
+            ensure_custom_period,
+            rename_custom_period,
             move_rewards,
             move_images,
             merge_rewards,

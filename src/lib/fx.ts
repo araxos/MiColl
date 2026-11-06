@@ -37,7 +37,7 @@ export const FX_COMMON_GROUPS: FxGroup[] = ["tags", "cards", "sfw", "logo"];
 export const FX_PREMIUM_GROUPS: FxGroup[] = ["holo", "vhs", "shimmer", "editor"];
 /** Premium groups that only one theme has (the VHS screen of the cyberpunk card frame). */
 export const FX_THEME_ONLY: Partial<Record<FxGroup, string>> = { vhs: "cyberpunk" };
-const PREMIUM_ACCENTS = ["iridescent", "sakura", "cyberpunk"];
+const PREMIUM_ACCENTS = ["iridescent", "sakura", "cyberpunk", "corruptruby"];
 
 /** The stored key of a group: premium groups are per theme ("holo.cyberpunk"). */
 function groupKey(group: FxGroup, accent: string): string {

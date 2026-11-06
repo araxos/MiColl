@@ -17,9 +17,16 @@ import type { CyberAnimatedId } from "@/components/CyberpunkAnimated";
 
 /** Sakura pictures with a moving version (SakuraMoonPond). */
 export type SakuraAnimatedId = "moon-pond";
+
+/** Pyre pictures with a moving version (RubyEmberWall). */
+export type RubyAnimatedId = "ember";
 import toriiMist from "@/assets/wallpapers/sakura-torii-mist.svg";
 import petalWind from "@/assets/wallpapers/sakura-petal-wind.svg";
 import moonPond from "@/assets/wallpapers/sakura-moon-pond.svg";
+import rubyEmber from "@/assets/wallpapers/ruby-ember.webp";
+import rubyNightSpray from "@/assets/wallpapers/ruby-night-spray.webp";
+import rubyStageHaze from "@/assets/wallpapers/ruby-stage-haze.webp";
+import rubySilkFire from "@/assets/wallpapers/ruby-silk-fire.webp";
 
 export interface WallpaperPreset {
   /** Saved as preset:<id>. */
@@ -32,8 +39,9 @@ export interface WallpaperPreset {
   /** Which theme it belongs to (switching away removes it, see theme.ts). */
   accent: AccentKey;
   /** The moving version shown instead while "Animated background" is on
-   *  (CyberpunkAnimated, SakuraMoonPond). Without one the picture stays still either way. */
-  animated?: CyberAnimatedId | SakuraAnimatedId;
+   *  (CyberpunkAnimated, SakuraMoonPond, RubyEmberWall). Without one the picture stays
+   *  still either way. */
+  animated?: CyberAnimatedId | SakuraAnimatedId | RubyAnimatedId;
 }
 
 /** What iridescent shows when nothing is chosen and the animated background is off. */
@@ -146,11 +154,48 @@ export const SAKURA_WALLPAPERS: WallpaperPreset[] = [
   },
 ];
 
+/** Pyre's default, with the animation on as well as off (it animates). */
+export const RUBY_DEFAULT_WALLPAPER = "ruby-ember";
+
+/** Pyre presets in menu order (rendered at 2560x1440, WebP). */
+export const RUBY_WALLPAPERS: WallpaperPreset[] = [
+  {
+    id: "ruby-ember",
+    label: "Ember",
+    hint: "A crimson field around a dark, out-of-focus form, a neon arc and rising sparks. Animated when the animated background is on.",
+    url: rubyEmber,
+    accent: "corruptruby",
+    animated: "ember",
+  },
+  {
+    id: "ruby-night-spray",
+    label: "Night spray",
+    hint: "Black, with ruby sprayed in from the top and fine needles of light.",
+    url: rubyNightSpray,
+    accent: "corruptruby",
+  },
+  {
+    id: "ruby-stage-haze",
+    label: "Stage haze",
+    hint: "Three beams falling through haze onto a black stage.",
+    url: rubyStageHaze,
+    accent: "corruptruby",
+  },
+  {
+    id: "ruby-silk-fire",
+    label: "Silk fire",
+    hint: "Glowing folds of cloth on the right, dark on the left.",
+    url: rubySilkFire,
+    accent: "corruptruby",
+  },
+];
+
 /** All built-ins of all themes (theme.ts checks against this). */
 export const ALL_WALLPAPER_PRESETS: WallpaperPreset[] = [
   ...IRI_WALLPAPERS,
   ...CYBER_WALLPAPERS,
   ...SAKURA_WALLPAPERS,
+  ...RUBY_WALLPAPERS,
 ];
 
 export function findWallpaperPreset(id: string): WallpaperPreset | undefined {
@@ -162,5 +207,6 @@ export function themeWallpapers(accent: AccentKey): { list: WallpaperPreset[]; f
   if (accent === "iridescent") return { list: IRI_WALLPAPERS, fallback: IRI_DEFAULT_WALLPAPER };
   if (accent === "cyberpunk") return { list: CYBER_WALLPAPERS, fallback: CYBER_DEFAULT_WALLPAPER };
   if (accent === "sakura") return { list: SAKURA_WALLPAPERS, fallback: SAKURA_DEFAULT_WALLPAPER };
+  if (accent === "corruptruby") return { list: RUBY_WALLPAPERS, fallback: RUBY_DEFAULT_WALLPAPER };
   return { list: [], fallback: "" };
 }

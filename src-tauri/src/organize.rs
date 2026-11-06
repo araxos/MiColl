@@ -80,7 +80,7 @@ pub fn clear_left_over(dir: &Path) -> bool {
 }
 
 /// Replace characters that aren't allowed in Windows paths.
-fn sanitize(s: &str) -> String {
+pub fn sanitize(s: &str) -> String {
     let cleaned: String = s
         .chars()
         .map(|c| {
@@ -161,8 +161,11 @@ struct Row {
     number: Option<i64>,
     platform: Option<String>,
     artist: String,
-    /// Release style of this reward's platform: "monthly" | "numbered" | "none".
+    /// Release style of this reward's platform: "monthly" | "numbered" | "none" | "custom".
     style: String,
+    /// The custom style's names of the year and the month.
+    year_name: Option<String>,
+    month_name: Option<String>,
     is_root: bool,
     /// The creator is in the graveyard -> filed under MiColl\🪦 Graveyard.
     graveyard: bool,
@@ -186,7 +189,7 @@ fn prune_empty_up(start: &Path, stop: &Path) {
 /// Where a reward belongs in the collection:
 /// <collectionRoot>/MiColl/Artist/Platform/[Year/MM/ | Misc/ | #NN/][Category/]Reward
 /// style "none" = no period folder, numbered = "#51" folder (rewards without a number go
-/// directly under the platform)
+/// directly under the platform), custom = like monthly with the names as folders
 fn target_dir(row: &Row, managed_root: &Path) -> PathBuf {
     let platform = row.platform.as_deref().unwrap_or("Unsorted");
     // graveyard creators stay in the graveyard
@@ -198,13 +201,14 @@ fn target_dir(row: &Row, managed_root: &Path) -> PathBuf {
     let mut period_dir = shelf.join(sanitize(&row.artist)).join(sanitize(platform));
     if let Some(n) = row.number {
         period_dir = period_dir.join(indexer::fmt_number_label(n));
-    } else if row.style == "monthly" {
+    } else if row.style == "monthly" || row.style == "custom" {
+        let named = |name: &Option<String>| name.as_deref().filter(|_| row.style == "custom").map(sanitize);
         period_dir = match row.year {
-            Some(y) => period_dir.join(y.to_string()),
+            Some(y) => period_dir.join(named(&row.year_name).unwrap_or_else(|| y.to_string())),
             None => period_dir.join("Misc"),
         };
         if let Some(m) = row.month {
-            period_dir = period_dir.join(format!("{:02}", m));
+            period_dir = period_dir.join(named(&row.month_name).unwrap_or_else(|| format!("{:02}", m)));
         }
     }
     // a root reward has no subfolder, its files are in the month folder
@@ -241,7 +245,13 @@ pub fn organize_collection(
                             a.release_style,
                             CASE WHEN a.no_dates = 1 THEN 'none' ELSE 'monthly' END
                         ) AS style,
-                        r.is_root, a.graveyard
+                        r.is_root, a.graveyard,
+                        (SELECT c.name FROM custom_names c
+                          WHERE c.artist_id = a.id AND c.platform = COALESCE(p.platform, 'Unsorted')
+                            AND c.year = p.year AND c.month = 0),
+                        (SELECT c.name FROM custom_names c
+                          WHERE c.artist_id = a.id AND c.platform = COALESCE(p.platform, 'Unsorted')
+                            AND c.year = p.year AND c.month = p.month)
                  FROM rewards r
                  JOIN periods p ON r.period_id = p.id
                  JOIN artists a ON p.artist_id = a.id
@@ -265,6 +275,8 @@ pub fn organize_collection(
                     platform: r.get(8)?,
                     artist: r.get(9)?,
                     style: r.get(10)?,
+                    year_name: r.get(13)?,
+                    month_name: r.get(14)?,
                     is_root: r.get::<_, i64>(11)? != 0,
                     graveyard: r.get::<_, i64>(12)? != 0,
                 })
@@ -732,6 +744,152 @@ mod tests {
         indexer::scan_root(&conn, &managed_root).unwrap();
         let after = periods_of(&conn);
         assert_eq!(before, after, "rescan must not duplicate or relabel drop periods");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// custom names are only folders on disk, a rescan has to find the same periods again
+    #[test]
+    fn custom_names_survive_organize_and_a_rescan() {
+        let base = std::env::temp_dir().join(format!("micoll_custom_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let src = base.join("src");
+        let coll = base.join("coll");
+        for f in ["Set/01.jpg", "Gallery/02.jpg", "Loose/03.jpg", "Undated/04.jpg", "Dated/05.jpg", "Cat/Deep/06.jpg"] {
+            touch(&src.join(f));
+        }
+        let conn = db::open(&base.join("t.db")).unwrap();
+        let row = |folder: &str, title: &str, year: Option<&str>, month: Option<&str>, root: bool, cat: Option<&str>| {
+            indexer::ResolvedReward {
+                artist: "Nora".into(),
+                platform: Some("Patreon".into()),
+                year: None,
+                month: None,
+                number: None,
+                category: cat.map(String::from),
+                title: title.into(),
+                folder: src.join(folder).to_string_lossy().to_string(),
+                root,
+                extra: false,
+                tier: None,
+                custom_year: year.map(String::from),
+                custom_month: month.map(String::from),
+            }
+        };
+        let rows = vec![
+            row("Set", "Set", Some("Sommer"), Some("Teil 1"), false, None),
+            row("Gallery", "Gallery", Some("sommer"), Some("Teil 2"), true, None),
+            row("Loose", "Loose", Some("Sommer"), None, false, None),
+            row("Undated", "Undated", None, None, false, None),
+            row("Dated", "Dated", Some("2025"), Some("03"), false, None),
+            row("Cat/Deep", "Deep", Some("Sommer"), Some("Teil 1"), false, Some("Cat")),
+        ];
+        indexer::commit(&conn, &rows, None).unwrap();
+        db::set_artist_release_style(&conn, "Nora", "custom").unwrap();
+
+        let periods_of = |conn: &Connection| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT p.label, p.year, p.month, COUNT(r.id) FROM periods p
+                     JOIN rewards r ON r.period_id = p.id GROUP BY p.id",
+                )
+                .unwrap();
+            let mut out: Vec<(String, Option<i64>, Option<i64>, i64)> = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect();
+            out.sort();
+            out
+        };
+        let before = periods_of(&conn);
+        // one year for both spellings, words stay clear of the real years and months
+        assert_eq!(
+            before,
+            [
+                ("2025-03".to_string(), Some(2025), Some(3), 1),
+                ("Misc".to_string(), None, None, 1),
+                ("Sommer".to_string(), Some(1), None, 1),
+                ("Teil 1".to_string(), Some(1), Some(13), 2),
+                ("Teil 2".to_string(), Some(1), Some(14), 1),
+            ]
+        );
+
+        let s = organize_collection(&conn, &coll.to_string_lossy(), |_, _, _| {}).unwrap();
+        assert_eq!(s.moved, 6, "errors: {:?}", s.errors);
+        let nora = coll.join("MiColl/Nora/Patreon");
+        assert!(nora.join("Sommer/Teil 1/Set/01.jpg").exists());
+        assert!(nora.join("Sommer/Teil 1/Cat/Deep/06.jpg").exists());
+        assert!(nora.join("Sommer/Teil 2/02.jpg").exists());
+        assert!(nora.join("Sommer/Loose/03.jpg").exists());
+        assert!(nora.join("Misc/Undated/04.jpg").exists());
+        assert!(nora.join("2025/03/Dated/05.jpg").exists());
+
+        let managed_root = db::Root {
+            id: 2,
+            path: coll.join("MiColl").to_string_lossy().to_string(),
+            label: None,
+            default_platform: None,
+        };
+        indexer::scan_root(&conn, &managed_root).unwrap();
+        assert_eq!(periods_of(&conn), before, "a rescan must find the same periods");
+        // and nothing wants to move again
+        let s = organize_collection(&conn, &coll.to_string_lossy(), |_, _, _| {}).unwrap();
+        assert_eq!(s.moved, 0, "errors: {:?}", s.errors);
+
+        // a new word folder made by hand is a new month, its name comes from the disk
+        touch(&nora.join("Sommer/Teil 3/New/07.jpg"));
+        indexer::scan_root(&conn, &managed_root).unwrap();
+        assert!(periods_of(&conn).iter().any(|p| p.0 == "Teil 3" && p.1 == Some(1) && p.2 == Some(15)));
+
+        // a break card stays one: its folder only has the marker, no rewards
+        let id = db::artist_id_by_name(&conn, "Nora").unwrap().unwrap();
+        let pause = db::custom_month(&conn, id, Some("Patreon"), 1, "Pause").unwrap();
+        let key = indexer::period_key("Nora", Some("Patreon"), Some(1), Some(pause), None);
+        db::upsert_skipped_period(&conn, id, Some("Patreon"), Some(1), Some(pause), "Pause", &key).unwrap();
+        touch(&nora.join("Sommer/Pause").join(db::SKIP_MARKER));
+        indexer::scan_root(&conn, &managed_root).unwrap();
+        let skipped = |conn: &Connection| -> Vec<String> {
+            let mut stmt = conn.prepare("SELECT label FROM periods WHERE skipped = 1").unwrap();
+            stmt.query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect()
+        };
+        assert_eq!(skipped(&conn), ["Pause"]);
+        db::rename_custom(&conn, id, Some("Patreon"), 1, Some(pause), "Urlaub").unwrap();
+        assert_eq!(skipped(&conn), ["Urlaub"]);
+
+        // the dragged order is on the periods, a card nobody dragged has none
+        db::set_custom_order(&conn, id, Some("Patreon"), None, &[2025, 1]).unwrap();
+        db::set_custom_order(&conn, id, Some("Patreon"), Some(1), &[14, 13]).unwrap();
+        let order: Vec<(Option<i64>, Option<i64>, Option<i64>, Option<i64>)> = db::get_library(&conn)
+            .unwrap()
+            .into_iter()
+            .flat_map(|a| a.periods)
+            .filter(|p| p.platform.as_deref() == Some("Patreon"))
+            .map(|p| (p.year, p.month, p.year_pos, p.month_pos))
+            .collect();
+        assert!(order.contains(&(Some(1), Some(14), Some(1), Some(0))));
+        assert!(order.contains(&(Some(1), Some(13), Some(1), Some(1))));
+        assert!(order.contains(&(Some(1), Some(15), Some(1), None)));
+        assert!(order.contains(&(Some(2025), Some(3), Some(0), None)));
+
+        // a year made with a new creator is an empty folder, a rescan keeps it
+        let herbst = db::custom_year(&conn, id, Some("Patreon"), "Herbst").unwrap();
+        crate::seed_period(&conn, id, "Nora", "Patreon", Some(herbst), None).unwrap();
+        std::fs::create_dir_all(nora.join("Herbst")).unwrap();
+        indexer::scan_root(&conn, &managed_root).unwrap();
+        let label: String = conn
+            .query_row("SELECT label FROM periods WHERE year = ?1 AND month IS NULL", [herbst], |r| r.get(0))
+            .unwrap();
+        assert_eq!(label, "Herbst");
+
+        // renaming puts the new name on the periods and the year's cards keep theirs
+        db::rename_custom(&conn, id, Some("Patreon"), 1, None, "Winter").unwrap();
+        db::rename_custom(&conn, id, Some("Patreon"), 1, Some(13), "Erster").unwrap();
+        db::rename_custom(&conn, id, Some("Patreon"), 2025, Some(3), "Maerz").unwrap();
+        let labels: Vec<String> = periods_of(&conn).into_iter().map(|p| p.0).collect();
+        assert_eq!(labels, ["Erster", "Maerz", "Misc", "Teil 2", "Teil 3", "Winter"]);
+        assert_eq!(db::custom_year_known(&conn, id, Some("Patreon"), "winter").unwrap(), Some(1));
+        assert_eq!(db::custom_month_known(&conn, id, Some("Patreon"), 1, "ERSTER").unwrap(), Some(13));
 
         let _ = std::fs::remove_dir_all(&base);
     }

@@ -15,7 +15,8 @@ export type AccentKey =
   | "yellow"
   | "iridescent"
   | "sakura"
-  | "cyberpunk";
+  | "cyberpunk"
+  | "corruptruby";
 
 export interface AccentDef {
   key: AccentKey;
@@ -64,6 +65,14 @@ export const ACCENTS: AccentDef[] = [
     swatch:
       "linear-gradient(135deg,#fcee0a 0%,#fcee0a 44%,#00e5ff 44%,#00b8d4 56%,#0a0a0a 56%,#0a0a0a 100%)",
   },
+  {
+    key: "corruptruby",
+    label: "Pyre",
+    tier: "premium",
+    from: "#ff1464",
+    to: "#3a0618",
+    swatch: "linear-gradient(135deg,#ffd6e4 0%,#ff1464 42%,#3a0618 100%)",
+  },
 ];
 
 /**
@@ -88,10 +97,25 @@ export interface ThemePack {
   id: string;
   name: string;
   accents: AccentKey[];
+  /** The DB setting its key is saved in. */
+  setting: string;
+  /** Not listed anywhere until its key is in (a pack that is still being built). */
+  hidden?: boolean;
 }
 
 export const THEME_PACKS: ThemePack[] = [
-  { id: "themes", name: "Aurora Pack", accents: ["sakura", "cyberpunk", "iridescent"] },
+  {
+    id: "themes",
+    name: "Aurora Pack",
+    accents: ["sakura", "cyberpunk", "iridescent"],
+    setting: "themes_license",
+  },
+  {
+    id: "corruptruby",
+    name: "Pyre",
+    accents: ["corruptruby"],
+    setting: "corruptruby_license",
+  },
 ];
 
 /** Which pack an accent belongs to. */
@@ -109,6 +133,98 @@ export function premiumUnlocked(): boolean {
   } catch {
     return false;
   }
+}
+
+/** Copy of a later pack's license, same idea as UNLOCK_KEY (that one stays the first pack's). */
+const PACK_UNLOCK_PREFIX = "micoll.packUnlocked.";
+
+export function packUnlocked(id: string): boolean {
+  if (id === THEME_PACKS[0].id) return premiumUnlocked();
+  try {
+    return localStorage.getItem(PACK_UNLOCK_PREFIX + id) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Save a pack's unlock and re-apply the accent (falls back if its theme was lost). */
+export function setPackUnlocked(id: string, v: boolean): void {
+  if (id === THEME_PACKS[0].id) {
+    setPremiumUnlocked(v);
+    return;
+  }
+  try {
+    if (v) localStorage.setItem(PACK_UNLOCK_PREFIX + id, "1");
+    else {
+      localStorage.removeItem(PACK_UNLOCK_PREFIX + id);
+      localStorage.removeItem(PACK_LICENCE_PREFIX + id); // no licence, no name
+    }
+  } catch {
+    /* ignore */
+  }
+  applyAccent(getAccent());
+}
+
+/** Who a later pack's key was issued to, and a test key's last day. Display copy only. */
+export interface PackLicence {
+  buyer: string;
+  until: string | null;
+}
+const PACK_LICENCE_PREFIX = "micoll.packLicence.";
+
+export function getPackLicence(id: string): PackLicence | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(PACK_LICENCE_PREFIX + id) ?? "null");
+    return v && typeof v.buyer === "string" && v.buyer.trim() ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setPackLicence(id: string, licence: PackLicence | null): void {
+  try {
+    if (licence) localStorage.setItem(PACK_LICENCE_PREFIX + id, JSON.stringify(licence));
+    else localStorage.removeItem(PACK_LICENCE_PREFIX + id);
+  } catch {
+    /* ignore */
+  }
+  listeners.forEach((l) => l());
+}
+
+export function usePackLicence(id: string): PackLicence | null {
+  const [licence, setLicence] = useState(() => getPackLicence(id));
+  useEffect(() => {
+    const l = () => setLicence(getPackLicence(id));
+    listeners.add(l);
+    return () => {
+      listeners.delete(l);
+    };
+  }, [id]);
+  return licence;
+}
+
+/** Whether a premium accent's own pack is unlocked. Basic accents always are. */
+export function accentUnlocked(key: AccentKey): boolean {
+  const pack = packOf(key);
+  return !pack || packUnlocked(pack.id);
+}
+
+/** The packs to list: a hidden one only once its key is in. */
+export function visiblePacks(): ThemePack[] {
+  return THEME_PACKS.filter((p) => !p.hidden || packUnlocked(p.id));
+}
+
+/** Subscribe to the listed packs. */
+export function useVisiblePacks(): ThemePack[] {
+  const [packs, setPacks] = useState(visiblePacks);
+  useEffect(() => {
+    const l = () => setPacks(visiblePacks());
+    listeners.add(l);
+    return () => {
+      listeners.delete(l);
+    };
+  }, []);
+  return packs;
 }
 
 /** Save the premium unlock and re-apply the accent (falls back if premium was lost). */
@@ -205,7 +321,7 @@ export function getAccent(): AccentKey {
     const v = localStorage.getItem(STORAGE_KEY);
     if (v && ACCENTS.some((a) => a.key === v)) {
       // saved premium accent without license -> fall back
-      if (isPremium(v as AccentKey) && !premiumUnlocked()) return DEFAULT_ACCENT;
+      if (!accentUnlocked(v as AccentKey)) return DEFAULT_ACCENT;
       return v as AccentKey;
     }
   } catch {
@@ -218,7 +334,7 @@ const listeners = new Set<() => void>();
 
 export function applyAccent(key: AccentKey): void {
   // check the license here too, not only in the Settings UI
-  if (isPremium(key) && !premiumUnlocked()) key = DEFAULT_ACCENT;
+  if (!accentUnlocked(key)) key = DEFAULT_ACCENT;
   document.documentElement.dataset.accent = key;
   try {
     localStorage.setItem(STORAGE_KEY, key);
@@ -273,6 +389,8 @@ export function toggleOnClass(accent: AccentKey): string {
       return "bg-[#ec4899]";
     case "cyberpunk":
       return "bg-[#fcee0a]";
+    case "corruptruby":
+      return "bg-[#ff1464]";
     default:
       return "bg-brand-600";
   }

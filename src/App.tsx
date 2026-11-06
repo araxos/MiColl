@@ -38,10 +38,13 @@ import { FirstRunWizard } from "@/components/FirstRunWizard";
 import {
   applyAccent,
   getAccent,
-  premiumUnlocked,
+  packUnlocked,
   setLicensee,
-  setPremiumUnlocked,
+  setPackLicence,
+  setPackUnlocked,
   setTrialUntil,
+  THEME_PACKS,
+  type ThemePack,
   useAccent,
 } from "@/lib/theme";
 import { loadPrefs } from "@/lib/prefs";
@@ -194,25 +197,44 @@ export default function App() {
    * Premium unlock: the license in the DB is the real source, localStorage is just a copy
    * for the first paint. Checked on every start.
    */
-  const reconcileLicence = async () => {
-    try {
-      const token = await getSetting("themes_license");
-      if (!token || !token.trim()) {
-        if (premiumUnlocked()) setPremiumUnlocked(false);
+  const reconcilePack = async (pack: ThemePack) => {
+    // the name and end date in Settings are the first pack's
+    const main = pack === THEME_PACKS[0];
+    const lock = () => {
+      if (packUnlocked(pack.id)) setPackUnlocked(pack.id, false);
+      if (main) {
         setLicensee(null);
         setTrialUntil(null);
+      } else {
+        setPackLicence(pack.id, null);
+      }
+    };
+    try {
+      const token = await getSetting(pack.setting);
+      if (!token || !token.trim()) {
+        lock();
         return;
       }
       // this is also where revoked keys and expired test keys stop working
       const lic = await verifyThemeLicense(token);
-      if (!premiumUnlocked()) setPremiumUnlocked(true);
-      setLicensee(lic.buyer);
-      setTrialUntil(lic.trial ? lic.until : null);
+      // a key only counts for its own pack
+      if (lic.pack !== pack.id) {
+        lock();
+        return;
+      }
+      if (!packUnlocked(pack.id)) setPackUnlocked(pack.id, true);
+      if (main) {
+        setLicensee(lic.buyer);
+        setTrialUntil(lic.trial ? lic.until : null);
+      } else {
+        setPackLicence(pack.id, { buyer: lic.buyer, until: lic.trial ? (lic.until ?? null) : null });
+      }
     } catch {
-      if (premiumUnlocked()) setPremiumUnlocked(false);
-      setLicensee(null);
-      setTrialUntil(null);
+      lock();
     }
+  };
+  const reconcileLicence = async () => {
+    await Promise.all(THEME_PACKS.map(reconcilePack));
   };
 
   const loadLockCfg = useCallback(async () => {

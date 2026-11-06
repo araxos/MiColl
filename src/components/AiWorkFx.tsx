@@ -11,6 +11,7 @@ import type { AccentKey } from "@/lib/theme";
  *   · cyberpunk: scanlines, a scan bar, red data streams and a rare thin glitch
  *   · sakura: cherry branches growing out of the left edge one above the other, their
  *     blossoms opening and only then letting petals go on the wind (see SakuraFx)
+ *   · pyre: a neon rim that burns brighter and dims again, embers rising over the picture
  * Basic themes get nothing (the busy note is enough there). Off with the Animations
  * switch (index.css). Pure CSS, the numbers below only place the pieces.
  */
@@ -114,7 +115,45 @@ export function AiWorkFx({
     );
   }
   if (accent === "sakura") return <SakuraFx progress={progress} />;
+  if (accent === "corruptruby") return <PyreFx />;
   return null;
+}
+
+/** Pyre: the rim breathes and embers keep rising, reused from the theme's cards. */
+function PyreFx() {
+  const embers = useMemo(
+    () =>
+      Array.from({ length: 22 }, (_, i) => ({
+        left: `${(3 + ((i * 47) % 94)).toFixed(0)}%`,
+        height: 5 + (i * 7) % 11,
+        duration: `${(3.5 + ((i * 13) % 40) / 10).toFixed(1)}s`,
+        delay: `-${(((i * 29) % 70) / 10).toFixed(1)}s`,
+        drift: `${((i * 11) % 28) - 14}cqw`,
+      })),
+    [],
+  );
+  return (
+    <div className="aifx" aria-hidden>
+      <div className="aifx-ruby-rim" />
+      <div className="aifx-ruby-embers">
+        {embers.map((e, i) => (
+          <span
+            key={i}
+            className="ruby-spark"
+            style={
+              {
+                left: e.left,
+                height: e.height,
+                animationDuration: e.duration,
+                animationDelay: e.delay,
+                "--drift": e.drift,
+              } as React.CSSProperties
+            }
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /** One cherry petal (notched tip), pointing up from 0,0. */

@@ -66,8 +66,35 @@ export interface DialogTheme {
   toast: string;
 }
 
+/** Pyre in one piece: lit tubes on black, the classes are in index.css. */
+const RUBY_FIELD =
+  "rounded-lg border border-[#ff7aa8]/40 bg-[#080206] focus-within:border-[#ffd6e4] focus-within:shadow-[0_0_10px_rgba(255,20,100,0.7)]";
+const RUBY_DIALOG: DialogTheme = {
+  panel: "ruby-panel rounded-2xl",
+  input: cn(
+    "h-9 w-full px-3 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-500",
+    RUBY_FIELD,
+  ),
+  field: RUBY_FIELD,
+  divider: "border-[#ff7aa8]/30",
+  box: "rounded-xl border border-[#ff7aa8]/30 bg-[#16070d]/70",
+  soft: "border-[#ff7aa8]/25 bg-[#16070d]/55",
+  control: "ruby-chip",
+  controlOn: "ruby-chip ruby-chip--on",
+  menu: "ruby-panel rounded-xl",
+  menuRow: "hover:bg-[#ff1464]/20 hover:text-white",
+  menuRowOpen: "bg-[#ff1464]/20 text-white",
+  // the neon tube of Button, also for the picked rows that use this class on their own
+  primary:
+    "border-[1.5px] border-[#ffd6e4] bg-[#ff1464]/10 text-white [text-shadow:0_0_6px_#ff7aa8] shadow-[0_0_10px_#ff1464,inset_0_0_8px_#ff1464]",
+  accent: "bg-[#ff1464] shadow-[0_0_8px_#ff1464]",
+  accentText: "text-[#ff7aa8]",
+  toast: "rounded-xl bg-[#0c0408]/95 shadow-[0_0_16px_rgba(255,20,100,0.5)] backdrop-blur",
+};
+
 export function useDialogTheme(): DialogTheme {
   const accent = useAccent();
+  if (accent === "corruptruby") return RUBY_DIALOG;
   const panel =
     accent === "cyberpunk"
       ? "rounded-none border border-[#fcee0a]/70 bg-zinc-950/95 ring-1 ring-inset ring-[#00e5ff]/15 shadow-[0_0_26px_rgba(252,238,10,0.18)] [clip-path:polygon(0_0,100%_0,100%_calc(100%-14px),calc(100%-14px)_100%,0_100%)]"

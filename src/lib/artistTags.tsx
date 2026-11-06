@@ -21,6 +21,11 @@ import {
   IriDiamondIcon,
   IriEyeIcon,
   IriSparkIcon,
+  RubyHeartIcon,
+  RubyStarIcon,
+  RubyDiamondIcon,
+  RubyEyeIcon,
+  RubyNewIcon,
 } from "@/lib/classIcons";
 
 export interface ArtistTagDef {
@@ -83,12 +88,22 @@ const IRID_TAGS: ArtistTagDef[] = [
   { key: "new", label: "New", desc: "New / upcoming artist", rank: 5, color: "text-emerald-200", Icon: IriSparkIcon },
 ];
 
+/** Pyre skin: silver blades, they bring their own colour. */
+const RUBY_TAGS: ArtistTagDef[] = [
+  { key: "heart", label: "Heart", desc: "Favourites", rank: 1, color: "text-zinc-100", Icon: RubyHeartIcon },
+  { key: "star", label: "Star", desc: "One of the best", rank: 2, color: "text-zinc-100", Icon: RubyStarIcon },
+  { key: "diamond", label: "Diamond", desc: "Never miss — good rewards", rank: 3, color: "text-zinc-100", Icon: RubyDiamondIcon },
+  { key: "eye", label: "Eye", desc: "On watch — might delete", rank: 4, color: "text-zinc-100", Icon: RubyEyeIcon },
+  { key: "new", label: "New", desc: "New / upcoming artist", rank: 5, color: "text-zinc-100", Icon: RubyNewIcon },
+];
+
 /** The tag set for the current theme. */
 export const artistTags = (): ArtistTagDef[] => {
   const accent = getAccent();
   if (accent === "sakura") return SAKURA_TAGS;
   if (accent === "cyberpunk") return CYBER_TAGS;
   if (accent === "iridescent") return IRID_TAGS;
+  if (accent === "corruptruby") return RUBY_TAGS;
   return BASE_TAGS;
 };
 

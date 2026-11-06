@@ -1,4 +1,5 @@
 import { BadgeCheck, Check } from "lucide-react";
+import { RubyCheckMark } from "@/components/RubyCardFrame";
 import { SakuraBlossomIcon } from "@/lib/classIcons";
 import { useT } from "@/lib/i18n";
 import { useAccent } from "@/lib/theme";
@@ -6,12 +7,19 @@ import { cn } from "@/lib/utils";
 
 /**
  * The "verified" check in the theme's style: sakura blossom, cyberpunk glitch check,
- * iridescent holo check, BadgeCheck everywhere else. Sized with className.
+ * iridescent holo check, pyre sigil check, BadgeCheck everywhere else. Sized with className.
  * PlatformCheck below is the version for the corner of a platform badge.
  */
 export function ThemeCheck({ className, label }: { className?: string; label: string }) {
   const accent = useAccent();
 
+  if (accent === "corruptruby") {
+    return (
+      <span aria-label={label} role="img" className={cn("grid shrink-0 place-items-center", className)}>
+        <RubyCheckMark className="h-full w-full" />
+      </span>
+    );
+  }
   if (accent === "sakura") {
     return (
       <span
@@ -52,6 +60,16 @@ export function ThemeCheck({ className, label }: { className?: string; label: st
 export function PlatformCheck() {
   const t = useT();
   const accent = useAccent();
+  if (accent === "corruptruby") {
+    return (
+      <span
+        aria-label={t("Verified")}
+        className="absolute -bottom-1 -right-1 grid h-3.5 w-3.5 place-items-center rounded-[2px] bg-zinc-950/90"
+      >
+        <RubyCheckMark className="h-3 w-3" />
+      </span>
+    );
+  }
   if (accent === "sakura") {
     return (
       <span

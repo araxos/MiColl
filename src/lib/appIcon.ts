@@ -8,9 +8,10 @@ import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Image } from "@tauri-apps/api/image";
 import { isTauri } from "@/lib/tauri";
-import { getAccent, premiumUnlocked, type AccentKey } from "@/lib/theme";
+import { getAccent, packOf, packUnlocked, premiumUnlocked, type AccentKey } from "@/lib/theme";
 
 import blueUrl from "@/assets/icons/micoll-icon-blue.svg";
+import corruptRubyUrl from "@/assets/icons/micoll-icon-corruptruby.svg";
 import cyberpunkUrl from "@/assets/icons/micoll-icon-cyberpunk.svg";
 import greenUrl from "@/assets/icons/micoll-icon-green.svg";
 import iridescentUrl from "@/assets/icons/micoll-icon-iridescent.svg";
@@ -31,7 +32,8 @@ export type AppIconKey =
   | "original"
   | "sakura"
   | "cyberpunk"
-  | "iridescent";
+  | "iridescent"
+  | "corruptruby";
 
 export interface AppIconDef {
   key: AppIconKey;
@@ -54,6 +56,7 @@ export const APP_ICONS: AppIconDef[] = [
   { key: "sakura", label: "Sakura", url: sakuraUrl, premium: true, animated: true },
   { key: "cyberpunk", label: "Cyberpunk", url: cyberpunkUrl, premium: true },
   { key: "iridescent", label: "Iridescent", url: iridescentUrl, premium: true },
+  { key: "corruptruby", label: "Pyre", url: corruptRubyUrl, premium: true },
 ];
 
 /**
@@ -63,6 +66,7 @@ export const APP_ICONS: AppIconDef[] = [
 export const DASHBOARD_ICONS: Partial<Record<AccentKey, string>> = {
   original: originalUrl,
   iridescent: iridescentUrl,
+  corruptruby: corruptRubyUrl,
   purple: purpleUrl,
   rose: roseUrl,
   blue: blueUrl,
@@ -77,8 +81,17 @@ const DEFAULT_ICON: AppIconKey = "original";
 
 const def = (key: AppIconKey) => APP_ICONS.find((i) => i.key === key)!;
 
-/** Premium icon while premium is locked. */
-const barred = (icon: AppIconDef) => !!icon.premium && !premiumUnlocked();
+/** Premium icon while its pack is locked. Icons named after a theme go with its pack. */
+export const barred = (icon: AppIconDef) => {
+  if (!icon.premium) return false;
+  const pack = packOf(icon.key as AccentKey);
+  return pack ? !packUnlocked(pack.id) : !premiumUnlocked();
+};
+
+/** The icons to list: one of a hidden pack only once that pack is unlocked. */
+export function listedAppIcons(): AppIconDef[] {
+  return APP_ICONS.filter((i) => !(packOf(i.key as AccentKey)?.hidden && barred(i)));
+}
 
 /** Icon for each accent when the setting is "auto". */
 function iconForAccent(accent: AccentKey): AppIconKey {

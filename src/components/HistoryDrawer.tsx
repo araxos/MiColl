@@ -68,7 +68,9 @@ export function HistoryDrawer({
         ? "border-l border-white/12 bg-zinc-900/70 backdrop-blur-2xl"
         : accent === "sakura"
           ? "border-l border-[#f9a8d4]/30 bg-zinc-950/80 backdrop-blur-2xl"
-          : "border-l border-brand-500/20 bg-gradient-to-b from-brand-950/85 to-zinc-950/95 backdrop-blur-xl";
+          : accent === "corruptruby"
+            ? "border-l border-[#ff7aa8]/50 bg-[#080206]/90 backdrop-blur-2xl shadow-[-6px_0_22px_-8px_rgba(255,20,100,0.65)]"
+            : "border-l border-brand-500/20 bg-gradient-to-b from-brand-950/85 to-zinc-950/95 backdrop-blur-xl";
   const headerBar =
     accent === "cyberpunk"
       ? "border-b border-[#fcee0a]/25 bg-[#fcee0a]/5"
@@ -76,7 +78,9 @@ export function HistoryDrawer({
         ? "border-b border-white/10 bg-white/5"
         : accent === "sakura"
           ? "border-b border-[#f9a8d4]/20 bg-[#f9a8d4]/5"
-          : "border-b border-brand-500/20";
+          : accent === "corruptruby"
+            ? "border-b border-[#ff7aa8]/35 bg-[#ff1464]/5"
+            : "border-b border-brand-500/20";
   const radius = accent === "cyberpunk" ? "rounded-none" : "rounded-lg";
 
   // today: just the time, otherwise the date too

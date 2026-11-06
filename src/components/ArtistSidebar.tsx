@@ -354,7 +354,9 @@ export function ArtistSidebar({
         ? "border-l border-white/12 bg-zinc-900/70 backdrop-blur-2xl"
         : accent === "sakura"
           ? "border-l border-[#f9a8d4]/30 bg-zinc-950/80 backdrop-blur-2xl"
-          : "border-l border-brand-500/20 bg-gradient-to-b from-brand-950/50 via-zinc-950/90 to-zinc-950/90 backdrop-blur-xl";
+          : accent === "corruptruby"
+            ? "border-l border-[#ff7aa8]/50 bg-[#080206]/90 backdrop-blur-2xl shadow-[-6px_0_22px_-8px_rgba(255,20,100,0.65)]"
+            : "border-l border-brand-500/20 bg-gradient-to-b from-brand-950/50 via-zinc-950/90 to-zinc-950/90 backdrop-blur-xl";
   const headerBar =
     accent === "cyberpunk"
       ? "border-b border-[#fcee0a]/25 bg-[#fcee0a]/5"
@@ -362,7 +364,9 @@ export function ArtistSidebar({
         ? "border-b border-white/10 bg-white/5"
         : accent === "sakura"
           ? "border-b border-[#f9a8d4]/20 bg-[#f9a8d4]/5"
-          : "border-b border-brand-500/15 bg-gradient-to-r from-brand-900/40 to-transparent";
+          : accent === "corruptruby"
+            ? "border-b border-[#ff7aa8]/35 bg-[#ff1464]/5"
+            : "border-b border-brand-500/15 bg-gradient-to-r from-brand-900/40 to-transparent";
 
   // control styles per accent. Standard accents use brand-*, premium ones get their own
   // (a brand chip would look wrong in their chrome).
@@ -439,6 +443,29 @@ export function ArtistSidebar({
       box: "border-[#f9a8d4]/20 bg-zinc-950/40",
       btn: "border-[#f9a8d4]/30 bg-[#f9a8d4]/10 hover:bg-[#f9a8d4]/20",
     },
+    corruptruby: {
+      // lit tubes on black, the picked one burns
+      ctlIdle: "border-[#ff7aa8]/30 bg-[#080206]/70 text-zinc-300 hover:border-[#ff7aa8]/70 hover:bg-[#ff1464]/10",
+      ctlActive: "border-[#ff1464] bg-[#ff1464]/10 text-white shadow-[0_0_10px_rgba(255,20,100,0.7)]",
+      ctlActiveNeutral: "border-[#ff7aa8]/70 bg-[#ff1464]/10 text-zinc-100",
+      field:
+        "border-[#ff7aa8]/35 bg-[#080206]/70 text-zinc-100 placeholder:text-zinc-500 focus:border-[#ff1464]",
+      idleIcon: "text-zinc-500",
+      label: "text-[#ff7aa8]",
+      hint: "text-zinc-400",
+      chip: "border-[#ff7aa8]/45 bg-[#ff1464]/10 text-[#ffd6e4]",
+      chipHover: "hover:bg-[#ff1464]/20",
+      chipX: "text-[#ff7aa8]/80 hover:bg-[#ff1464]/25 hover:text-white",
+      link: "text-[#ff7aa8] hover:text-[#ffd6e4]",
+      focus: "focus:border-[#ff1464]",
+      close: "hover:bg-[#ff1464]/20 hover:text-white",
+      favOn: "border-[#ff1464] bg-[#ff1464]/10",
+      favIcon: "text-[#ff7aa8]",
+      idleText: "text-zinc-400",
+      tip: "border-[#ff7aa8]/45 bg-[#0c0408]/95 backdrop-blur-xl",
+      box: "border-[#ff7aa8]/25 bg-[#0c0408]/50",
+      btn: "border-[#ff7aa8]/40 bg-[#ff1464]/10 hover:bg-[#ff1464]/20",
+    },
     default: {
       ctlIdle: "border-zinc-800 bg-zinc-950 text-zinc-400 micoll-hover",
       ctlActive: "border-brand-500/50 bg-brand-500/15 text-brand-100",
@@ -468,7 +495,9 @@ export function ArtistSidebar({
         ? SKINS.cyberpunk
         : accent === "sakura"
           ? SKINS.sakura
-          : SKINS.default;
+          : accent === "corruptruby"
+            ? SKINS.corruptruby
+            : SKINS.default;
 
   const ctlIdle = skin.ctlIdle;
   const ctlActive = skin.ctlActive;

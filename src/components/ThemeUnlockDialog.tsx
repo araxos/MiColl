@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { X, KeyRound, Sparkles, Copy, Check, BadgeCheck, Trash2, Clock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { useT, useTf } from "@/lib/i18n";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import * as api from "@/api/library";
-import { setLicensee, setPremiumUnlocked, setTrialUntil, useAccent, THEME_PACKS } from "@/lib/theme";
+import { setLicensee, setPackLicence, setPackUnlocked, setTrialUntil, useAccent, THEME_PACKS } from "@/lib/theme";
 import { PATREON_URL, SALES_OPEN } from "@/lib/sales";
 
 /**
@@ -14,11 +14,20 @@ import { PATREON_URL, SALES_OPEN } from "@/lib/sales";
  *   - locked: paste a key -> checked offline -> saved in the DB -> unlocked
  *   - unlocked: show the state + "remove key from this device"
  *   - owner (signing key installed): generate keys for buyers
+ * A key decides itself which pack it opens, so this box also takes the key of a hidden
+ * pack. To reach it with a pack already unlocked, Alt+click the pack's button in
+ * Settings (addKey).
  */
 export function ThemeUnlockDialog({
+  initialPack = THEME_PACKS[0].id,
+  addKey = false,
   onClose,
   onUnlocked,
 }: {
+  /** The pack to show first. */
+  initialPack?: string;
+  /** Offer the key box even though this pack is unlocked. */
+  addKey?: boolean;
   onClose: () => void;
   /** Called after a key was accepted. */
   onUnlocked?: () => void;
@@ -30,8 +39,11 @@ export function ThemeUnlockDialog({
   const dlg = useDialogTheme();
   /** square corners on cyberpunk */
   const round = accent === "cyberpunk" ? "rounded-none" : "rounded-lg";
-  /** The pack this dialog sells (only one for now). */
-  const pack = THEME_PACKS[0];
+  /** The pack on show, moves to the pack of an accepted key. */
+  const [packId, setPackId] = useState(initialPack);
+  const pack = THEME_PACKS.find((p) => p.id === packId) ?? THEME_PACKS[0];
+  /** The name and end date in Settings are the first pack's. */
+  const main = pack === THEME_PACKS[0];
   const [unlocked, setUnlocked] = useState(false);
   const [buyerOnKey, setBuyerOnKey] = useState<string | null>(null);
   /** Short fingerprint of the key (for leak reports and the revocation list). */
@@ -45,6 +57,8 @@ export function ThemeUnlockDialog({
   // key generation, only where the signing key is
   const [canSign, setCanSign] = useState(false);
   const [buyer, setBuyer] = useState("");
+  /** The pack a generated key is for. */
+  const [issuePack, setIssuePack] = useState(initialPack);
   /** Test key type: ends on a date OR after some days, never both. */
   const [term, setTerm] = useState<"forever" | "until" | "days">("forever");
   const [until, setUntil] = useState("");
@@ -57,43 +71,52 @@ export function ThemeUnlockDialog({
   const [issued, setIssued] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  /** Load the pack's saved key: the state and the buyer. */
+  const loadKey = useCallback(async () => {
+    setUnlocked(false);
+    setBuyerOnKey(null);
+    setFingerprint(null);
+    setEndsOn(null);
+    const stored = await api.getSetting(pack.setting).catch(() => null);
+    if (!stored || !stored.trim()) return;
+    try {
+      const lic = await api.verifyThemeLicense(stored);
+      if (lic.pack !== pack.id) return;
+      const ends = lic.trial ? lic.until : null;
+      setBuyerOnKey(lic.buyer);
+      setEndsOn(ends);
+      if (pack === THEME_PACKS[0]) {
+        setLicensee(lic.buyer);
+        setTrialUntil(ends);
+      } else {
+        setPackLicence(pack.id, { buyer: lic.buyer, until: ends ?? null });
+      }
+      setUnlocked(true);
+      setFingerprint(await api.themeKeyFingerprint(stored).catch(() => null));
+    } catch {
+      /* broken saved key -> treat as locked */
+    }
+  }, [pack]);
+
   useEffect(() => {
     api.canSign().then(setCanSign).catch(() => setCanSign(false));
-    // load the current state (and the buyer of the saved key)
-    api
-      .getSetting("themes_license")
-      .then(async (stored) => {
-        if (!stored || !stored.trim()) return;
-        try {
-          const lic = await api.verifyThemeLicense(stored);
-          setBuyerOnKey(lic.buyer);
-          setLicensee(lic.buyer);
-          const ends = lic.trial ? lic.until : null;
-          setEndsOn(ends);
-          setTrialUntil(ends);
-          setUnlocked(true);
-          setFingerprint(await api.themeKeyFingerprint(stored).catch(() => null));
-        } catch {
-          /* broken saved key -> treat as locked */
-        }
-      })
-      .catch(() => {});
   }, []);
+  useEffect(() => {
+    void loadKey();
+  }, [loadKey]);
 
   const activate = async () => {
     setBusy(true);
     setErr(null);
     try {
       const lic = await api.verifyThemeLicense(token);
-      await api.setSetting("themes_license", token.trim());
-      setPremiumUnlocked(true);
-      setBuyerOnKey(lic.buyer);
-      setLicensee(lic.buyer);
-      const ends = lic.trial ? lic.until : null;
-      setEndsOn(ends);
-      setTrialUntil(ends);
-      setFingerprint(await api.themeKeyFingerprint(token).catch(() => null));
-      setUnlocked(true);
+      const target = THEME_PACKS.find((p) => p.id === lic.pack);
+      if (!target) throw t("This key unlocks a different product.");
+      await api.setSetting(target.setting, token.trim());
+      setPackUnlocked(target.id, true);
+      setToken("");
+      if (target === pack) await loadKey();
+      else setPackId(target.id); // loads through the effect
       onUnlocked?.();
     } catch (e) {
       setErr(`${e}`);
@@ -105,10 +128,12 @@ export function ThemeUnlockDialog({
   const removeKey = async () => {
     setBusy(true);
     try {
-      await api.setSetting("themes_license", "");
-      setPremiumUnlocked(false);
-      setLicensee(null);
-      setTrialUntil(null);
+      await api.setSetting(pack.setting, "");
+      setPackUnlocked(pack.id, false);
+      if (main) {
+        setLicensee(null);
+        setTrialUntil(null);
+      }
       setUnlocked(false);
       setBuyerOnKey(null);
       setFingerprint(null);
@@ -125,6 +150,7 @@ export function ThemeUnlockDialog({
     try {
       setIssued(
         await api.issueThemeKey(
+          issuePack,
           buyer,
           term === "until" ? { expires: until.trim() }
           : term === "days" ? { days: Number(days) || 0 }
@@ -163,7 +189,9 @@ export function ThemeUnlockDialog({
         ? "from-[#f472b6] to-[#ffe1ee]"
         : accent === "iridescent"
           ? "from-[#c4b5fd] via-[#f5c2ff] to-[#a7f3d0]"
-          : "from-brand-300 to-accent2-300";
+          : accent === "corruptruby"
+            ? "from-[#ffd6e4] to-[#ff4d86]"
+            : "from-brand-300 to-accent2-300";
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
@@ -187,7 +215,9 @@ export function ThemeUnlockDialog({
               {pack.name}
             </h2>
             <p className="mt-1 text-sm text-zinc-400">
-              {t("Iridescent, Sakura and Cyberpunk — unlocked permanently with a personal key.")}
+              {main
+                ? t("Iridescent, Sakura and Cyberpunk — unlocked permanently with a personal key.")
+                : tf("{pack} — unlocked permanently with a personal key.", { pack: pack.name })}
             </p>
           </div>
           <button
@@ -199,7 +229,7 @@ export function ThemeUnlockDialog({
           </button>
         </div>
 
-        {unlocked ? (
+        {unlocked && (
           <div className="mt-4 space-y-3">
             {/* green in every theme (it's a state) */}
             <div
@@ -245,7 +275,8 @@ export function ThemeUnlockDialog({
               {t("Remove key from this device")}
             </button>
           </div>
-        ) : (
+        )}
+        {(!unlocked || addKey || canSign) && (
           <div className="mt-4 space-y-3">
             <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
               {t("Your theme key")}
@@ -263,7 +294,9 @@ export function ThemeUnlockDialog({
             />
             {err && <p className="text-sm text-rose-300">{err}</p>}
             <div className="flex items-center justify-between gap-2">
-              {SALES_OPEN && PATREON_URL ? (
+              {unlocked ? (
+                <span />
+              ) : SALES_OPEN && PATREON_URL ? (
                 <button
                   onClick={() => void api.openUrl(PATREON_URL)}
                   className="text-sm text-zinc-400 underline decoration-zinc-600 underline-offset-2 hover:text-zinc-200"
@@ -300,6 +333,24 @@ export function ThemeUnlockDialog({
                 "Generate a personal key for a buyer and send it to them — their name is baked into the key.",
               )}
             </p>
+            {/* the pack the key opens, the only place a hidden pack is named */}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-zinc-400">
+              {THEME_PACKS.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setIssuePack(p.id)}
+                  className={cn(
+                    "border px-2.5 py-1 transition-colors",
+                    round,
+                    issuePack === p.id
+                      ? "pick-on text-white"
+                      : cn("appearance-chip border-transparent text-zinc-400", dlg.menuRow),
+                  )}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
             <div className="mt-2 flex gap-2">
               <input
                 value={buyer}
