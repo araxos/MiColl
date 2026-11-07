@@ -19,6 +19,9 @@ const INIT_KEY = "micoll.platforms.init";
 
 const norm = (s: string) => s.trim().toLowerCase();
 
+/** "Misc" means no date, it's no name for a new platform. Who has it keeps it. */
+export const isMiscPlatform = (name: string) => norm(name) === "misc";
+
 function read(key: string): string[] {
   try {
     const v = JSON.parse(localStorage.getItem(key) ?? "[]");

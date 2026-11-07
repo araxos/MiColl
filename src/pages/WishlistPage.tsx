@@ -20,6 +20,7 @@ import {
   deleteRewards,
 } from "@/api/library";
 import type { Artist } from "@/types";
+import { isMiscPlatform } from "@/lib/platformRegistry";
 
 /**
  * Wishlist: everything that's released but not owned, on one page.
@@ -347,7 +348,15 @@ function AddWishDialog({
   }, [artists]);
 
   const known = artists.some((a) => a.name.toLowerCase() === creator.trim().toLowerCase());
-  const canSave = creator.trim() !== "" && title.trim() !== "" && !saving;
+  // only a creator who already has Misc can get a wish there
+  const miscBlocked =
+    isMiscPlatform(platform) &&
+    !artists.some(
+      (a) =>
+        a.name.toLowerCase() === creator.trim().toLowerCase() &&
+        (a.platforms ?? []).some((p) => isMiscPlatform(p.name)),
+    );
+  const canSave = creator.trim() !== "" && title.trim() !== "" && !saving && !miscBlocked;
   const label = "mb-1 block text-xs font-medium text-zinc-400";
 
   return (
@@ -411,6 +420,7 @@ function AddWishDialog({
                 <option key={p} value={p} />
               ))}
             </datalist>
+            {miscBlocked && <p className="mt-1 text-[11px] text-amber-300">{t("“Misc” can’t be a platform.")}</p>}
           </div>
 
           <div className="grid grid-cols-3 gap-2">

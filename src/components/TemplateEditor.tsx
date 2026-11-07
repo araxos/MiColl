@@ -12,6 +12,7 @@ import { customMonthNames, customYearNames, sortCustomMonths, uniqueNames } from
 import { NameCombo } from "@/components/NameCombo";
 import { CREATOR_TYPES, creatorTypeDefs } from "@/lib/creatorTypes";
 import { PLATFORMS } from "@/lib/platforms";
+import { isMiscPlatform } from "@/lib/platformRegistry";
 import { useData } from "@/store";
 import * as api from "@/api/library";
 import { type Artist, type ArtistLink, ownRewards } from "@/types";
@@ -525,6 +526,10 @@ export function TemplateEditor({
   const save = async () => {
     if (!name.trim()) {
       setErr(t("Please enter a creator name."));
+      return;
+    }
+    if (platforms.some((p) => isMiscPlatform(p.name))) {
+      setErr(t("“Misc” can’t be a platform."));
       return;
     }
     // only verified templates need a signature, personal logs stay plain JSON

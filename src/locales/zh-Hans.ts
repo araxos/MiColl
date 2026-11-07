@@ -2078,4 +2078,5 @@ export const dict: Dict = {
   "Stage haze": "舞台薄雾",
   "Silk fire": "丝绸之火",
   "Group": "团体",
+  "“Misc” can’t be a platform.": "“Misc” 不能用作平台。",
 };

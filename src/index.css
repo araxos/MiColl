@@ -1098,7 +1098,7 @@ html[data-fx-off~="holo.corruptruby"] :is(.ruby-shard-out, .ruby-shard-stab, .ru
   height: 50%;
   pointer-events: none;
   mix-blend-mode: screen;
-  background: radial-gradient(closest-side, rgba(255, 45, 122, 0.55), transparent);
+  background: radial-gradient(closest-side, rgba(255, 45, 122, 0.32), transparent);
   animation: ruby-haze 9s ease-in-out infinite;
 }
 .ruby-haze--a {
@@ -1108,7 +1108,7 @@ html[data-fx-off~="holo.corruptruby"] :is(.ruby-shard-out, .ruby-shard-stab, .ru
 .ruby-haze--b {
   right: -24%;
   bottom: 12%;
-  background: radial-gradient(closest-side, rgba(192, 16, 63, 0.5), transparent);
+  background: radial-gradient(closest-side, rgba(192, 16, 63, 0.28), transparent);
   animation-duration: 11s;
   animation-delay: -4s;
 }
@@ -1116,7 +1116,7 @@ html[data-fx-off~="holo.corruptruby"] :is(.ruby-shard-out, .ruby-shard-stab, .ru
   left: auto;
   right: -20%;
   top: -15%;
-  background: radial-gradient(closest-side, rgba(192, 16, 63, 0.6), transparent);
+  background: radial-gradient(closest-side, rgba(192, 16, 63, 0.35), transparent);
   animation-duration: 10s;
 }
 @keyframes ruby-haze {

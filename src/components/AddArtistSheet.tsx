@@ -19,7 +19,7 @@ import { useAccent } from "@/lib/theme";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { CREATOR_TYPES } from "@/lib/creatorTypes";
 import type { ReleaseStyle } from "@/types";
-import { usePlatformOptions, addPlatform as registerPlatform } from "@/lib/platformRegistry";
+import { usePlatformOptions, addPlatform as registerPlatform, isMiscPlatform } from "@/lib/platformRegistry";
 import { initials, cn } from "@/lib/utils";
 import { useT, useTf } from "@/lib/i18n";
 import { useNavigate } from "react-router-dom";
@@ -204,6 +204,7 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
       setNewPlatform(null);
       return;
     }
+    if (isMiscPlatform(nm)) return; // the input stays open with its hint
     registerPlatform(nm); // persist it to the shared offered list (un-hides if removed)
     if (!platformOptions.some((p) => p.toLowerCase() === nm.toLowerCase())) {
       setCustomPlatforms((prev) => [...prev, nm]);
@@ -453,7 +454,7 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
                   {t("Platform")}
                 </button>
               ) : (
-                <span className="inline-flex items-center gap-1">
+                <span className="inline-flex flex-wrap items-center gap-1">
                   <input
                     autoFocus
                     value={newPlatform}
@@ -476,6 +477,9 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
                   >
                     {t("Add")}
                   </button>
+                  {isMiscPlatform(newPlatform) && (
+                    <span className="w-full text-xs text-amber-300">{t("“Misc” can’t be a platform.")}</span>
+                  )}
                 </span>
               )}
             </div>

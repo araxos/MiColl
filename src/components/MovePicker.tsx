@@ -6,7 +6,7 @@ import { useData } from "@/store";
 import { Button } from "@/components/ui/Button";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { useAccent } from "@/lib/theme";
-import { addPlatform, usePlatformOptions } from "@/lib/platformRegistry";
+import { addPlatform, isMiscPlatform, usePlatformOptions } from "@/lib/platformRegistry";
 import { cn } from "@/lib/utils";
 import { useT, useTf, useTp } from "@/lib/i18n";
 import { ownRewards } from "@/types";
@@ -237,7 +237,10 @@ export function MovePicker({
   };
 
   // take the typed platform, an existing one (any case) is just selected
+  const platBlocked =
+    isMiscPlatform(platDraft ?? "") && !artist?.platforms.some((pl) => isMiscPlatform(pl.name));
   const commitPlatform = () => {
+    if (platBlocked) return;
     const name = (platDraft ?? "").trim();
     setPlatDraft(null);
     if (!name || !artist) return;
@@ -368,6 +371,7 @@ export function MovePicker({
                           <option key={o} value={o} />
                         ))}
                       </datalist>
+                      {platBlocked && <p className="px-0.5 text-xs text-amber-300">{t("“Misc” can’t be a platform.")}</p>}
                       <div className="flex justify-end gap-1.5">
                         <Button variant="ghost" size="sm" onClick={() => setPlatDraft(null)}>
                           {t("Cancel")}
@@ -375,7 +379,7 @@ export function MovePicker({
                         <Button
                           variant="primary"
                           size="sm"
-                          disabled={!platDraft.trim()}
+                          disabled={!platDraft.trim() || platBlocked}
                           onClick={commitPlatform}
                         >
                           <Check className="h-3.5 w-3.5" />

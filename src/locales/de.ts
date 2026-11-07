@@ -2109,4 +2109,5 @@ export const dict: Dict = {
   "Stage haze": "Bühnendunst",
   "Silk fire": "Seidenfeuer",
   "Group": "Gruppe",
+  "“Misc” can’t be a platform.": "„Misc“ kann keine Plattform sein.",
 };

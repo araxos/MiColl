@@ -30,7 +30,7 @@ import * as api from "@/api/library";
 import type { ImportPlan, ResolvedReward, StyleChoice } from "@/api/library";
 import type { Month, ReleaseStyle } from "@/types";
 import { PLATFORMS } from "@/lib/platforms";
-import { usePlatformOptions, addPlatform as registerPlatform } from "@/lib/platformRegistry";
+import { usePlatformOptions, addPlatform as registerPlatform, isMiscPlatform } from "@/lib/platformRegistry";
 import { useData } from "@/store";
 import { TierCombo } from "@/components/TierCombo";
 import { NameCombo } from "@/components/NameCombo";
@@ -47,14 +47,16 @@ import { cn } from "@/lib/utils";
 import { useT, useTf, useTp } from "@/lib/i18n";
 
 const MISC = "__misc__"; // sentinel select value meaning the "Misc" bucket
-// "Misc" files the reward under a real "Misc" platform (own tab/folder): "I don't know
-// the platform and won't look it up". It stays there, no banner.
+// "Misc" files the reward under a real "Misc" platform (own tab/folder). Only for
+// creators who already have it, nobody gets a new one.
 const MISC_PLATFORM = "Misc";
 // "Unsorted" = no platform yet, still to do: the "need a platform" banner asks for it.
-// Also where anything lands that no platform was found for.
+// Where a quick import lands that no platform was found for.
 const UNSORTED = "__unsorted__";
 // what the backend calls "no platform" in a per-platform style override
 const UNSORTED_PLATFORM = "Unsorted";
+// the normal review's platform when none was found, a real platform with its own tab
+const UNKNOWN_PLATFORM = "Unknown";
 
 /**
  * Text input that keeps a local draft while focused and only saves on blur or
@@ -173,6 +175,8 @@ type DraftRow = {
   origArtist: string;
   creator: string;
   platform: string; // MISC / UNSORTED sentinel or a platform name
+  /** Nothing named this platform, it's only the default: quick import ignores it. */
+  platformAuto: boolean;
   title: string;
   /** The reward folder's own name, the reset button brings it back (cleanup undone). */
   origTitle?: string;
@@ -395,13 +399,24 @@ export function ImportReviewTree({
     return ((p?.releaseStyle ?? a.releaseStyle) as ReleaseStyle | undefined) ?? null;
   };
 
+  const hasMiscPlatform = (creator: string) =>
+    artists.some(
+      (a) => normName(a.name) === normName(creator) && a.platforms.some((p) => isMiscPlatform(p.name)),
+    );
+
+  /** The platform something points at: the files, the drop target or the last import. */
+  const knownPlatform = (detected: string | null | undefined, creator: string) => {
+    const p = detected ?? defaultPlatform ?? lastPlatformFor(creator);
+    return p && isMiscPlatform(p) && !hasMiscPlatform(creator) ? null : p;
+  };
+
   /**
    * The platform a row lands on (same as the draft rows use).
    * "Misc" is mapped back to the picker's sentinel so the field isn't empty next time.
-   * Nothing known -> Unsorted (still to do), not Misc.
+   * Nothing known -> Unknown.
    */
   const platformFor = (detected: string | null | undefined, creator: string): string => {
-    const p = detected ?? defaultPlatform ?? lastPlatformFor(creator) ?? UNSORTED;
+    const p = knownPlatform(detected, creator) ?? UNKNOWN_PLATFORM;
     const low = p.trim().toLowerCase();
     // dropped on the Unsorted tab -> the sentinel, not a platform called "Unsorted"
     if (low === UNSORTED_PLATFORM.toLowerCase()) return UNSORTED;
@@ -465,6 +480,7 @@ export function ImportReviewTree({
         origArtist: r.artist,
         creator,
         platform: platformFor(r.platform, creator),
+        platformAuto: knownPlatform(r.platform, creator) == null,
         title: cleanTitle(r.title, creator),
         origTitle: baseName(r.folder),
         category: r.category,
@@ -673,11 +689,21 @@ export function ImportReviewTree({
       setNewPlatform(null);
       return;
     }
+    if (isMiscPlatform(name)) {
+      if (!hasMiscPlatform(creator)) return; // the input stays open with its hint
+      setRows((prev) =>
+        prev.map((r) => (r.creator === creator ? { ...r, platform: MISC, platformAuto: false } : r)),
+      );
+      setNewPlatform(null);
+      return;
+    }
     registerPlatform(name); // persist it to the shared offered list (un-hides if removed)
     setCustomPlatforms((prev) =>
       prev.includes(name) || (PLATFORMS as readonly string[]).includes(name) ? prev : [...prev, name],
     );
-    setRows((prev) => prev.map((r) => (r.creator === creator ? { ...r, platform: name } : r)));
+    setRows((prev) =>
+      prev.map((r) => (r.creator === creator ? { ...r, platform: name, platformAuto: false } : r)),
+    );
     setNewPlatform(null);
   };
 
@@ -741,6 +767,7 @@ export function ImportReviewTree({
       origArtist: first.origArtist,
       creator: first.creator,
       platform: first.platform,
+      platformAuto: first.platformAuto,
       title,
       category: first.category,
       root: false,
@@ -800,6 +827,9 @@ export function ImportReviewTree({
   /** Picker value -> platform for the backend. null = Unsorted (no platform yet). */
   const platformOf = (v: string): string | null =>
     v === MISC ? MISC_PLATFORM : v && v !== UNSORTED ? v : null;
+  /** The row's platform for the backend, Misc only for a creator who has it. */
+  const sentPlatform = (r: Pick<DraftRow, "platform" | "creator">): string | null =>
+    r.platform === MISC && !hasMiscPlatform(r.creator) ? UNKNOWN_PLATFORM : platformOf(r.platform);
 
   /** The custom names to offer, by creator and platform: the library's, then this review's. */
   const customPool = useMemo(() => {
@@ -851,7 +881,7 @@ export function ImportReviewTree({
     const s = styleOf(r.creator);
     return {
       artist: r.creator.trim() || r.origArtist,
-      platform: platformOf(r.platform),
+      platform: sentPlatform(r),
       year: s === "monthly" ? num(r.year) : null,
       month: s === "monthly" ? num(r.month) : null,
       number: s === "numbered" ? num(r.num) : null,
@@ -1036,7 +1066,8 @@ export function ImportReviewTree({
   const firstRow = rows[0];
   const quickArtist = (lockedArtist ?? firstRow?.creator ?? rootName).trim() || rootName;
   // quick import = sort it later: without a known platform it goes to Unsorted
-  const quickPlatform = platformOf(firstRow?.platform ?? UNSORTED);
+  const quickPlatform =
+    !firstRow || firstRow.platformAuto ? null : sentPlatform({ platform: firstRow.platform, creator: quickArtist });
   const quickPlatformLabel = quickPlatform ?? t("Unsorted");
   // the dropped folder bundled into one reward: its name
   const rootRow = activeRows.find((r) => r.folder === root);
@@ -1176,9 +1207,12 @@ export function ImportReviewTree({
                   // the library creator of this group, if any
                   const known = artists.find((a) => normName(a.name) === normName(node.creator));
                   const allRows = node.periods.flatMap((p) => p.rows);
-                  const groupPlatform = allRows.every((r) => r.platform === allRows[0]?.platform)
+                  const sharedPlatform = allRows.every((r) => r.platform === allRows[0]?.platform)
                     ? allRows[0]?.platform ?? UNSORTED
                     : "";
+                  const canMisc = hasMiscPlatform(node.creator);
+                  // renamed to a creator without Misc: shown as what will be sent
+                  const groupPlatform = sharedPlatform === MISC && !canMisc ? UNKNOWN_PLATFORM : sharedPlatform;
                   // year/month shared by all rewards (empty if they differ)
                   const sharedYear =
                     allRows.length > 0 && allRows.every((r) => r.year === allRows[0].year)
@@ -1298,7 +1332,9 @@ export function ImportReviewTree({
                             }
                             if (v)
                               setRows((prev) =>
-                                prev.map((r) => (r.creator === node.creator ? { ...r, platform: v } : r)),
+                                prev.map((r) =>
+                                  r.creator === node.creator ? { ...r, platform: v, platformAuto: false } : r,
+                                ),
                               );
                           }}
                           options={[
@@ -1306,8 +1342,12 @@ export function ImportReviewTree({
                               ? [{ value: "", label: t("(mixed)"), muted: true }]
                               : []),
                             ...platformOptions.map((p) => ({ value: p, label: p })),
+                            // the default has to be in the list, also when it's hidden in Settings
+                            ...(platformOptions.some((p) => p.toLowerCase() === UNKNOWN_PLATFORM.toLowerCase())
+                              ? []
+                              : [{ value: UNKNOWN_PLATFORM, label: UNKNOWN_PLATFORM }]),
                             // then Misc and Unsorted, "+ Platform…" always the very last
-                            { value: MISC, label: t("Misc") },
+                            ...(canMisc ? [{ value: MISC, label: t("Misc") }] : []),
                             { value: UNSORTED, label: t("Unsorted") },
                             { value: "__add__", label: t("+ Platform…"), muted: true },
                           ]}
@@ -1318,7 +1358,7 @@ export function ImportReviewTree({
                         />
                       </div>
                       {newPlatform !== null && (
-                        <div className="mb-2 flex items-center gap-1.5">
+                        <div className="mb-2 flex flex-wrap items-center gap-1.5">
                           <input
                             autoFocus
                             data-enter-local
@@ -1350,6 +1390,9 @@ export function ImportReviewTree({
                           >
                             ✕
                           </button>
+                          {isMiscPlatform(newPlatform) && !canMisc && (
+                            <p className="w-full text-xs text-amber-300">{t("“Misc” can’t be a platform.")}</p>
+                          )}
                         </div>
                       )}
 

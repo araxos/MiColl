@@ -311,7 +311,7 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
                     )}{" "}
                     <b className="text-zinc-300">{t("Unsorted")}</b>
                     {t(" until you pick one;")}{" "}
-                    <b className="text-zinc-300">{t("Misc")}</b>
+                    <b className="text-zinc-300">Unknown</b>
                     {t(" is for the ones you’ll never know. You can add more platforms whenever.")}
                   </p>
 

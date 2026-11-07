@@ -2284,6 +2284,29 @@ pub fn mark_all_rewards_seen(conn: &Connection) -> rusqlite::Result<usize> {
     conn.execute("UPDATE rewards SET fresh = 0 WHERE fresh <> 0", [])
 }
 
+/// "Misc" is the word for rewards without a date, so nobody gets a new platform with that
+/// name. A creator who already has it keeps it. artist_id None = a creator not made yet.
+pub fn check_new_platform(conn: &Connection, artist_id: Option<i64>, platform: &str) -> Result<(), String> {
+    if !platform.trim().eq_ignore_ascii_case("misc") {
+        return Ok(());
+    }
+    let has = match artist_id {
+        Some(id) => conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM periods WHERE artist_id = ?1 AND lower(trim(platform)) = 'misc')",
+                [id],
+                |r| r.get::<_, bool>(0),
+            )
+            .map_err(|e| e.to_string())?,
+        None => false,
+    };
+    if has {
+        Ok(())
+    } else {
+        Err("“Misc” can’t be a platform.".to_string())
+    }
+}
+
 /// The creator with this name in any spelling of its case. Compared in Rust: on disk
 /// "Ä" and "ä" are one folder, SQLite's NOCASE is ASCII only.
 pub fn artist_named(conn: &Connection, name: &str) -> rusqlite::Result<Option<String>> {
@@ -3807,6 +3830,27 @@ mod tests {
         assert!(db.is_poisoned());
         let one: i64 = db.conn().query_row("SELECT 1", [], |r| r.get(0)).unwrap();
         assert_eq!(one, 1);
+    }
+
+    /// Nobody gets a new Misc platform, a creator who has one keeps it.
+    #[test]
+    fn misc_is_no_new_platform() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        let without = create_artist(&conn, "Nora", None, false).unwrap();
+        let with = create_artist(&conn, "Mina", None, false).unwrap();
+        conn.execute(
+            "INSERT INTO periods(artist_id, platform, label, folder_path) VALUES(?1, 'Misc', 'Misc', 'k')",
+            [with],
+        )
+        .unwrap();
+
+        assert!(check_new_platform(&conn, Some(without), "Misc").is_err());
+        assert!(check_new_platform(&conn, Some(without), " mISC ").is_err());
+        assert!(check_new_platform(&conn, None, "misc").is_err());
+        assert!(check_new_platform(&conn, Some(with), "misc").is_ok());
+        assert!(check_new_platform(&conn, Some(without), "Unknown").is_ok());
+        assert!(check_new_platform(&conn, Some(without), "Miscellaneous").is_ok());
     }
 
     /// "nora" is Nora: making it would overwrite her or add a second one in one folder.

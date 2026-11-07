@@ -40,6 +40,7 @@ import {
   usePlatformOptions,
   usePlatformPrefs,
   addPlatform as registerPlatform,
+  isMiscPlatform,
 } from "@/lib/platformRegistry";
 import * as api from "@/api/library";
 import { type MenuItem } from "@/components/ContextMenu";
@@ -209,6 +210,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
       setNewPlatform(null); // already exists — just close the input
       return;
     }
+    if (isMiscPlatform(name)) return; // the input stays open with its hint
     registerPlatform(name); // remember it in the shared list (un-hides if removed)
     void addPlatform(name);
   };
@@ -1240,7 +1242,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                       {t("Add platform…")}
                     </button>
                   ) : (
-                    <div className="flex items-center gap-1 p-1">
+                    <div className="flex flex-wrap items-center gap-1 p-1">
                       <input
                         autoFocus
                         value={newPlatform}
@@ -1264,6 +1266,9 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                       >
                         {t("Add")}
                       </button>
+                      {isMiscPlatform(newPlatform) && (
+                        <p className="w-full px-1 text-xs text-amber-300">{t("“Misc” can’t be a platform.")}</p>
+                      )}
                     </div>
                   )}
                 </div>

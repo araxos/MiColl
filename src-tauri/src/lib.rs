@@ -1216,6 +1216,10 @@ fn clear_broken_collabs(db: State<Db>) -> Result<u32, String> {
 #[tauri::command]
 fn set_period_platform(db: State<Db>, period_id: i64, platform: String) -> Result<(), String> {
     let conn = db.conn();
+    let artist_id = conn
+        .query_row("SELECT artist_id FROM periods WHERE id = ?1", [period_id], |r| r.get(0))
+        .map_err(map_err)?;
+    db::check_new_platform(&conn, Some(artist_id), &platform)?;
     db::set_period_platform(&conn, period_id, &platform).map_err(map_err)
 }
 
@@ -2694,6 +2698,9 @@ fn ensure_period_in(
     let (artist, _no_dates) = db::artist_info(conn, artist_id)
         .map_err(map_err)?
         .ok_or_else(|| "Artist not found.".to_string())?;
+    if let Some(p) = platform {
+        db::check_new_platform(conn, Some(artist_id), p)?;
+    }
     let key = indexer::period_key(&artist, platform, year, month, number);
     if let Some(id) = db::period_id_by_key(conn, &key).map_err(map_err)? {
         return Ok(id); // already exists — reuse it
@@ -2721,6 +2728,9 @@ fn ensure_custom_period(
 ) -> Result<i64, String> {
     let conn = db.conn();
     let plat = platform.as_deref();
+    if let Some(p) = plat {
+        db::check_new_platform(&conn, Some(artist_id), p)?;
+    }
     let year = indexer::custom_word(year_name.as_deref())
         .map(|n| db::custom_year(&conn, artist_id, plat, &n))
         .transpose()
@@ -2850,6 +2860,10 @@ fn add_wish(
     }
     let platform = platform.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
     let conn = db.conn();
+    if let Some(p) = platform.as_deref() {
+        let known = db::artist_id_by_name(&conn, &creator).map_err(map_err)?;
+        db::check_new_platform(&conn, known, p)?;
+    }
 
     // look up the creator first, create_artist would also change no_dates
     let artist_id = match db::artist_id_by_name(&conn, &creator).map_err(map_err)? {
@@ -4543,6 +4557,9 @@ fn create_artist(
     if !db::RELEASE_STYLES.contains(&style) {
         return Err(format!("Unknown release style '{style}'."));
     }
+    for p in &platforms {
+        db::check_new_platform(&conn, None, p)?;
+    }
     let dated = style == "monthly";
     let no_dates = style == "none";
     // the custom style's years, as their folders are called
@@ -4883,6 +4900,13 @@ fn commit_import(
     open_as_cards: Option<bool>,
 ) -> Result<ScanSummary, String> {
     let conn = db.conn();
+    // before anything moves
+    for r in &rewards {
+        if let Some(p) = r.platform.as_deref() {
+            let known = db::artist_id_by_name(&conn, &r.artist).map_err(map_err)?;
+            db::check_new_platform(&conn, known, p)?;
+        }
+    }
     // creators this import makes new (undoing it removes them again when left empty)
     let new_artists: std::collections::HashSet<String> = rewards
         .iter()
@@ -5728,6 +5752,7 @@ fn add_artist_platform(
         .map_err(map_err)?
         .ok_or("Artist not found.")?;
     let platform = platform.trim();
+    db::check_new_platform(&conn, Some(artist_id), platform)?;
     if platform.is_empty() {
         return Err("Platform name is required.".into());
     }

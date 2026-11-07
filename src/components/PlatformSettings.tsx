@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Layers, Plus, X } from "lucide-react";
 import { useData } from "@/store";
-import { usePlatformOptions, addPlatform, removePlatform } from "@/lib/platformRegistry";
+import { usePlatformOptions, addPlatform, isMiscPlatform, removePlatform } from "@/lib/platformRegistry";
 import { PLATFORMS } from "@/lib/platforms";
 import { cn } from "@/lib/utils";
 import { useT, useTf } from "@/lib/i18n";
@@ -36,7 +36,9 @@ export function PlatformSettings({ glass, irid }: { glass: string; irid: boolean
     return m;
   }, [artists]);
 
+  const miscTyped = isMiscPlatform(draft);
   const add = () => {
+    if (miscTyped) return;
     const nm = draft.trim();
     if (nm) addPlatform(nm);
     setDraft("");
@@ -113,7 +115,7 @@ export function PlatformSettings({ glass, irid }: { glass: string; irid: boolean
         />
         <button
           onClick={add}
-          disabled={!draft.trim()}
+          disabled={!draft.trim() || miscTyped}
           className={cn(
             "inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition-colors disabled:opacity-40",
             irid
@@ -125,6 +127,7 @@ export function PlatformSettings({ glass, irid }: { glass: string; irid: boolean
           {t("Add platform")}
         </button>
       </div>
+      {miscTyped && <p className="mt-1.5 text-xs text-amber-300">{t("“Misc” can’t be a platform.")}</p>}
 
       {/* built-ins not in the list, so you don't have to type them (and misspell them) */}
       {suggestions.length > 0 && (
