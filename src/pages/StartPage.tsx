@@ -470,9 +470,11 @@ export function StartPage({ onLock }: { onLock: () => void }) {
         // hidden creators are left out unless "Show hidden creators" is on
         (showHidden || !a.hidden) &&
         !!a.graveyard === graveyard &&
-        matchesType(a) &&
-        // class filter: empty = all, else only the chosen classes ("none" = no class)
-        (classFilter.size === 0 || classFilter.has(a.tag ?? "none")),
+        // a search finds every creator, the type and class filters only sort the wall
+        (ql.trim() !== "" ||
+          (matchesType(a) &&
+            // class filter: empty = all, else only the chosen classes ("none" = no class)
+            (classFilter.size === 0 || classFilter.has(a.tag ?? "none")))),
     );
     return sortList(list, sortField, sortDir);
   }, [
@@ -1027,17 +1029,29 @@ export function StartPage({ onLock }: { onLock: () => void }) {
             )}
             <ImportFolderButton className={cn(iriOutline, bareIcon)} />
             <Button
-              // sakura glass on outline (primary's !important would paint over it)
-              variant={sakura ? "outline" : "primary"}
+              // sakura glass on outline (primary's !important would paint over it), pyre
+              // is lit letters without a box (index.css .ruby-create), so on ghost
+              variant={sakura ? "outline" : accent === "corruptruby" ? "ghost" : "primary"}
               onClick={() => setAddOpen(true)}
               disabled={!backed}
               // cyberpunk: 3D split + glitch on hover (index.css .cp-create), the label
               // "decrypts" itself
               onMouseEnter={cyber ? () => setCreateHover(true) : undefined}
               onMouseLeave={cyber ? () => setCreateHover(false) : undefined}
-              className={cn(iriLead, sakura && sakChipLead, casualLead, cyber && "cp-create")}
+              className={cn(
+                iriLead,
+                sakura && sakChipLead,
+                casualLead,
+                cyber && "cp-create",
+                accent === "corruptruby" && "ruby-create",
+              )}
             >
-              <Plus className="h-4 w-4" strokeWidth={casualLead || cyber ? 2.5 : 2} />
+              {accent === "corruptruby" ? (
+                // the logo's four-point star instead of the plus
+                <span aria-hidden className="ruby-create-star" />
+              ) : (
+                <Plus className="h-4 w-4" strokeWidth={casualLead || cyber ? 2.5 : 2} />
+              )}
               {cyber ? (
                 <CyberScramble text={t("Create Card")} active={createHover} />
               ) : (

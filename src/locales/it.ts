@@ -2110,4 +2110,8 @@ export const dict: Dict = {
   "Silk fire": "Fuoco di seta",
   "Group": "Gruppo",
   "“Misc” can’t be a platform.": "“Misc” non può essere una piattaforma.",
+  "Clear search": "Cancella ricerca",
+  "Link": "Link",
+  "— optional, fills in the name and platform": "— facoltativo, compila nome e piattaforma",
+  "Paste a Patreon, Fansly, Ko-fi … link": "Incolla un link di Patreon, Fansly, Ko-fi …",
 };

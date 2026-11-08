@@ -636,6 +636,36 @@
     inset 0 0 6px #ff1464;
   animation: ruby-lit-breathe 3.4s steps(34) infinite;
 }
+/* the update button: a dark key, a light running round its rim, a white-hot crystal on
+   the corner glowing like a headlight */
+[data-accent="corruptruby"] header .ruby-update[data-lit] {
+  border: 0;
+  border-radius: 3px;
+  background-color: rgba(8, 2, 6, 0.7);
+  box-shadow: inset 0 0 0 1px rgba(233, 237, 242, 0.22);
+  animation: none;
+}
+[data-accent="corruptruby"] .ruby-update-run {
+  padding: 1px;
+  border-radius: 3px;
+  filter: drop-shadow(0 0 3px #ff1464);
+}
+[data-accent="corruptruby"] .ruby-update-gem {
+  position: absolute;
+  right: -4px;
+  top: -4px;
+  pointer-events: none;
+  filter:
+    drop-shadow(0 0 3px #ff5cc0)
+    drop-shadow(0 0 8px rgba(255, 45, 154, 0.85));
+}
+[data-accent="corruptruby"] .ruby-update-gem > i {
+  display: block;
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
 @keyframes ruby-lit-breathe {
   0%, 100% { box-shadow: 0 0 7px #ff1464, inset 0 0 4px #ff1464; }
   50% { box-shadow: 0 0 14px #ff1464, inset 0 0 8px #ff1464; }
@@ -1190,6 +1220,136 @@ html[data-holo-freq="2"] :is(.ruby-run i, .ruby-frame-glow, .ruby-frame-sheen, .
 }
 [data-accent="corruptruby"] .ruby-panel button:hover:not(:disabled) {
   text-shadow: 0 0 7px rgba(255, 20, 100, 0.9);
+}
+/* Create Card: a neon sign, lit letters and no box, a line of light under them */
+[data-accent="corruptruby"] .ruby-create {
+  position: relative;
+  gap: 8px;
+  padding: 0 10px;
+  background: none;
+  font-family: "Pyre Display", var(--ruby-display);
+  font-size: 17px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ffe9f0;
+  text-shadow:
+    0 0 4px #ff2d7a,
+    0 0 12px #ff2d7a,
+    0 0 26px rgba(255, 45, 122, 0.7);
+  transition:
+    color 0.18s ease,
+    text-shadow 0.18s ease;
+}
+[data-accent="corruptruby"] .ruby-create::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 4px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 122, 168, 0.6), transparent);
+  transition: background 0.18s ease, box-shadow 0.18s ease;
+}
+[data-accent="corruptruby"] .ruby-create:hover:not(:disabled) {
+  color: #fff;
+  background: none;
+  text-shadow:
+    0 0 4px #fff,
+    0 0 10px #ff2d7a,
+    0 0 22px #ff2d7a,
+    0 0 40px rgba(255, 45, 122, 0.9);
+}
+[data-accent="corruptruby"] .ruby-create:hover:not(:disabled)::after {
+  background: linear-gradient(90deg, transparent, #fff, transparent);
+  box-shadow: 0 0 8px #ff2d7a;
+}
+.ruby-create-star {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  background: #ffe9f0;
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+}
+/* the clip would cut a glow on the star itself, so it sits on a wrapper-less filter here */
+[data-accent="corruptruby"] .ruby-create .ruby-create-star {
+  filter: drop-shadow(0 0 4px #ff2d7a);
+}
+
+/* right-click menus: a dark plate in a chrome line with two corners cut. Plate and line
+   are pseudo elements, a clip on the menu itself would cut its glow and its submenus */
+[data-accent="corruptruby"] .ctx-menu.ruby-panel {
+  --ruby-menu-cut: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  filter: drop-shadow(0 0 12px rgba(255, 20, 100, 0.32)) drop-shadow(0 12px 26px rgba(0, 0, 0, 0.6));
+}
+[data-accent="corruptruby"] .ctx-menu.ruby-panel::before,
+[data-accent="corruptruby"] .ctx-menu.ruby-panel::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  clip-path: var(--ruby-menu-cut);
+  pointer-events: none;
+}
+[data-accent="corruptruby"] .ctx-menu.ruby-panel::before {
+  inset: 0;
+  background: linear-gradient(125deg, #ffffff, #8e95a3 30%, #ffe6f0 50%, #7e7688 72%, #f4f0f6);
+}
+[data-accent="corruptruby"] .ctx-menu.ruby-panel::after {
+  inset: 1px;
+  background: linear-gradient(160deg, #17060e, #0a0206 55%, #1a0510);
+}
+/* a list that may scroll (the leaf submenus): plates would scroll away with it. It has
+   no submenus to cut off, so the clip goes on the list itself, plate and line as two
+   backgrounds */
+[data-accent="corruptruby"] .ctx-menu.ruby-panel.overflow-y-auto {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(160deg, #17060e, #0a0206 55%, #1a0510) padding-box,
+    linear-gradient(125deg, #ffffff, #8e95a3 30%, #ffe6f0 50%, #7e7688 72%, #f4f0f6) border-box;
+  clip-path: var(--ruby-menu-cut);
+  filter: none;
+}
+[data-accent="corruptruby"] .ctx-menu.ruby-panel.overflow-y-auto::before,
+[data-accent="corruptruby"] .ctx-menu.ruby-panel.overflow-y-auto::after {
+  display: none;
+}
+[data-accent="corruptruby"] .ctx-menu :is(.border-b, .border-t) {
+  border-color: rgba(233, 237, 242, 0.16);
+}
+/* the row under the mouse: a pink wash and a small ruby in front */
+[data-accent="corruptruby"] .ctx-row {
+  position: relative;
+  padding-left: 20px;
+}
+[data-accent="corruptruby"] .ctx-row:hover:not(:disabled),
+[data-accent="corruptruby"] .ctx-row[data-open] {
+  color: #ffffff;
+  background: linear-gradient(90deg, rgba(255, 20, 100, 0.32), rgba(255, 20, 100, 0.14) 55%, rgba(233, 237, 242, 0.05));
+}
+[data-accent="corruptruby"] .ctx-row:hover:not(:disabled)::before,
+[data-accent="corruptruby"] .ctx-row[data-open]::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  background: linear-gradient(135deg, #ff8fb5, #e0115f);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  filter: drop-shadow(0 0 4px #ff1464);
+}
+[data-accent="corruptruby"] .ctx-row:hover:not(:disabled) svg,
+[data-accent="corruptruby"] .ctx-row[data-open] svg {
+  filter: drop-shadow(0 0 3px #ff5c97);
+}
+[data-accent="corruptruby"] .ctx-quick:hover:not(:disabled) {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.07);
 }
 /* picked tile (card shapes, app icons): only the rim burns, the inside stays dark */
 [data-accent="corruptruby"] .pick-on {
@@ -6670,8 +6830,95 @@ html[data-classic-luxe="1"] .classic-corner-q {
 @keyframes imp-stripes {
   to { background-position: 17px 0; }
 }
+/* pyre: a light trail on a dark road, a headlight at its front. The step reads like a
+   title in a film, the number in chrome */
+[data-accent="corruptruby"] .imp-track {
+  position: relative;
+  height: 10px;
+  overflow: visible;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+[data-accent="corruptruby"] .imp-track::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(177, 77, 255, 0.18), rgba(255, 45, 154, 0.18));
+}
+[data-accent="corruptruby"] .imp-fill {
+  height: 2px;
+  margin-top: 4px;
+  overflow: visible;
+  border-radius: 0;
+  background: linear-gradient(90deg, transparent, #7a5cff 18%, #b14dff 40%, #ff2d9a 80%, #fff);
+  box-shadow:
+    0 0 8px #ff2d9a,
+    0 0 2px #fff;
+}
+/* the headlight: a wide thin streak, how a lens sees it, and the hot core */
+[data-accent="corruptruby"] .imp-fill::before {
+  content: "";
+  position: absolute;
+  right: -90px;
+  top: 0;
+  width: 180px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #ff5cc0 30%, #fff 50%, #ff5cc0 70%, transparent);
+  animation: imp-ruby-beam 1.3s ease-in-out infinite;
+}
+[data-accent="corruptruby"] .imp-fill::after {
+  inset: auto -4px auto auto;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    0 0 8px 2px #ff5cc0,
+    0 0 18px 6px rgba(255, 45, 154, 0.65);
+  transform: none;
+  animation: none;
+}
+@keyframes imp-ruby-beam {
+  50% { transform: scaleX(0.7); opacity: 0.75; }
+}
+[data-accent="corruptruby"] .imp-label {
+  font-family: "Pyre Display", var(--ruby-display);
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow:
+    -1px 0 rgba(53, 224, 216, 0.75),
+    1px 0 rgba(255, 45, 154, 0.9),
+    0 0 9px rgba(255, 255, 255, 0.5),
+    0 0 22px rgba(255, 45, 154, 0.55);
+}
+/* the count beside it stays plain */
+[data-accent="corruptruby"] .imp-label > span {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  text-shadow: none;
+}
+[data-accent="corruptruby"] .imp-pct {
+  font-family: "Pyre Display", var(--ruby-display);
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  background: var(--ruby-chrome);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
 @media (prefers-reduced-motion: reduce) {
   .imp-fill,
+  .imp-fill::before,
   .imp-fill::after {
     animation: none !important;
   }

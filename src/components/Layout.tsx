@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import { cn } from "@/lib/utils";
 import { OverlayScrollbar } from "@/components/OverlayScrollbar";
 import { Button } from "@/components/ui/Button";
-import { Lock, Search, Settings, Tv, TvMinimal, Gift, Eye, EyeOff, History, Inbox } from "lucide-react";
+import { Lock, Search, Settings, Tv, TvMinimal, Gift, Eye, EyeOff, History, Inbox, X } from "lucide-react";
 import { GlobeSearchIcon } from "@/lib/globeSearchIcon";
 import { BrandMark } from "@/components/BrandMark";
 import { CyberLogo } from "@/components/CyberLogo";
@@ -265,14 +265,38 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
                   setSearchValue(e.target.value);
                   search.onChange(e.target.value);
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape" && searchValue) {
+                    setSearchValue("");
+                    search.onChange("");
+                  }
+                }}
                 placeholder={search.placeholder ?? t("Search…")}
                 className={cn(
-                  "h-9 w-56 rounded-lg border border-brand-500/25 bg-brand-500/10 pl-8 pr-3 text-sm text-zinc-100 placeholder:text-zinc-400 outline-none transition-colors hover:border-brand-500/40 focus:border-brand-500/60 focus:bg-brand-500/15 focus:ring-2 focus:ring-brand-500/20",
+                  "h-9 w-56 rounded-lg border border-brand-500/25 bg-brand-500/10 pl-8 pr-8 text-sm text-zinc-100 placeholder:text-zinc-400 outline-none transition-colors hover:border-brand-500/40 focus:border-brand-500/60 focus:bg-brand-500/15 focus:ring-2 focus:ring-brand-500/20",
                   // frosted input on iridescent
                   irid &&
                     "border-white/20 bg-white/10 text-zinc-50 placeholder:text-zinc-200 hover:border-white/30 focus:border-white/40 focus:bg-white/15",
                 )}
               />
+              {/* only with text in it. Pyre strokes it in chrome like the other header icons */}
+              {searchValue && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchValue("");
+                    search.onChange("");
+                  }}
+                  title={t("Clear search")}
+                  aria-label={t("Clear search")}
+                  className={cn(
+                    "absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-brand-300/70 transition-colors hover:bg-brand-500/15 hover:text-brand-100",
+                    irid && "text-white/70 hover:bg-white/15 hover:text-white",
+                  )}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           )}
           {/* the chrome the Pyre header icons are stroked with (index.css). In icon units,

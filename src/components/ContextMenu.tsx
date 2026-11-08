@@ -151,8 +151,9 @@ function MenuList({
 
   return (
     <div
+      // ctx-menu / ctx-row / ctx-quick: hooks for the theme looks in index.css
       className={cn(
-        "min-w-[12rem] py-1",
+        "ctx-menu min-w-[12rem] py-1",
         menu,
         scrollable && !hasNested && "max-h-[85vh] overflow-y-auto",
       )}
@@ -190,8 +191,9 @@ function MenuList({
                 if (it.keepOpen) flip(i);
                 else onClose();
               }}
+              data-open={(hasChildren && openSub === i) || undefined}
               className={cn(
-                "flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors",
+                "ctx-row flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors",
                 it.danger ? "text-rose-300 hover:bg-rose-500/15" : cn("text-zinc-200", menuRow),
                 hasChildren && openSub === i && menuRowOpen,
               )}
@@ -239,7 +241,7 @@ function QuickRow({ items, onClose }: { items: MenuItem[]; onClose: () => void }
             onMouseLeave={() => setHover((h) => (h === i ? null : h))}
             aria-label={it.label}
             className={cn(
-              "flex w-full items-center justify-center rounded-lg py-2 transition-colors",
+              "ctx-quick flex w-full items-center justify-center rounded-lg py-2 transition-colors",
               it.danger ? "text-rose-300 hover:bg-rose-500/15" : cn("text-zinc-200", menuRow),
             )}
           >

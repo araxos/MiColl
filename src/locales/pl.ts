@@ -2186,4 +2186,8 @@ export const dict: Dict = {
   "Silk fire": "Jedwabny ogień",
   "Group": "Grupa",
   "“Misc” can’t be a platform.": "„Misc” nie może być platformą.",
+  "Clear search": "Wyczyść wyszukiwanie",
+  "Link": "Link",
+  "— optional, fills in the name and platform": "— opcjonalnie, uzupełnia nazwę i platformę",
+  "Paste a Patreon, Fansly, Ko-fi … link": "Wklej link z Patreona, Fansly, Ko-fi …",
 };

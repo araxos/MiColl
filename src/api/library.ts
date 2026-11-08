@@ -2165,8 +2165,9 @@ export interface CreateArtistArgs {
   kind?: string | null;
 }
 
-export async function createArtist(args: CreateArtistArgs): Promise<void> {
-  await invoke("create_artist", {
+/** Returns the new creator's id. */
+export async function createArtist(args: CreateArtistArgs): Promise<string> {
+  const id = await invoke<number>("create_artist", {
     name: args.name,
     preview: args.preview,
     baseDir: args.baseDir,
@@ -2177,6 +2178,7 @@ export async function createArtist(args: CreateArtistArgs): Promise<void> {
     releaseStyle: args.releaseStyle,
     kind: args.kind ?? null,
   });
+  return String(id);
 }
 
 /* ---- artist templates ------------------------------------------------ */

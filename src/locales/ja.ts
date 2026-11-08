@@ -2079,4 +2079,8 @@ export const dict: Dict = {
   "Silk fire": "シルクの炎",
   "Group": "グループ",
   "“Misc” can’t be a platform.": "「Misc」はプラットフォームにできません。",
+  "Clear search": "検索をクリア",
+  "Link": "リンク",
+  "— optional, fills in the name and platform": "— 任意。名前とプラットフォームを入力します",
+  "Paste a Patreon, Fansly, Ko-fi … link": "Patreon・Fansly・Ko-fi などのリンクを貼り付け",
 };

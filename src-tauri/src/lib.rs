@@ -4543,7 +4543,7 @@ fn create_artist(
     year_names: Vec<String>,
     release_style: Option<String>,
     kind: Option<String>,
-) -> Result<(), String> {
+) -> Result<i64, String> {
     let conn = db.conn();
     let clean = sanitize_name(&name);
     if clean.is_empty() {
@@ -4657,7 +4657,7 @@ fn create_artist(
             seed(p, None, None).map_err(map_err)?;
         }
     }
-    Ok(())
+    Ok(artist_id)
 }
 
 /// An empty period for a new creator's folder.

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -25,6 +25,8 @@ import { useT, useTf } from "@/lib/i18n";
 import { useNavigate } from "react-router-dom";
 import * as api from "@/api/library";
 import { uniqueNames } from "@/lib/customOrder";
+import { parseCreatorLink, withScheme } from "@/lib/creatorLink";
+import { hostOf, linkName } from "@/lib/linkIcons";
 
 /** Like the import: case, spaces, dots and dashes don't tell creators apart. */
 const normName = (s: string) => s.toLowerCase().replace(/[\s_.\-]+/g, "");
@@ -129,6 +131,12 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
   );
 
   const [name, setName] = useState("");
+  // a pasted creator link fills in the name and the platform, and is saved as a link
+  const [link, setLink] = useState("");
+  // the name the link filled in, a later link may replace it but not a typed one
+  const autoName = useRef("");
+  // the platform the link picked (one picked by hand stays when the link changes)
+  const autoPlatform = useRef<string | null>(null);
   const [kinds, setKinds] = useState<Set<string>>(new Set());
   const [previewPath, setPreviewPath] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<string>("");
@@ -273,12 +281,44 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
 
   const canCreate = name.trim().length > 0 && !busy && !existing?.same;
 
+  const onLink = (v: string) => {
+    setLink(v);
+    const found = parseCreatorLink(v);
+    const plat = found
+      ? platformOptions.find((p) => p.toLowerCase() === found.platform.toLowerCase()) ?? found.platform
+      : null;
+    // a new link takes back what the last one filled in, never what was typed or picked
+    const oldPlat = autoPlatform.current;
+    if (oldPlat && oldPlat !== plat) {
+      setPlatforms((prev) => {
+        const next = new Set(prev);
+        next.delete(oldPlat);
+        return next;
+      });
+      autoPlatform.current = null;
+    }
+    const newName = found?.name ?? "";
+    if (!name.trim() || name === autoName.current) {
+      setName(newName);
+      autoName.current = newName;
+    }
+    if (!plat || plat === oldPlat) return;
+    if (!platformOptions.some((p) => p.toLowerCase() === plat.toLowerCase())) {
+      setCustomPlatforms((prev) => [...prev, plat]);
+    }
+    if (!platforms.has(plat)) {
+      setPlatforms((prev) => new Set(prev).add(plat));
+      autoPlatform.current = plat;
+    }
+  };
+  const linkUrl = hostOf(link.trim()) ? withScheme(link) : "";
+
   const create = async () => {
     if (!canCreate) return;
     setBusy(true);
     setCreateError(null);
     try {
-      await api.createArtist({
+      const id = await api.createArtist({
         name: name.trim(),
         preview: previewPath,
         baseDir,
@@ -292,6 +332,7 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
           ? CREATOR_TYPES.filter((t) => kinds.has(t.key)).map((t) => t.key).join(",")
           : null,
       });
+      if (linkUrl) await api.setArtistLinks(id, [{ label: linkName(linkUrl), url: linkUrl }]);
       await refresh();
       onClose();
     } catch (e) {
@@ -344,9 +385,20 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
 
             <div className="min-w-0 flex-1 space-y-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-zinc-400">{t("Card name")}</label>
+                <label className="mb-1 block text-xs font-medium text-zinc-400">
+                  {t("Link")} <span className="text-zinc-600">{t("— optional, fills in the name and platform")}</span>
+                </label>
                 <input
                   autoFocus
+                  value={link}
+                  onChange={(e) => onLink(e.target.value)}
+                  placeholder={t("Paste a Patreon, Fansly, Ko-fi … link")}
+                  className={cn("h-9 w-full", fieldCls)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-zinc-400">{t("Card name")}</label>
+                <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder={t("e.g. Misato Katsuragi")}

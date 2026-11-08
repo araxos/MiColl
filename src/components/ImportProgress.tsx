@@ -119,7 +119,8 @@ export function ImportProgress({
       <div className="px-5 pb-4 pt-3">
       <div className="mb-2 flex items-center justify-between gap-3 text-xs">
         <span className={cn("imp-label font-medium", dlg.accentText)}>
-          {label}
+          {/* pyre sets it as a title, its font has no ellipsis */}
+          {accent === "corruptruby" ? label.replace(/[….]+$/, "") : label}
           {/* the rewards being filed in; encrypting checks the whole library, no count there */}
           {step === "organize" && subTotal > 0 && (
             <span className="ml-1.5 font-normal tabular-nums text-zinc-400">
@@ -127,7 +128,7 @@ export function ImportProgress({
             </span>
           )}
         </span>
-        <span className="tabular-nums text-zinc-400">{Math.round(pct)}%</span>
+        <span className="imp-pct tabular-nums text-zinc-400">{Math.round(pct)}%</span>
       </div>
       <div className={cn("imp-track h-2 overflow-hidden", accent === "cyberpunk" ? "rounded-none" : "rounded-full")}>
         <div className="imp-fill h-full" style={{ width: `${pct}%` }} />

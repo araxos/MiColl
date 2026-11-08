@@ -2079,4 +2079,8 @@ export const dict: Dict = {
   "Silk fire": "丝绸之火",
   "Group": "团体",
   "“Misc” can’t be a platform.": "“Misc” 不能用作平台。",
+  "Clear search": "清除搜索",
+  "Link": "链接",
+  "— optional, fills in the name and platform": "— 可选,自动填写名称和平台",
+  "Paste a Patreon, Fansly, Ko-fi … link": "粘贴 Patreon、Fansly、Ko-fi 等链接",
 };
