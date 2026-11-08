@@ -2190,4 +2190,8 @@ export const dict: Dict = {
   "Link": "Link",
   "— optional, fills in the name and platform": "— opcjonalnie, uzupełnia nazwę i platformę",
   "Paste a Patreon, Fansly, Ko-fi … link": "Wklej link z Patreona, Fansly, Ko-fi …",
+  "Add version": "Dodaj wersję",
+  "Couldn’t add the version": "Nie udało się dodać wersji",
+  "Version added": "Dodano wersję",
+  "Versions added": "Dodano wersje",
 };

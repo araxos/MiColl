@@ -116,6 +116,8 @@ windows = { version = "0.61", features = [
     "Win32_Networking_NetworkListManager",
     # "Start with Windows": the entry under HKCU\...\Run (see set_autostart).
     "Win32_System_Registry",
+    # A delete held by a COM Surrogate: who holds the file (see unlock.rs).
+    "Win32_System_RestartManager",
 ] }
 # WinRT collections. `DataPackage::SetStorageItemsReadOnly` wants an `IIterable`, and
 # the `windows` crate re-exports only `windows_core` — so this one is named directly.

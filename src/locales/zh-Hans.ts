@@ -2083,4 +2083,8 @@ export const dict: Dict = {
   "Link": "链接",
   "— optional, fills in the name and platform": "— 可选,自动填写名称和平台",
   "Paste a Patreon, Fansly, Ko-fi … link": "粘贴 Patreon、Fansly、Ko-fi 等链接",
+  "Add version": "添加版本",
+  "Couldn’t add the version": "无法添加版本",
+  "Version added": "已添加版本",
+  "Versions added": "已添加版本",
 };

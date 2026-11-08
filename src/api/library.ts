@@ -1355,6 +1355,14 @@ export async function saveImageVersion(
   return invoke<ImageVersion>("save_image_version", { origPath, imageB64, label: label ?? null });
 }
 
+/**
+ * Add a picture from disk (edited elsewhere) as a version of the original. The file is
+ * copied, the new version becomes the active view.
+ */
+export async function addImageVersionFromFile(origPath: string, srcPath: string): Promise<ImageVersion> {
+  return invoke<ImageVersion>("add_image_version_from_file", { origPath, srcPath });
+}
+
 /** List an image's versions plus which one is active (null = original). */
 export async function listImageVersions(
   origPath: string,

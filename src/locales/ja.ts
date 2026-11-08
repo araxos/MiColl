@@ -2083,4 +2083,8 @@ export const dict: Dict = {
   "Link": "リンク",
   "— optional, fills in the name and platform": "— 任意。名前とプラットフォームを入力します",
   "Paste a Patreon, Fansly, Ko-fi … link": "Patreon・Fansly・Ko-fi などのリンクを貼り付け",
+  "Add version": "バージョンを追加",
+  "Couldn’t add the version": "バージョンを追加できませんでした",
+  "Version added": "バージョンを追加しました",
+  "Versions added": "バージョンを追加しました",
 };

@@ -17,6 +17,7 @@ mod single_instance;
 mod template;
 mod thumbs;
 mod transfer;
+mod unlock;
 mod history;
 mod inbox;
 mod siteicon;
@@ -1439,8 +1440,25 @@ thread_local! {
 
 /// Recycle a path and, while a delete runs (TrashJournal), note it: undoing the delete
 /// fetches exactly these back.
-fn recycle(p: &std::path::Path) -> Result<(), trash::Error> {
-    trash::delete(p)?;
+/// A file still held by a COM Surrogate (dllhost.exe, Explorer's thumbnails) is freed
+/// and the delete tried again. Any other program that holds a file is named.
+fn recycle(p: &std::path::Path) -> Result<(), String> {
+    if let Err(first) = trash::delete(p) {
+        match unlock::free(p) {
+            unlock::Freed::Surrogates(n) => {
+                applog::write(
+                    "info",
+                    "delete",
+                    &format!("ended {n} COM Surrogate (dllhost.exe) holding {}", p.display()),
+                );
+                trash::delete(p).map_err(|e| e.to_string())?;
+            }
+            unlock::Freed::Others(names) => {
+                return Err(format!("a file in it is open in {}", names.join(", ")));
+            }
+            unlock::Freed::Nobody => return Err(first.to_string()),
+        }
+    }
     TRASH_JOURNAL.with(|j| {
         if let Some(v) = j.borrow_mut().as_mut() {
             v.push(p.to_string_lossy().to_string());
@@ -4127,10 +4145,11 @@ fn trash_dir(path: &std::path::Path) -> Option<String> {
 /// Turn the failures into one message (what stayed and the usual reason).
 fn trash_failure_message(failed: &[String]) -> String {
     format!(
-        "Couldn't move {} to the Recycle Bin, so {} still in MiColl:\n{}\n\nWindows refuses this \
-         when an item is larger than the Recycle Bin's quota for that drive. Empty the Recycle \
-         Bin or raise its size (right-click it → Properties), then try again — or delete the \
-         folder in Explorer and use \"Remove from MiColl only\".",
+        "Couldn't move {} to the Recycle Bin, so {} still in MiColl:\n{}\n\nIf a program is \
+         named, close the file there and try again. Otherwise Windows refuses this when an item \
+         is larger than the Recycle Bin's quota for that drive: empty the Recycle Bin or raise \
+         its size (right-click it → Properties), then try again — or delete the folder in \
+         Explorer and use \"Remove from MiColl only\".",
         if failed.len() == 1 { "this folder" } else { "these folders" },
         if failed.len() == 1 { "it is" } else { "they are" },
         failed.join("\n"),
@@ -6507,7 +6526,7 @@ fn discard_extracted(app: AppHandle, path: String) -> Result<(), String> {
 #[tauri::command]
 fn trash_path(db: State<Db>, path: String, reason: Option<String>) -> Result<(), String> {
     if std::path::Path::new(&path).exists() {
-        trash::delete(&path).map_err(map_err)?;
+        recycle(std::path::Path::new(&path))?;
         if reason.as_deref() == Some("import") {
             let conn = db.conn();
             history::log(
@@ -7085,6 +7104,62 @@ fn save_image_version(
         None => bytes,
     };
     crypto::atomic_write(&dest, &to_write)?;
+    let file_path = dest.to_string_lossy().to_string();
+    conn.execute(
+        "UPDATE image_versions SET file_path = ?2 WHERE id = ?1",
+        rusqlite::params![id, file_path],
+    )
+    .map_err(map_err)?;
+    db::set_active_version(&conn, &orig_path, Some(id)).map_err(map_err)?;
+    Ok(db::ImageVersion { id, orig_path, file_path, label, created_at: None })
+}
+
+/// A picture from disk (edited elsewhere, an own version) added as a VERSION of
+/// orig_path. The file is copied, never moved, and kept in its own format. Becomes active.
+#[tauri::command]
+fn add_image_version_from_file(
+    app: AppHandle,
+    db: State<Db>,
+    dek: State<DekState>,
+    orig_path: String,
+    src_path: String,
+) -> Result<db::ImageVersion, String> {
+    let src = std::path::Path::new(&src_path);
+    let bytes = std::fs::read(src).map_err(|e| format!("read {}: {e}", src.display()))?;
+    let ext = match image::guess_format(&bytes) {
+        Ok(image::ImageFormat::Png) => "png",
+        Ok(image::ImageFormat::Jpeg) => "jpg",
+        Ok(image::ImageFormat::WebP) => "webp",
+        Ok(image::ImageFormat::Gif) => "gif",
+        Ok(image::ImageFormat::Bmp) => "bmp",
+        _ => return Err(format!("{} isn't a picture MiColl can show", src.display())),
+    };
+    let label = src
+        .file_stem()
+        .map(|s| s.to_string_lossy().trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let dir = app_data(&app)?.join("versions");
+    std::fs::create_dir_all(&dir).map_err(map_err)?;
+    let key = session_key(&dek);
+
+    let conn = db.conn();
+    let id = db::add_image_version(&conn, &orig_path, "", label.as_deref()).map_err(map_err)?;
+    // <id>.<ext>, never over a file that's left from an old version
+    let mut dest = dir.join(format!("{id}.{ext}"));
+    let mut n = 2;
+    while dest.exists() {
+        dest = dir.join(format!("{id}_{n}.{ext}"));
+        n += 1;
+    }
+    let to_write = match key {
+        Some(k) => crypto::Dek::from_bytes(k).encrypt_bytes(&bytes),
+        None => bytes,
+    };
+    if let Err(e) = crypto::atomic_write(&dest, &to_write) {
+        let _ = conn.execute("DELETE FROM image_versions WHERE id = ?1", [id]);
+        return Err(e);
+    }
     let file_path = dest.to_string_lossy().to_string();
     conn.execute(
         "UPDATE image_versions SET file_path = ?2 WHERE id = ?1",
@@ -11349,6 +11424,7 @@ pub fn run() {
             save_cover_crop,
             index_added_image,
             save_image_version,
+            add_image_version_from_file,
             list_image_versions,
             image_versions_for,
             set_active_version,

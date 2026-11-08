@@ -45,6 +45,7 @@ import {
   Wallpaper,
   Images,
   LayoutGrid,
+  ImagePlus,
 } from "lucide-react";
 import type { Collection } from "@/types";
 import { Cover } from "@/components/Cover";
@@ -78,6 +79,7 @@ import {
   renameImages,
   moveImages,
   listImageVersions,
+  addImageVersionFromFile,
   setActiveVersion,
   deleteImageVersion,
   type ImageVersion,
@@ -1114,6 +1116,37 @@ export function ImageViewer({
     setVersOpen(false);
     await reloadVersions();
   };
+  // "Add version": own pictures (edited elsewhere) as versions of an original
+  const addVersions = async (origPath: string) => {
+    const picked = await open({
+      multiple: true,
+      directory: false,
+      title: t("Add version"),
+      filters: [{ name: t("Images"), extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp"] }],
+    });
+    const files = typeof picked === "string" ? [picked] : picked ?? [];
+    if (!files.length) return;
+    let added = 0;
+    const failed: string[] = [];
+    for (const f of files) {
+      try {
+        await addImageVersionFromFile(origPath, f);
+        added++;
+      } catch (e) {
+        failed.push(`${e}`);
+      }
+    }
+    try {
+      const r = await listImageVersions(origPath);
+      setVerMap((m) => ({ ...m, [origPath]: r }));
+    } catch {
+      /* ignore */
+    }
+    void refresh();
+    if (added) showToast({ tone: "success", title: added === 1 ? t("Version added") : t("Versions added") });
+    if (failed.length)
+      showToast({ tone: "error", title: t("Couldn’t add the version"), detail: failed.join("\n") });
+  };
   const removeVersion = async (versionId: number) => {
     await deleteImageVersion(versionId);
     await reloadVersions();
@@ -1650,7 +1683,9 @@ export function ImageViewer({
         onClick: () => onGoToFolder(target),
       });
     }
-    if ((tStill || tVideo) && target.path && isTauri()) {
+    // the rarer actions wait behind Shift + right-click
+    const more = e.shiftKey;
+    if (more && (tStill || tVideo) && target.path && isTauri()) {
       menu.push({
         label: t("Open in new window"),
         icon: <ExternalLink className="h-4 w-4" />,
@@ -1669,6 +1704,12 @@ export function ImageViewer({
         icon: <Wand2 className="h-4 w-4" />,
         quick: 1,
         onClick: () => setEditing(true),
+      });
+      const orig = target.path;
+      menu.push({
+        label: t("Add version"),
+        icon: <ImagePlus className="h-4 w-4" />,
+        onClick: () => void addVersions(orig),
       });
     }
     // "Set as" uses the shown version, identity actions use the original path
@@ -1749,7 +1790,7 @@ export function ImageViewer({
           }),
       });
     }
-    if (tStill && target.path && isTauri()) {
+    if (more && tStill && target.path && isTauri()) {
       // the picture as you see it (its active version)
       const shown = target.id === current.id ? curDisplayPath : tilePath(target);
       menu.push({
