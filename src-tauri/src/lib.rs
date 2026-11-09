@@ -1,4 +1,5 @@
 mod ai;
+mod alts;
 mod applog;
 mod audio;
 mod bridge;
@@ -3220,6 +3221,8 @@ async fn merge_rewards(
                         .unwrap_or_else(|| "folder".into());
                     let target = unique_dir(&dest_dir2, &sanitize_name(&name));
                     if move_tree(dir, &target).is_ok() {
+                        // its alts join the target's own, not buried in the subfolder
+                        alts::carry_over(&target, &dest_dir2);
                         for e in walkdir::WalkDir::new(&target).into_iter().flatten() {
                             if e.path().is_file() {
                                 count += 1;
@@ -3285,9 +3288,17 @@ async fn merge_rewards(
     };
 
     let dest_dir2 = dest_dir.clone();
+    let alt_sources: Vec<String> = sources.iter().map(|(_, f)| f.clone()).collect();
     // move every file into the target, collect (old, new)
     let moved: Vec<(String, String)> =
         tauri::async_runtime::spawn_blocking(move || -> Vec<(String, String)> {
+            // the alts come along (they aren't in the images table)
+            for f in &alt_sources {
+                let from = std::path::Path::new(f);
+                if from != dest_dir2.as_path() {
+                    alts::carry_over(from, &dest_dir2);
+                }
+            }
             let _ = std::fs::create_dir_all(&dest_dir2);
             let mut moved = Vec::new();
             for p in &files {
@@ -7062,6 +7073,121 @@ async fn save_cover_crop(
 fn index_added_image(db: State<Db>, reference_path: String, new_path: String) -> Result<bool, String> {
     let conn = db.conn();
     db::add_image_beside(&conn, &reference_path, &new_path).map_err(map_err)
+}
+
+/* ---- Alts: other versions of a reward, as zips in its _Alts folder ------ */
+
+/// The reward's folder, if it's on this PC (not a virtual or MiSD-moved one).
+fn alt_reward_dir(db: &Db, reward_id: i64) -> Result<Option<std::path::PathBuf>, String> {
+    let conn = db.conn();
+    let folder = db::reward_folder(&conn, reward_id).map_err(map_err)?;
+    Ok(folder
+        .filter(|f| !f.is_empty() && !f.contains('\u{1}'))
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_dir()))
+}
+
+#[tauri::command]
+fn list_reward_alts(db: State<Db>, reward_id: i64) -> Result<Vec<alts::Alt>, String> {
+    Ok(alt_reward_dir(&db, reward_id)?.map(|d| alts::list(&d)).unwrap_or_default())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AltsAdded {
+    added: u32,
+    /// what couldn't be added, and why
+    failed: Vec<String>,
+    /// added, but something to know (an original that couldn't be removed)
+    notes: Vec<String>,
+}
+
+/// Add zips and folders as alts. Both are MOVED: a zip goes into `_Alts`, a folder is
+/// packed into a zip there and then goes to the Recycle Bin. Nothing of the library
+/// itself (a reward's folder or one around it) is taken. Emits alt-progress.
+#[tauri::command]
+async fn add_reward_alts(
+    app: AppHandle,
+    db: State<'_, Db>,
+    dek: State<'_, DekState>,
+    reward_id: i64,
+    paths: Vec<String>,
+) -> Result<AltsAdded, String> {
+    let key = session_key(&dek);
+    let reward_dir = alt_reward_dir(&db, reward_id)?
+        .ok_or("This reward's folder isn't on this PC (is it on the MiSD disk?)")?;
+    let library: Vec<String> = {
+        let conn = db.conn();
+        let mut stmt = conn
+            .prepare("SELECT folder_path FROM rewards WHERE folder_path IS NOT NULL AND folder_path <> ''")
+            .map_err(map_err)?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(map_err)?;
+        rows.flatten().filter(|f| !f.contains('\u{1}')).collect()
+    };
+    let app2 = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = alts::dir_of(&reward_dir);
+        let mut out = AltsAdded { added: 0, failed: Vec::new(), notes: Vec::new() };
+        for p in &paths {
+            let src = std::path::Path::new(p);
+            let name = src.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.clone());
+            if alts::overlaps(p, &reward_dir.to_string_lossy()) || library.iter().any(|f| alts::overlaps(p, f)) {
+                out.failed.push(format!("{name}: it's part of your library"));
+                continue;
+            }
+            if let Err(e) = std::fs::create_dir_all(&dir) {
+                out.failed.push(format!("{name}: {e}"));
+                continue;
+            }
+            if src.is_dir() {
+                let dest = alts::free_name(&dir, &name);
+                let mut tick = |done: u64, total: u64| {
+                    let _ = app2.emit("alt-progress", serde_json::json!({ "name": name, "done": done, "total": total }));
+                };
+                match alts::zip_folder(src, &dest, key, &mut tick) {
+                    Ok(()) => {
+                        out.added += 1;
+                        if let Err(e) = recycle(src) {
+                            out.notes.push(format!("{name} was packed, but the folder couldn't go to the Recycle Bin: {e}"));
+                        }
+                    }
+                    Err(e) => out.failed.push(format!("{name}: {e}")),
+                }
+            } else if src.is_file() && alts::is_zip(src) {
+                let stem = src.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                match alts::move_zip(src, &alts::free_name(&dir, &stem)) {
+                    Ok(note) => {
+                        out.added += 1;
+                        out.notes.extend(note);
+                    }
+                    Err(e) => out.failed.push(format!("{name}: {e}")),
+                }
+            } else {
+                out.failed.push(format!("{name}: only zip files and folders can be alts"));
+            }
+        }
+        // nothing went in: no empty _Alts left behind
+        let _ = std::fs::remove_dir(&dir);
+        if out.added > 0 {
+            applog::write("info", "alts", &format!("added {} alt(s) to {}", out.added, reward_dir.display()));
+        }
+        out
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// An alt to the Recycle Bin (only a zip right inside an `_Alts` folder).
+#[tauri::command]
+fn remove_reward_alt(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    let parent = p.parent().ok_or("not an alt")?;
+    if !indexer::is_alts_dir(parent) || !p.is_file() || !alts::is_zip(p) {
+        return Err("not an alt".into());
+    }
+    recycle(p)?;
+    let _ = std::fs::remove_dir(parent);
+    Ok(())
 }
 
 /* ---- Image versions (non-destructive edit history) -------------------- */
@@ -11425,6 +11551,9 @@ pub fn run() {
             index_added_image,
             save_image_version,
             add_image_version_from_file,
+            list_reward_alts,
+            add_reward_alts,
+            remove_reward_alt,
             list_image_versions,
             image_versions_for,
             set_active_version,

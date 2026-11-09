@@ -324,7 +324,7 @@ fn name_of(p: &Path) -> String {
 }
 fn subdirs(dir: &Path) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect())
+        .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.is_dir() && !indexer::is_alts_dir(p)).collect())
         .unwrap_or_default();
     out.sort();
     out
@@ -363,7 +363,12 @@ fn media_under(dir: &Path, recursive: bool) -> Vec<PathBuf> {
 fn media_in(dir: &Path, recursive: bool, depth: usize) -> Vec<PathBuf> {
     let mut out = Vec::new();
     if recursive {
-        for e in walkdir::WalkDir::new(dir).max_depth(depth).into_iter().flatten() {
+        // a reward's alts (zips of another version) aren't its files
+        let walk = walkdir::WalkDir::new(dir)
+            .max_depth(depth)
+            .into_iter()
+            .filter_entry(|e| e.depth() == 0 || !(e.file_type().is_dir() && indexer::is_alts_dir(e.path())));
+        for e in walk.flatten() {
             let p = e.path();
             if p.is_file() && kind_for(&ext_lower(p)).is_some() {
                 out.push(p.to_path_buf());

@@ -491,12 +491,25 @@ fn has_folded_children(folder: &str, others: &[&str]) -> bool {
     })
 }
 
+/// A reward's alternatives (zips of another version, see alts.rs). Never the reward's
+/// content and never a reward of its own.
+pub const ALTS_DIR: &str = "_Alts";
+
+pub fn is_alts_dir(p: &Path) -> bool {
+    p.file_name().map(|n| n.to_string_lossy().eq_ignore_ascii_case(ALTS_DIR)).unwrap_or(false)
+}
+
+/// For a walk: leaves out every `_Alts` folder below the start.
+fn not_alts(e: &walkdir::DirEntry) -> bool {
+    e.depth() == 0 || !(e.file_type().is_dir() && is_alts_dir(e.path()))
+}
+
 fn child_dirs(dir: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
         .map(|rd| {
             rd.flatten()
                 .map(|e| e.path())
-                .filter(|p| p.is_dir())
+                .filter(|p| p.is_dir() && !is_alts_dir(p))
                 .collect()
         })
         .unwrap_or_default();
@@ -594,7 +607,7 @@ fn legacy_cover_pick(images: &[(String, String)]) -> Option<String> {
 /// Returns (files: Vec<(abs_path, rel_name)>, cover).
 pub fn collect_reward_images(reward_dir: &Path) -> (Vec<(String, String)>, Option<String>) {
     let mut imgs: Vec<(PathBuf, String)> = Vec::new();
-    for entry in WalkDir::new(reward_dir).sort_by_file_name() {
+    for entry in WalkDir::new(reward_dir).sort_by_file_name().into_iter().filter_entry(not_alts) {
         let Ok(entry) = entry else { continue };
         let p = entry.path();
         if p.is_file() && is_indexable(p) {
@@ -647,7 +660,7 @@ pub fn import_stats(folders: &[String]) -> ImportStats {
     let mut seen: HashSet<PathBuf> = HashSet::new();
     let mut st = ImportStats::default();
     for f in folders {
-        for entry in WalkDir::new(f) {
+        for entry in WalkDir::new(f).into_iter().filter_entry(not_alts) {
             let Ok(entry) = entry else { continue };
             let p = entry.path();
             if !p.is_file() || !is_indexable(p) || !seen.insert(p.to_path_buf()) {
@@ -676,7 +689,7 @@ pub fn preview_media(folder: &str, skip: &[String], limit: usize) -> (Vec<String
     let walk = WalkDir::new(folder)
         .sort_by(|a, b| a.file_name().to_ascii_lowercase().cmp(&b.file_name().to_ascii_lowercase()))
         .into_iter()
-        .filter_entry(|e| !skip.iter().any(|s| e.path() == s));
+        .filter_entry(|e| not_alts(e) && !skip.iter().any(|s| e.path() == s));
     for entry in walk.flatten() {
         let p = entry.path();
         if !entry.file_type().is_file() || !(is_image(p) || is_video(p)) {
@@ -1841,6 +1854,21 @@ fn mark_bundled_rewards(conn: &Connection) -> rusqlite::Result<()> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn alts_are_never_content_nor_a_reward() {
+        let base = tmpdir("alts");
+        let reward = base.join("Set");
+        touch(reward.join("a.png"));
+        touch(reward.join(ALTS_DIR).join("Other version.zip"));
+        touch(reward.join(ALTS_DIR).join("loose.png"));
+        let (images, _) = collect_reward_images(&reward);
+        let rels: Vec<&str> = images.iter().map(|(_, r)| r.as_str()).collect();
+        assert_eq!(rels, vec!["a.png"]);
+        assert!(child_dirs(&reward).is_empty());
+        assert_eq!(import_stats(&[reward.to_string_lossy().into_owned()]).images, 1);
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn preview_shows_the_rewards_own_media() {

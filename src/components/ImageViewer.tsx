@@ -1414,6 +1414,26 @@ export function ImageViewer({
     // gridOn is here because the stage unmounts with it
   }, [zoomAt, go, gridOn]);
 
+  // AnimatePresence can lose track of its frames when the pictures change faster than
+  // the browser paints (fast scrolling while a big picture decodes): one old frame stays
+  // in front and every new one is left in its exit pose. Once scrolling stops, a stage
+  // that isn't just the current picture, fully shown, is rebuilt (new presence key).
+  const [stageGen, setStageGen] = useState(0);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const el = stageRef.current;
+      if (!el) return;
+      const frames = el.querySelectorAll<HTMLElement>(":scope > [data-stage-frame]");
+      const only = frames.length === 1 ? frames[0] : null;
+      const healthy =
+        !!only &&
+        only.dataset.stageFrame === current.id &&
+        Number(getComputedStyle(only).opacity) > 0.99;
+      if (!healthy) setStageGen((g) => g + 1);
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [current.id, stageGen, gridOn]);
+
   // keep the current thumbnail visible in the filmstrip
   useEffect(() => {
     const strip = stripRef.current;
@@ -1859,7 +1879,7 @@ export function ImageViewer({
           }}
         />
         {/* blurred image copy, lighten blend over the base */}
-        <AnimatePresence>
+        <AnimatePresence key={stageGen}>
           {displaySrc && (
             <motion.div
               key={current.id}
@@ -2233,9 +2253,10 @@ export function ImageViewer({
           <ChevronLeft className="h-7 w-7" />
         </ViewerBtn>
 
-        <AnimatePresence custom={dir} mode={slide ? "sync" : "wait"} initial={false}>
+        <AnimatePresence key={stageGen} custom={dir} mode={slide ? "sync" : "wait"} initial={false}>
           <motion.div
             key={current.id}
+            data-stage-frame={current.id}
             custom={dir}
             variants={slide ? slideVariants : undefined}
             // cut = instant, fade = out then in (mode="wait")

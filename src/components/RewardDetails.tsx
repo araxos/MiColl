@@ -1,8 +1,30 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
-import { FolderOpen, Info, Loader2, Puzzle, Sparkles, StickyNote, Users, X } from "lucide-react";
-import { mediaStats } from "@/api/library";
+import {
+  FileArchive,
+  FolderOpen,
+  FolderPlus,
+  Info,
+  Layers,
+  Loader2,
+  Puzzle,
+  Sparkles,
+  StickyNote,
+  Trash2,
+  Users,
+  X,
+} from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
+import {
+  addRewardAlts,
+  listRewardAlts,
+  mediaStats,
+  removeRewardAlt,
+  type RewardAlt,
+} from "@/api/library";
+import { useActions } from "@/actions";
 import { isTauri } from "@/lib/tauri";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { cn } from "@/lib/utils";
@@ -70,6 +92,69 @@ export function RewardDetails({
   };
 
   const paths = reward.images.map((im) => im.path).filter((p): p is string => !!p);
+
+  // ---- alts: other versions of this reward, zips in its _Alts folder ----
+  const { reveal, showToast } = useActions();
+  const altsOn = isTauri() && reward.status === "owned" && !!reward.folderPath && !reward.sdVolume;
+  const [alts, setAlts] = useState<RewardAlt[]>([]);
+  const [altBusy, setAltBusy] = useState(false);
+  const [altProgress, setAltProgress] = useState<{ name: string; done: number; total: number } | null>(null);
+  const [altMsg, setAltMsg] = useState<string | null>(null);
+  // the alt whose bin button was clicked once (a second click removes it)
+  const [confirmAlt, setConfirmAlt] = useState<string | null>(null);
+  const loadAlts = () =>
+    listRewardAlts(reward.id)
+      .then(setAlts)
+      .catch(() => {});
+  useEffect(() => {
+    if (altsOn) void loadAlts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reward.id, altsOn]);
+
+  const addAlts = async (folders: boolean) => {
+    const picked = await open(
+      folders
+        ? { directory: true, multiple: true, title: t("Add folder…") }
+        : { multiple: true, title: t("Add zip…"), filters: [{ name: "Zip", extensions: ["zip"] }] },
+    );
+    const list = typeof picked === "string" ? [picked] : picked ?? [];
+    if (!list.length) return;
+    setAltBusy(true);
+    setAltMsg(null);
+    const off = await listen<{ name: string; done: number; total: number }>("alt-progress", (e) =>
+      setAltProgress(e.payload),
+    );
+    try {
+      const r = await addRewardAlts(reward.id, list);
+      if (r.added) showToast({ tone: "success", title: r.added === 1 ? t("Alt added") : t("Alts added") });
+      const lines = [
+        ...(r.failed.length ? [t("Couldn’t add:"), ...r.failed] : []),
+        ...r.notes,
+      ];
+      setAltMsg(lines.length ? lines.join("\n") : null);
+    } catch (e) {
+      setAltMsg(`${e}`);
+    } finally {
+      off();
+      setAltProgress(null);
+      setAltBusy(false);
+      void loadAlts();
+    }
+  };
+
+  const removeAlt = async (a: RewardAlt) => {
+    if (confirmAlt !== a.path) {
+      setConfirmAlt(a.path);
+      return;
+    }
+    setConfirmAlt(null);
+    try {
+      await removeRewardAlt(a.path);
+    } catch (e) {
+      setAltMsg(`${e}`);
+    }
+    void loadAlts();
+  };
 
   useEffect(() => {
     if (!isTauri() || paths.length === 0) return;
@@ -282,6 +367,106 @@ export function RewardDetails({
               <Loader2 className={cn("h-3.5 w-3.5 animate-spin", dlg.accentText)} />
               {t("Measuring the folder…")}
             </p>
+          )}
+
+          {altsOn && (
+            <>
+              <label className="mt-4 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                <Layers className="h-3.5 w-3.5" />
+                {t("Alts")}
+                {alts.length > 0 && <span className="text-zinc-600">· {alts.length}</span>}
+              </label>
+              <p className="mt-1 text-xs text-zinc-500">
+                {t("Other versions of this reward, kept as zip files. They don’t count as its files.")}
+              </p>
+              {alts.length > 0 && (
+                <div className={cn("mt-1.5", dlg.field)}>
+                  {alts.map((a) => (
+                    <div
+                      key={a.path}
+                      onMouseLeave={() => confirmAlt === a.path && setConfirmAlt(null)}
+                      className={cn(
+                        "flex items-center gap-2 border-t px-3 py-1.5 first:border-t-0",
+                        dlg.divider,
+                      )}
+                    >
+                      <FileArchive className={cn("h-4 w-4 shrink-0", dlg.accentText)} />
+                      <span className="min-w-0 flex-1 truncate text-sm text-zinc-200" title={a.name}>
+                        {a.name}
+                      </span>
+                      <span className="shrink-0 text-xs tabular-nums text-zinc-500">{fmtBytes(a.size)}</span>
+                      <button
+                        onClick={() => reveal(a.path)}
+                        title={t("Show in Explorer")}
+                        className="shrink-0 rounded p-1 text-zinc-400 transition-colors hover:text-zinc-100"
+                      >
+                        <FolderOpen className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => void removeAlt(a)}
+                        title={
+                          confirmAlt === a.path
+                            ? t("Click again to remove")
+                            : t("Remove alt (to the Recycle Bin)")
+                        }
+                        className={cn(
+                          "inline-flex shrink-0 items-center gap-1 rounded p-1 text-xs transition-colors",
+                          confirmAlt === a.path
+                            ? "text-rose-300 hover:text-rose-200"
+                            : "text-zinc-400 hover:text-rose-300",
+                        )}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        {confirmAlt === a.path && t("Remove?")}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  onClick={() => void addAlts(false)}
+                  disabled={altBusy}
+                  title={t("Moves the zip into this reward’s _Alts folder")}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-3 py-2 text-sm text-zinc-200 transition-colors disabled:opacity-50",
+                    dlg.field,
+                    dlg.menuRow,
+                  )}
+                >
+                  <FileArchive className="h-4 w-4" />
+                  {t("Add zip…")}
+                </button>
+                <button
+                  onClick={() => void addAlts(true)}
+                  disabled={altBusy}
+                  title={t("Packs the folder into a zip in _Alts, then moves the folder to the Recycle Bin")}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-3 py-2 text-sm text-zinc-200 transition-colors disabled:opacity-50",
+                    dlg.field,
+                    dlg.menuRow,
+                  )}
+                >
+                  <FolderPlus className="h-4 w-4" />
+                  {t("Add folder…")}
+                </button>
+              </div>
+              {altBusy && (
+                <p className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
+                  <Loader2 className={cn("h-3.5 w-3.5 animate-spin", dlg.accentText)} />
+                  {altProgress
+                    ? tf("Packing “{name}”: {done} of {total} files", {
+                        name: altProgress.name,
+                        done: altProgress.done,
+                        total: altProgress.total,
+                      })
+                    : t("Adding…")}
+                </p>
+              )}
+              {altMsg && (
+                <p className="mt-2 whitespace-pre-line text-xs text-rose-300 [overflow-wrap:anywhere]">{altMsg}</p>
+              )}
+            </>
           )}
 
           {(onToggleExtra || onTogglePartial || onCollab) && (

@@ -1333,6 +1333,40 @@ export async function indexAddedImage(referencePath: string, newPath: string): P
   return invoke<boolean>("index_added_image", { referencePath, newPath });
 }
 
+/* ---- Alts: other versions of a reward, zips in its _Alts folder -------- */
+
+export interface RewardAlt {
+  name: string;
+  path: string;
+  size: number;
+}
+
+export interface AltsAdded {
+  added: number;
+  /** what couldn't be added, and why */
+  failed: string[];
+  /** added, but worth knowing (an original that couldn't be removed) */
+  notes: string[];
+}
+
+/** The reward's alts (empty when its folder isn't on this PC). */
+export async function listRewardAlts(rewardId: string): Promise<RewardAlt[]> {
+  return invoke<RewardAlt[]>("list_reward_alts", { rewardId: Number(rewardId) });
+}
+
+/**
+ * MOVE zips and folders in as alts: a folder is packed into a zip, then goes to the
+ * Recycle Bin. Emits "alt-progress" {name, done, total} while packing.
+ */
+export async function addRewardAlts(rewardId: string, paths: string[]): Promise<AltsAdded> {
+  return invoke<AltsAdded>("add_reward_alts", { rewardId: Number(rewardId), paths });
+}
+
+/** An alt to the Recycle Bin. */
+export async function removeRewardAlt(path: string): Promise<void> {
+  await invoke("remove_reward_alt", { path });
+}
+
 /* ---- Image versions (non-destructive edit history) -------------------- */
 
 export interface ImageVersion {
