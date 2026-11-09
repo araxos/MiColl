@@ -29,6 +29,7 @@ import {
   Droplet,
   Expand,
   RefreshCw,
+  Square,
   Minus,
   SplitSquareHorizontal,
   PersonStanding,
@@ -44,6 +45,7 @@ import {
   readImage,
   editInpaint,
   editInpaintAi,
+  cancelExpand,
   editResize,
   editExpand,
   editUpscale,
@@ -265,7 +267,7 @@ export function ImageEditor({
 }) {
   const t = useT();
   const tf = useTf();
-  const { showToast } = useActions();
+  const { showToast, openMenu } = useActions();
   // the theme's loading animation has its own switch (Settings → Animations)
   const editorFx = useFx("editor");
   // a failed step says so instead of just stopping
@@ -1017,6 +1019,15 @@ export function ImageEditor({
     exMode === "blur" ||
     (ready.lama === true && (exMode === "ai" || ready.sd15 === true));
 
+  // "Stop" while expanding: the running try ends at its next step, no further tries start
+  const exStopRef = useRef(false);
+  const [exRunning, setExRunning] = useState(false);
+  const stopExpand = () => {
+    exStopRef.current = true;
+    setBusyMsg(t("Stopping…"));
+    void cancelExpand().catch(() => {});
+  };
+
   // the last AI expand, for "Try again" (same picture and canvas, a new seed)
   const exLastRef = useRef<{
     src: string;
@@ -1033,13 +1044,25 @@ export function ImageEditor({
   // AI fill is the same every time, only HQ draws something new
   const canRetry = !!exLast && exLast.result === working && exLast.mode === "hq" && exMode === "hq";
 
-  const doExpand = async (again = false) => {
+  /**
+   * Expand (or "Try again" on the last one). times > 1 (HQ only, right-click): that many
+   * tries one after the other from the same picture, each a new step in the history, so
+   * Undo walks back through them.
+   */
+  const doExpand = async (again = false, times = 1) => {
     if (busy || !working || !exModelsReady) return;
+    exStopRef.current = false;
+    setExRunning(true);
     const last = exLastRef.current;
     if (again ? !last : !exPlan) return;
     const mode = again && last ? last.mode : exMode;
     const people = mode === "hq" && (again && last ? last.people : exPeople);
-    setBusyMsg(mode === "blur" ? t("Expanding…") : t("Expanding (AI)…"));
+    // the try being made, for "2 / 5 · …" in front of the message
+    let run = 1;
+    // "3 / 8" never breaks across lines
+    const count = (done: number, total: number) => `${done}\u00a0/\u00a0${total}`;
+    const note = (msg: string) => (times > 1 ? `${count(run, times)} · ${msg}` : msg);
+    setBusyMsg(note(mode === "blur" ? t("Expanding…") : t("Expanding (AI)…")));
     setBusy(true);
     // AI fill grows in strips, a big picture takes a while: show "3 / 8". HQ then adds the
     // detail on the graphics card (its own count).
@@ -1048,22 +1071,22 @@ export function ImageEditor({
       (e) => {
         // HQ: Stable Diffusion loads its files between the layout and the detail
         if (e.payload.phase === "loading") {
-          setBusyMsg(t("Loading HQ model…"));
+          setBusyMsg(note(t("Loading HQ model…")));
           return;
         }
         setBusyMsg(
-          `${e.payload.phase === "detail" ? t("Adding detail (HQ)…") : t("Expanding (AI)…")} ${e.payload.done} / ${e.payload.total}`,
+          note(
+            `${e.payload.phase === "detail" ? t("Adding detail (HQ)…") : t("Expanding (AI)…")} ${count(e.payload.done, e.payload.total)}`,
+          ),
         );
         // HQ: the layout is the first half, the detail the second
         const part = e.payload.total > 0 ? e.payload.done / e.payload.total : 0;
-        setBusyProgress(
-          mode !== "hq" ? part : e.payload.phase === "detail" ? 0.5 + part / 2 : part / 2,
-        );
+        const one = mode !== "hq" ? part : e.payload.phase === "detail" ? 0.5 + part / 2 : part / 2;
+        // several tries: one bar over all of them
+        setBusyProgress((run - 1 + one) / times);
       },
     );
     try {
-      // a new seed every time: HQ draws something different on every try
-      const seed = Math.floor(Math.random() * 2 ** 31);
       const job =
         again && last
           ? last
@@ -1075,18 +1098,42 @@ export function ImageEditor({
               y: exPlan!.y,
               fit: exPic && dims && (exPic.w !== dims.w || exPic.h !== dims.h) ? exPic : null,
             };
-      if (mode !== "blur") await warmModel("lama", t("Expanding (AI)…"));
-      const result = await editExpand(job.src, job.W, job.H, job.x, job.y, mode, seed, job.fit, people);
-      exLastRef.current = mode === "blur" ? null : { ...job, result, mode, people };
-      pushWorking(result);
+      if (mode !== "blur") await warmModel("lama", note(t("Expanding (AI)…")));
+      for (run = 1; run <= times && !exStopRef.current; run++) {
+        if (run > 1) {
+          setBusyMsg(note(t("Expanding (AI)…")));
+          setBusyProgress((run - 1) / times);
+        }
+        // a new seed every time: HQ draws something different on every try
+        const seed = Math.floor(Math.random() * 2 ** 31);
+        const result = await editExpand(job.src, job.W, job.H, job.x, job.y, mode, seed, job.fit, people);
+        exLastRef.current = mode === "blur" ? null : { ...job, result, mode, people };
+        pushWorking(result);
+      }
     } catch (err) {
-      failed(t("Expanding failed"), err);
+      // stopped on purpose: the finished ones stay, nothing went wrong
+      if (!exStopRef.current) failed(t("Expanding failed"), err);
     } finally {
+      setExRunning(false);
       off();
       setBusy(false);
       setBusyProgress(null);
       setBusyMsg(t("Working…"));
     }
+  };
+
+  // right-click on Expand / Try again (HQ): several tries in one go, Undo shows each
+  const manyMenu = (e: React.MouseEvent, again: boolean) => {
+    e.preventDefault();
+    if (busy || !exModelsReady) return;
+    openMenu(
+      e,
+      [2, 5, 10].map((n) => ({
+        label: tf("Make {n} at once", { n }),
+        icon: <Layers className="h-4 w-4" />,
+        onClick: () => void doExpand(again, n),
+      })),
+    );
   };
 
   // drag the picture along the new canvas in the preview
@@ -1811,8 +1858,10 @@ export function ImageEditor({
               ) : !exPlan && canRetry ? (
                 <ActionBtn
                   onClick={() => void doExpand(true)}
+                  onContextMenu={(e) => manyMenu(e, true)}
                   disabled={busy || !exModelsReady}
                   tone="brand"
+                  title={t("Right-click: make several at once")}
                 >
                   <RefreshCw className="h-4 w-4" />
                   {t("Try again")}
@@ -1820,8 +1869,10 @@ export function ImageEditor({
               ) : (
                 <ActionBtn
                   onClick={() => void doExpand()}
+                  onContextMenu={exMode === "hq" ? (e) => manyMenu(e, false) : undefined}
                   disabled={!exPlan || busy || !exModelsReady}
                   tone="brand"
+                  title={exMode === "hq" ? t("Right-click: make several at once") : undefined}
                 >
                   <Expand className="h-4 w-4" />
                   {t("Expand")}
@@ -2122,7 +2173,19 @@ export function ImageEditor({
                 premium ? "bg-black/10" : "bg-black/40",
               )}
             >
-              <BusyNote accent={accent} msg={busyMsg} progress={busyProgress} />
+              <div className="flex flex-col items-center gap-3">
+                <BusyNote accent={accent} msg={busyMsg} progress={busyProgress} />
+                {exRunning && (
+                  <ActionBtn
+                    onClick={stopExpand}
+                    disabled={exStopRef.current}
+                    title={t("Stop expanding — the pictures already made stay")}
+                  >
+                    <Square className="h-3.5 w-3.5" />
+                    {t("Stop")}
+                  </ActionBtn>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -2300,6 +2363,7 @@ function ToolBtn({
 function ActionBtn({
   children,
   onClick,
+  onContextMenu,
   disabled,
   tone = "ghost",
   title,
@@ -2307,6 +2371,7 @@ function ActionBtn({
 }: {
   children: React.ReactNode;
   onClick: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
   disabled?: boolean;
   tone?: "ghost" | "brand" | "secondary" | "primary";
   title?: string;
@@ -2324,6 +2389,7 @@ function ActionBtn({
   return (
     <button
       onClick={onClick}
+      onContextMenu={onContextMenu}
       disabled={disabled}
       title={title}
       data-active={tone === "primary" || pressed || undefined}

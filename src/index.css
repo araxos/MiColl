@@ -1276,6 +1276,148 @@ html[data-holo-freq="2"] :is(.ruby-run i, .ruby-frame-glow, .ruby-frame-sheen, .
   filter: drop-shadow(0 0 4px #ff2d7a);
 }
 
+/* the back button (month page): a dark plate shaped like an arrow pointing back, in a
+   chrome line. Plate and line sit in the pseudos so the clip leaves the glow alone. On
+   hover a pink light fills it from the tip and the chevron steps back */
+[data-accent="corruptruby"] .ruby-back {
+  --ruby-back-cut: polygon(11px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 11px 100%, 0 50%);
+  position: relative;
+  isolation: isolate;
+  padding-left: 16px;
+  padding-right: 12px;
+  border-radius: 0;
+  background: none;
+  color: #f4f0f6;
+  filter: drop-shadow(0 0 4px rgba(255, 20, 100, 0.45));
+  transition:
+    color 0.18s ease,
+    filter 0.18s ease;
+}
+[data-accent="corruptruby"] .ruby-back::before,
+[data-accent="corruptruby"] .ruby-back::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  clip-path: var(--ruby-back-cut);
+  pointer-events: none;
+}
+[data-accent="corruptruby"] .ruby-back::before {
+  inset: 0;
+  background: linear-gradient(115deg, #ffffff, #8e95a3 30%, #ffe6f0 50%, #7e7688 72%, #f4f0f6);
+}
+[data-accent="corruptruby"] .ruby-back::after {
+  inset: 1px;
+  background:
+    linear-gradient(90deg, rgba(255, 20, 100, 0.55), rgba(255, 20, 100, 0.12) 70%, transparent) no-repeat 0 0 / 0% 100%,
+    linear-gradient(160deg, #17060e, #0a0206 55%, #1a0510);
+  transition: background-size 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+[data-accent="corruptruby"] .ruby-back svg {
+  color: #fff;
+  filter: drop-shadow(0 0 3px #ff2d7a);
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+[data-accent="corruptruby"] .ruby-back:hover:not(:disabled) {
+  background: none;
+  color: #fff;
+  filter: drop-shadow(0 0 6px rgba(255, 20, 100, 0.85));
+}
+[data-accent="corruptruby"] .ruby-back:hover:not(:disabled)::after {
+  background-size: 100% 100%, auto;
+}
+[data-accent="corruptruby"] .ruby-back:hover:not(:disabled) svg {
+  transform: translateX(-3px);
+}
+
+/* the dashboard's sort bar: no box, lit letters like Create Card, small stars between
+   the parts. The hooks (sortbar-k/-v/-sep) are inert in the other themes */
+[data-accent="corruptruby"] .ruby-sortbar {
+  border: 0;
+  background: none;
+  align-items: center;
+}
+[data-accent="corruptruby"] .ruby-sortbar button {
+  padding-inline: 10px;
+  background: none;
+}
+[data-accent="corruptruby"] .ruby-sortbar svg {
+  color: #fff;
+  filter: drop-shadow(0 0 3px #ff2d7a) drop-shadow(0 0 7px rgba(255, 45, 122, 0.7));
+}
+[data-accent="corruptruby"] .ruby-sortbar .sortbar-k {
+  font-family: "Pyre Display", var(--ruby-display);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  color: #ff7aa8;
+  text-shadow: 0 0 6px rgba(255, 45, 122, 0.6);
+}
+[data-accent="corruptruby"] .ruby-sortbar .sortbar-v {
+  font-family: "Pyre Display", var(--ruby-display);
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  color: #fff0f5;
+  text-shadow:
+    0 0 4px #ff2d7a,
+    0 0 12px #ff2d7a;
+  transition: color 0.18s ease, text-shadow 0.18s ease;
+}
+[data-accent="corruptruby"] .ruby-sortbar button:hover .sortbar-v {
+  color: #fff;
+  text-shadow:
+    0 0 4px #fff,
+    0 0 10px #ff2d7a,
+    0 0 22px #ff2d7a;
+}
+[data-accent="corruptruby"] .ruby-sortbar .sortbar-sep {
+  width: 7px;
+  height: 7px;
+  align-self: center;
+  background: #ff7aa8;
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  filter: drop-shadow(0 0 3px #ff2d7a);
+}
+[data-accent="corruptruby"] .ruby-sort-vl {
+  width: 1px;
+  height: 26px;
+  margin: 0 4px;
+  background: linear-gradient(transparent, #ff2d7a, transparent);
+}
+/* the icon keys next to it: no box, a white neon icon over a line of light */
+[data-accent="corruptruby"] .ruby-bare {
+  position: relative;
+  width: 32px;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+[data-accent="corruptruby"] .ruby-bare:hover:not(:disabled) {
+  background: none;
+  box-shadow: none;
+}
+[data-accent="corruptruby"] .ruby-bare svg {
+  color: #fff;
+  filter: drop-shadow(0 0 3px #ff2d7a) drop-shadow(0 0 7px rgba(255, 45, 122, 0.7));
+  transition: filter 0.18s ease;
+}
+[data-accent="corruptruby"] .ruby-bare:hover:not(:disabled) svg {
+  filter: drop-shadow(0 0 3px #fff) drop-shadow(0 0 8px #ff2d7a) drop-shadow(0 0 14px rgba(255, 45, 122, 0.8));
+}
+[data-accent="corruptruby"] .ruby-bare::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  right: 7px;
+  bottom: 2px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 122, 168, 0.8), transparent);
+  transition: background 0.18s ease, box-shadow 0.18s ease;
+}
+[data-accent="corruptruby"] .ruby-bare:hover:not(:disabled)::after {
+  background: linear-gradient(90deg, transparent, #fff, transparent);
+  box-shadow: 0 0 6px #ff2d7a;
+}
+
 /* right-click menus: a dark plate in a chrome line with two corners cut. Plate and line
    are pseudo elements, a clip on the menu itself would cut its glow and its submenus */
 [data-accent="corruptruby"] .ctx-menu.ruby-panel {

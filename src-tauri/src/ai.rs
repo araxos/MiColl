@@ -471,6 +471,19 @@ fn lama_pass(app_data: &Path, small: &RgbaImage, mask_small: &GrayImage) -> Resu
 /// the last one made: one big pass smears and fogs, the strips keep trees, folds and
 /// light going (compared on test images cut out of real wallpapers).
 /// progress(done, total) is called after every strip.
+/// "Stop" in the editor while an expand runs: the strips and denoising steps check it and
+/// end with the error STOPPED. Only set while an expand runs (see edit_expand).
+pub static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub const STOPPED: &str = "stopped";
+
+pub fn check_stop() -> Result<(), String> {
+    if STOP.load(std::sync::atomic::Ordering::Relaxed) {
+        Err(STOPPED.into())
+    } else {
+        Ok(())
+    }
+}
+
 pub fn outpaint_lama(
     app_data: &Path,
     img: &RgbaImage,
@@ -548,6 +561,7 @@ fn outpaint_x(
             lx = nl;
             done += 1;
             progress(done, total);
+            check_stop()?;
         }
         if rx < width {
             let nr = (rx + step).min(width);
@@ -556,6 +570,7 @@ fn outpaint_x(
             rx = nr;
             done += 1;
             progress(done, total);
+            check_stop()?;
         }
     }
     hold_edge_colour_x(&mut canvas, img, ox, side, 0, false);

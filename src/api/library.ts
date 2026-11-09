@@ -1201,6 +1201,11 @@ export async function editInpaintAi(imageB64: string, maskB64: string): Promise<
  * "ai" grows it out of the picture with LaMa, "hq" then redraws it with Stable Diffusion
  * (graphics card), "blur" puts a soft copy behind it.
  */
+/** Stop the running expand at its next step (it fails with "stopped"). */
+export async function cancelExpand(): Promise<void> {
+  await invoke("cancel_expand");
+}
+
 export async function editExpand(
   imageB64: string,
   width: number,

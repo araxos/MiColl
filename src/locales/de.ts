@@ -2130,4 +2130,7 @@ export const dict: Dict = {
   "Remove alt (to the Recycle Bin)": "Alt entfernen (in den Papierkorb)",
   "Click again to remove": "Zum Entfernen nochmal klicken",
   "Remove?": "Entfernen?",
+  "Make {n} at once": "{n} auf einmal erstellen",
+  "Right-click: make several at once": "Rechtsklick: mehrere auf einmal erstellen",
+  "Stop expanding — the pictures already made stay": "Erweitern stoppen — bereits erstellte Bilder bleiben",
 };

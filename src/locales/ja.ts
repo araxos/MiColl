@@ -2099,4 +2099,7 @@ export const dict: Dict = {
   "Remove alt (to the Recycle Bin)": "別バージョンを削除(ごみ箱へ)",
   "Click again to remove": "もう一度クリックで削除",
   "Remove?": "削除?",
+  "Make {n} at once": "{n} 枚まとめて作成",
+  "Right-click: make several at once": "右クリック: まとめて作成",
+  "Stop expanding — the pictures already made stay": "拡張を停止 — 作成済みの画像は残ります",
 };

@@ -196,11 +196,14 @@ export function MonthDetailPage({ onLock }: { onLock: () => void }) {
                   (prev) => prev === `/artist/${artist.id}`,
                 )
               }
-              // bright frosted pill on iridescent
+              // bright frosted pill on iridescent, an arrow plate in chrome on pyre
+              // (index.css .ruby-back)
               className={
                 irid
                   ? "border border-white/30 !bg-white/15 !text-white backdrop-blur-md hover:!bg-white/25"
-                  : "-ml-2"
+                  : accent === "corruptruby"
+                    ? "ruby-back"
+                    : "-ml-2"
               }
             >
               <ChevronLeft className="h-4 w-4" />
@@ -245,23 +248,26 @@ export function MonthDetailPage({ onLock }: { onLock: () => void }) {
                 </ProgressRing>
               ))}
             <div className="flex-1">
-              <h1 className="text-xl font-bold text-zinc-50">
-                {month.label === "Misc" ? t("Unsorted") : month.label}
-              </h1>
-              <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                <Badge tone="green" className={ownedBadge}>
-                  {tf("{n} owned", { n: owned })}
-                </Badge>
-                {tracked && (
-                  <Badge tone="neutral" className={releasedBadge}>
-                    {tf("{n} released", { n: month.officialTotal ?? 0 })}
+              {/* title and badges share a row, a gap between them */}
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5">
+                <h1 className="text-xl font-bold text-zinc-50">
+                  {month.label === "Misc" ? t("Unsorted") : month.label}
+                </h1>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone="green" className={ownedBadge}>
+                    {tf("{n} owned", { n: owned })}
                   </Badge>
-                )}
-                {tracked && month.officialTotal! - owned > 0 && (
-                  <Badge tone="amber">{tf("{n} missing", { n: month.officialTotal! - owned })}</Badge>
-                )}
-                {/* what's inside: images / videos / other files and the size */}
-                <MonthStats month={month} className={releasedBadge} />
+                  {tracked && (
+                    <Badge tone="neutral" className={releasedBadge}>
+                      {tf("{n} released", { n: month.officialTotal ?? 0 })}
+                    </Badge>
+                  )}
+                  {tracked && month.officialTotal! - owned > 0 && (
+                    <Badge tone="amber">{tf("{n} missing", { n: month.officialTotal! - owned })}</Badge>
+                  )}
+                  {/* what's inside: images / videos / other files and the size */}
+                  <MonthStats month={month} className={releasedBadge} />
+                </div>
               </div>
               {collabOnly && (
                 <p className="collab-ink mt-2 flex items-center gap-1.5 text-xs">

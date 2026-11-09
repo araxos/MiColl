@@ -2099,4 +2099,7 @@ export const dict: Dict = {
   "Remove alt (to the Recycle Bin)": "移除备选版本(到回收站)",
   "Click again to remove": "再次点击以移除",
   "Remove?": "移除?",
+  "Make {n} at once": "一次生成 {n} 张",
+  "Right-click: make several at once": "右键:一次生成多张",
+  "Stop expanding — the pictures already made stay": "停止扩展 — 已生成的图片会保留",
 };

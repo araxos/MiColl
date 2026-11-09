@@ -2206,4 +2206,7 @@ export const dict: Dict = {
   "Remove alt (to the Recycle Bin)": "Удалить альт (в Корзину)",
   "Click again to remove": "Нажмите ещё раз, чтобы удалить",
   "Remove?": "Удалить?",
+  "Make {n} at once": "Создать {n} сразу",
+  "Right-click: make several at once": "Правый клик: создать несколько сразу",
+  "Stop expanding — the pictures already made stay": "Остановить расширение — готовые изображения останутся",
 };

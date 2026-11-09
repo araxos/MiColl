@@ -218,7 +218,9 @@ export function StartPage({ onLock }: { onLock: () => void }) {
   // (index.css, block "TEST: Create Card fine rim"). Drop the class to undo.
   const iriLead = irid ? "iri-lead iri-lead--fine rounded-lg" : undefined;
   // casual (non-premium) themes: the round icon buttons without the grey ring
-  const bareIcon = isPremium(accent) ? undefined : "border-transparent";
+  // pyre: no box, a white neon icon over a line of light (index.css .ruby-bare)
+  const bareIcon =
+    accent === "corruptruby" ? "ruby-bare" : isPremium(accent) ? undefined : "border-transparent";
   // casual themes: Create Card gets the gradient pill (index.css .create-card-casual)
   const casualLead = isPremium(accent) ? undefined : "create-card-casual";
   // casual themes: a thin divider between the icon buttons, in the theme's colour.
@@ -856,6 +858,8 @@ export function StartPage({ onLock }: { onLock: () => void }) {
                 className={cn(
                   "inline-flex items-stretch rounded-xl border text-sm",
                   irid ? "border-white/15 bg-white/10" : "border-brand-500/30 bg-brand-500/10",
+                  // pyre: lit letters without a box, stars between (index.css)
+                  accent === "corruptruby" && "ruby-sortbar",
                 )}
               >
                 {/* field */}
@@ -877,8 +881,8 @@ export function StartPage({ onLock }: { onLock: () => void }) {
                     ) : (
                       <ArrowDownUp className={cn("h-4 w-4 text-brand-300", irid && iriSym)} />
                     )}
-                    <span className={cn("text-zinc-400", irid && iriLabel)}>{t("Sort:")}</span>
-                    <span className="font-medium text-zinc-100">{t(FIELD_LABELS[sortField])}</span>
+                    <span className={cn("sortbar-k text-zinc-400", irid && iriLabel)}>{t("Sort:")}</span>
+                    <span className="sortbar-v font-medium text-zinc-100">{t(FIELD_LABELS[sortField])}</span>
                   </button>
                   {sortOpen && (
                     <>
@@ -903,7 +907,7 @@ export function StartPage({ onLock }: { onLock: () => void }) {
                   )}
                 </div>
 
-                <div className="w-px self-stretch bg-brand-500/25" />
+                <div className="sortbar-sep w-px self-stretch bg-brand-500/25" />
 
                 {/* direction */}
                 <button
@@ -916,10 +920,10 @@ export function StartPage({ onLock }: { onLock: () => void }) {
                   ) : (
                     <ArrowDown className={cn("h-4 w-4 text-brand-300", irid && iriSym)} />
                   )}
-                  <span className="font-medium text-zinc-100">{t(dirLabel)}</span>
+                  <span className="sortbar-v font-medium text-zinc-100">{t(dirLabel)}</span>
                 </button>
 
-                <div className="w-px self-stretch bg-brand-500/25" />
+                <div className="sortbar-sep w-px self-stretch bg-brand-500/25" />
 
                 {/* class filter */}
                 <div className="relative" ref={classRef}>
@@ -932,9 +936,9 @@ export function StartPage({ onLock }: { onLock: () => void }) {
                     title={t("Show only the classes you toggle on (others are hidden)")}
                   >
                     <Tags className={cn("h-4 w-4 text-brand-300", irid && iriSym)} />
-                    <span className={cn("text-zinc-400", irid && iriLabel)}>{t("Class:")}</span>
+                    <span className={cn("sortbar-k text-zinc-400", irid && iriLabel)}>{t("Class:")}</span>
                     {classFilter.size === 0 ? (
-                      <span className="font-medium text-zinc-100">{t("All")}</span>
+                      <span className="sortbar-v font-medium text-zinc-100">{t("All")}</span>
                     ) : (
                       <span className="flex items-center gap-1">
                         {artistTags()
@@ -978,6 +982,7 @@ export function StartPage({ onLock }: { onLock: () => void }) {
                   )}
                 </div>
               </div>
+              {accent === "corruptruby" && <span aria-hidden className="ruby-sort-vl" />}
 
               <Button
                 variant="outline"

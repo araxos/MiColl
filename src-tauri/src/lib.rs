@@ -6707,6 +6707,16 @@ async fn edit_inpaint_ai(
 /// seed) or "blur" (blurred copy behind it). fit_w x fit_h: shrink the picture to that
 /// first (the editor's output size). people (HQ only): someone reaches to the edge, see
 /// diffusion::refine_people (the picture stays untouched, the edge is drawn in detail).
+static EXPAND_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// "Stop" while an expand runs: it ends at the next strip or step with ai::STOPPED.
+#[tauri::command]
+fn cancel_expand() {
+    if EXPAND_RUNNING.load(std::sync::atomic::Ordering::SeqCst) {
+        ai::STOP.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 async fn edit_expand(
@@ -6726,7 +6736,9 @@ async fn edit_expand(
         return Err("That size is out of range.".into());
     }
     let data = app_data(&app)?;
-    tauri::async_runtime::spawn_blocking(move || {
+    EXPAND_RUNNING.store(true, std::sync::atomic::Ordering::SeqCst);
+    ai::STOP.store(false, std::sync::atomic::Ordering::SeqCst);
+    let res = tauri::async_runtime::spawn_blocking(move || {
         let mut img = edit::decode_rgba(&image_b64)?;
         // the output size: shrink the picture first (far fewer pixels for the AI to fill)
         if let (Some(fw), Some(fh)) = (fit_w, fit_h) {
@@ -6762,6 +6774,7 @@ async fn edit_expand(
                     );
                 };
                 let mut laid = ai::outpaint_lama(&data, &img, width, height, x, y, &|d, t| report("layout", d, t))?;
+                ai::check_stop()?;
                 // Stable Diffusion loads its files for every run, that takes a few seconds
                 report("loading", 0, 0);
                 if people == Some(true) {
@@ -6800,8 +6813,10 @@ async fn edit_expand(
         };
         edit::encode_png_data_url(&out)
     })
-    .await
-    .map_err(|e| e.to_string())?
+    .await;
+    EXPAND_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+    ai::STOP.store(false, std::sync::atomic::Ordering::SeqCst);
+    res.map_err(|e| e.to_string())?
 }
 
 /// Resize to width x height with Lanczos.
@@ -11551,6 +11566,7 @@ pub fn run() {
             index_added_image,
             save_image_version,
             add_image_version_from_file,
+            cancel_expand,
             list_reward_alts,
             add_reward_alts,
             remove_reward_alt,

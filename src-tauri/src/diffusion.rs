@@ -700,6 +700,7 @@ fn run_jobs(model_dir: &Path, jobs: Vec<Job>, progress: &dyn Fn(u32, u32)) -> Re
                 }
                 done += 1;
                 progress(done, total);
+                crate::ai::check_stop()?;
             }
             results.push(x);
         }

@@ -90,7 +90,8 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
         : accent === "cyberpunk"
           ? "!rounded-none border border-[#fcee0a]/50 !bg-zinc-950/60 !text-zinc-100 backdrop-blur-md hover:!bg-zinc-950/85"
           : accent === "corruptruby"
-            ? "ruby-chip"
+            ? // the arrow plate of the month page's back button (index.css)
+              "ruby-back"
             : undefined;
   // frosted dark glass boxes on iridescent (readable text, background shows through).
   // translateZ(0) stops the black flicker over WebGL.
