@@ -1855,6 +1855,17 @@ export function ImageEditor({
                 <DownloadModelBtn model="lama" label={t("Get AI model (~200 MB)")} />
               ) : exMode === "hq" && ready.sd15 === false ? (
                 <DownloadModelBtn model="sd15" label={t("Get HQ model (~1.9 GB)")} />
+              ) : exRunning ? (
+                // while it runs, Expand / Try again turns into Stop (same place)
+                <ActionBtn
+                  onClick={stopExpand}
+                  disabled={exStopRef.current}
+                  tone="brand"
+                  title={t("Stop expanding — the pictures already made stay")}
+                >
+                  <Square className="h-3.5 w-3.5" />
+                  {t("Stop")}
+                </ActionBtn>
               ) : !exPlan && canRetry ? (
                 <ActionBtn
                   onClick={() => void doExpand(true)}
@@ -2173,19 +2184,7 @@ export function ImageEditor({
                 premium ? "bg-black/10" : "bg-black/40",
               )}
             >
-              <div className="flex flex-col items-center gap-3">
-                <BusyNote accent={accent} msg={busyMsg} progress={busyProgress} />
-                {exRunning && (
-                  <ActionBtn
-                    onClick={stopExpand}
-                    disabled={exStopRef.current}
-                    title={t("Stop expanding — the pictures already made stay")}
-                  >
-                    <Square className="h-3.5 w-3.5" />
-                    {t("Stop")}
-                  </ActionBtn>
-                )}
-              </div>
+              <BusyNote accent={accent} msg={busyMsg} progress={busyProgress} />
             </div>
           )}
         </div>

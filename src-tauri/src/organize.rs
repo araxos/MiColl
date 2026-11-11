@@ -24,9 +24,9 @@ pub struct OrganizeSummary {
 enum Moved {
     /// The folder is at the destination and nowhere else.
     Clean,
-    /// All files arrived, but the source folder couldn't be removed (a file was open).
-    /// Nothing is missing, there's just a duplicate to clean up.
-    LeftBehind,
+    /// All files arrived, but the source folder couldn't be removed (a file was open),
+    /// and why. Nothing is missing, there's just a duplicate to clean up.
+    LeftBehind(String),
     /// Copied, but the source changed while it was copied (a file added or edited), so
     /// it was left completely alone. The new or changed files may not be in the copy.
     Changed,
@@ -35,11 +35,14 @@ enum Moved {
 /// Send a source folder whose every file arrived to the Recycle Bin (not a hard delete:
 /// if anything ever goes wrong it can still come back from there). Tests delete
 /// directly, they mustn't fill the real Recycle Bin.
-fn bin_source(src: &Path) {
+/// The same Recycle Bin path as every delete (crate::recycle): a file Explorer's COM
+/// Surrogate (dllhost.exe) still holds is freed first, any other program is named.
+/// Some(why) when it didn't go.
+fn bin_source(src: &Path) -> Option<String> {
     #[cfg(not(test))]
-    let _ = trash::delete(src);
+    return crate::recycle(src).err();
     #[cfg(test)]
-    let _ = std::fs::remove_dir_all(src);
+    return std::fs::remove_dir_all(src).err().map(|e| e.to_string());
 }
 
 /// Files Windows (or a Mac) leaves in a folder by itself. A folder with only these in it
@@ -74,7 +77,7 @@ pub fn clear_left_over(dir: &Path) -> bool {
         return false;
     }
     if std::fs::remove_dir(dir).is_err() {
-        bin_source(dir);
+        let _ = bin_source(dir);
     }
     !dir.exists()
 }
@@ -145,9 +148,13 @@ fn move_dir(src: &Path, dst: &Path) -> std::io::Result<Moved> {
     if crate::transfer::all_arrived(src, &copied.arrived, &keep_out).is_err() {
         return Ok(Moved::Changed);
     }
-    bin_source(src);
+    let why = bin_source(src);
     // ask the filesystem if anything is still there (a removal can stop half way)
-    Ok(if src.exists() { Moved::LeftBehind } else { Moved::Clean })
+    Ok(if src.exists() {
+        Moved::LeftBehind(why.unwrap_or_else(|| "a file in it was still open".into()))
+    } else {
+        Moved::Clean
+    })
 }
 
 struct Row {
@@ -360,15 +367,17 @@ pub fn organize_collection(
         };
         // files left behind isn't a failure, the DB points at the new files.
         // the user gets the folder name to delete it themselves
-        if outcome == Moved::LeftBehind && sum.errors.len() < 10 {
-            sum.errors.push(format!(
-                "{}: every file arrived in the collection and was checked. Only the rest of \
-                 the original folder at {} couldn't be moved to the Recycle Bin, because a \
-                 program still had a file in it open. Please delete that folder yourself — \
-                 everything in it is already in the collection.",
-                row.title,
-                old.display()
-            ));
+        if let Moved::LeftBehind(why) = &outcome {
+            if sum.errors.len() < 10 {
+                sum.errors.push(format!(
+                    "{}: every file arrived in the collection and was checked. Only the rest of \
+                     the original folder at {} couldn't be moved to the Recycle Bin ({why}). \
+                     Please delete that folder yourself — everything in it is already in the \
+                     collection.",
+                    row.title,
+                    old.display()
+                ));
+            }
         }
         if outcome == Moved::Changed && sum.errors.len() < 10 {
             sum.errors.push(format!(
@@ -549,7 +558,7 @@ mod tests {
             .unwrap();
 
         let outcome = move_dir(&src, &dst).unwrap();
-        assert_eq!(outcome, Moved::LeftBehind, "reported, not swallowed");
+        assert!(matches!(outcome, Moved::LeftBehind(_)), "reported, not swallowed");
         assert!(dst.join("01.jpg").is_file(), "but the file DID arrive");
         assert!(src.join("01.jpg").is_file(), "and the original is still there");
 

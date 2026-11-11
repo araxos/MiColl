@@ -919,6 +919,81 @@ pub fn backup(conn: &Connection, progress: Progress<'_>) -> Result<SdSummary, St
     Ok(sum)
 }
 
+/// A backed-up reward moved in MiColl (another platform, a rename, its creator renamed):
+/// its copy on the disk follows it to where a backup of it would go now. Only a rename
+/// on the disk, nothing is copied again. Runs whenever the disk is connected (sd_status),
+/// so a move made while it was away is caught up when it's plugged in. A copy whose new
+/// place is taken, or that isn't there, is left alone. Returns how many moved.
+pub fn follow_backups(conn: &Connection) -> Result<u32, String> {
+    let Some(root) = connected_root(conn) else { return Ok(0) };
+    let broot = backup_root(&root).to_string_lossy().into_owned();
+    let managed_base: Option<String> = setting(conn, "collection_root")
+        .map(|r| Path::new(&r).join("MiColl").to_string_lossy().into_owned());
+    let mut rows: Vec<PendingRow> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT r.id, r.folder_path, a.name FROM rewards r \
+                 JOIN periods p ON r.period_id = p.id \
+                 JOIN artists a ON p.artist_id = a.id \
+                 WHERE r.sd_backup_path IS NOT NULL AND r.sd_volume IS NULL",
+            )
+            .map_err(|e| e.to_string())?;
+        let it = stmt
+            .query_map([], |r| Ok(PendingRow { id: r.get(0)?, folder: r.get(1)?, artist: r.get(2)? }))
+            .map_err(|e| e.to_string())?;
+        it.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?
+    };
+    // outer first: a nested reward's copy moves inside its parent's
+    rows.sort_by_key(|r| r.folder.len());
+    let set_path = |old: &str, new: &str| -> Result<(), String> {
+        // the copy and every copy inside it (nested rewards)
+        conn.execute(
+            "UPDATE rewards SET sd_backup_path = ?2 || substr(sd_backup_path, length(?1)+1) \
+             WHERE sd_backup_path = ?1 OR substr(sd_backup_path, 1, length(?1)+1) = ?1 || '\\'",
+            params![old, new],
+        )
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+    };
+    let mut moved = 0;
+    for row in rows {
+        // read again: a parent that moved before took this one's path along
+        let cur: Option<String> = conn
+            .query_row("SELECT sd_backup_path FROM rewards WHERE id = ?1", params![row.id], |r| r.get(0))
+            .optional()
+            .map_err(|e| e.to_string())?
+            .flatten();
+        let Some(cur) = cur else { continue };
+        let want = backup_dest_for(&row, &root, managed_base.as_deref()).to_string_lossy().into_owned();
+        if want == cur || !under_or_equal(&cur, &broot) || !under_or_equal(&want, &broot) {
+            continue;
+        }
+        let (from, to) = (Path::new(&cur), Path::new(&want));
+        if to.exists() {
+            // moved there already (by hand): only the path is behind
+            if !from.exists() {
+                set_path(&cur, &want)?;
+            }
+            continue;
+        }
+        if !from.is_dir() {
+            continue;
+        }
+        if let Some(parent) = to.parent() {
+            if std::fs::create_dir_all(parent).is_err() {
+                continue;
+            }
+        }
+        if std::fs::rename(from, to).is_err() {
+            continue;
+        }
+        set_path(&cur, &want)?;
+        prune_empty_parents(from, &broot);
+        moved += 1;
+    }
+    Ok(moved)
+}
+
 fn apply_backup_db(conn: &Connection, id: i64, label: &str, dest: &str) -> Result<(), String> {
     conn.execute(
         "UPDATE rewards SET sd_backup = ?2, sd_backup_path = ?3, sd_backup_at = ?4, sd_marked = 0 \
@@ -2462,6 +2537,40 @@ mod tests {
         backup(&conn, &|_, _, _| {}).unwrap();
         let st = status(&conn).unwrap();
         assert_eq!((st.marked, st.backup_marked, st.backups), (1, 0, 1));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// a backed-up reward that moved in MiColl takes its copy along on the disk
+    #[test]
+    fn a_backup_follows_its_reward() {
+        let _job = job_lock();
+        let base = tmp("follow");
+        let conn = db::open(&base.join("t.db")).unwrap();
+        let pid = seed_period(&conn);
+        let old_local = base.join("local").join("Pack");
+        let rid = seed_reward(&conn, pid, &old_local, &[("1.jpg", b"a")]);
+        setup(&conn, &base.join("sd").to_string_lossy(), "TestDisk").unwrap();
+        mark_rewards(&conn, &[rid], SdMode::Backup, true).unwrap();
+        backup(&conn, &|_, _, _| {}).unwrap();
+        let first = cols(&conn, rid).3.expect("backed up");
+        assert!(Path::new(&first).join("1.jpg").exists());
+
+        // nothing moved: nothing happens
+        assert_eq!(follow_backups(&conn).unwrap(), 0);
+
+        // renamed in MiColl
+        let new_local = base.join("local").join("Pack v2");
+        std::fs::rename(&old_local, &new_local).unwrap();
+        conn.execute(
+            "UPDATE rewards SET folder_path = ?2 WHERE id = ?1",
+            params![rid, new_local.to_string_lossy()],
+        )
+        .unwrap();
+        assert_eq!(follow_backups(&conn).unwrap(), 1);
+        let now = cols(&conn, rid).3.unwrap();
+        assert!(now.ends_with("Pack v2"), "{now}");
+        assert_eq!(std::fs::read(Path::new(&now).join("1.jpg")).unwrap(), b"a");
+        assert!(!Path::new(&first).exists(), "the old copy moved, not copied");
         let _ = std::fs::remove_dir_all(&base);
     }
 

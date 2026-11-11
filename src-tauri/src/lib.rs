@@ -10510,6 +10510,13 @@ fn sd_status(app: AppHandle, db: State<Db>, dek: State<DekState>) -> Result<sd::
     // disk is here: fill missing offline previews (only this call has the key when
     // encrypted)
     if st.available {
+        // backups of rewards that moved in MiColl follow them on the disk (also the
+        // moves made while it was away). The top bar asks after every library change.
+        match sd::follow_backups(&conn) {
+            Ok(n) if n > 0 => applog::write("info", "misd", &format!("moved {n} backup(s) along with their rewards")),
+            Ok(_) => {}
+            Err(e) => applog::write("error", "misd", &format!("following backups: {e}")),
+        }
         fill_sd_previews(&app, &conn, session_key(&dek), None);
     }
     Ok(st)
