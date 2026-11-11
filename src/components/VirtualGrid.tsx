@@ -65,11 +65,15 @@ export function VirtualGrid<T>({
     if (idleRef.current) {
       idleRef.current = false;
       setLayoutIdle(false);
+      // the CSS hook for "pause what's costly while scrolling" (Pyre's haze), set on the
+      // node directly so scrolling doesn't re-render the cards for it
+      outerRef.current?.setAttribute("data-scrolling", "");
     }
     if (idleTimer.current) clearTimeout(idleTimer.current);
     idleTimer.current = setTimeout(() => {
       idleRef.current = true;
       setLayoutIdle(true);
+      outerRef.current?.removeAttribute("data-scrolling");
     }, 180);
   }, []);
   useEffect(() => () => clearTimeout(idleTimer.current), []);

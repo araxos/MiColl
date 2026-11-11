@@ -1197,6 +1197,12 @@ html[data-fx-off~="holo.corruptruby"] :is(.ruby-shard-out, .ruby-shard-stab, .ru
 html[data-fx-off~="holo.corruptruby"] :is(.ruby-frame-glow, .ruby-frame-sheen, .ruby-haze, .ruby-frame-name, .ruby-month--max) {
   animation: none !important;
 }
+/* the haze is blended (screen) over the grain in every card: moving, it makes the
+   graphics card put all visible cards together again each frame, on top of the scroll
+   (about 100 fps instead of 178 on a full screen). It holds still while scrolling */
+[data-scrolling] .ruby-haze {
+  animation-play-state: paused;
+}
 html[data-holo-freq="2"] :is(.ruby-run i, .ruby-frame-glow, .ruby-frame-sheen, .ruby-haze, .ruby-ember, .ruby-month--max) {
   animation-play-state: paused !important;
 }

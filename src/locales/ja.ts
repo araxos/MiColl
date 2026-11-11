@@ -2102,4 +2102,7 @@ export const dict: Dict = {
   "Make {n} at once": "{n} 枚まとめて作成",
   "Right-click: make several at once": "右クリック: まとめて作成",
   "Stop expanding — the pictures already made stay": "拡張を停止 — 作成済みの画像は残ります",
+  "{n} files are open in {app}#other": "{n} 件のファイルが {app} で開かれています",
+  "Some files weren’t deleted": "一部のファイルは削除されませんでした",
+  "Close them there and try again.": "そちらで閉じてから、もう一度お試しください。",
 };

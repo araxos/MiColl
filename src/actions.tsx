@@ -48,8 +48,11 @@ export interface DeleteRequest {
   platform?: { artistId: string; name: string };
   /** Always ask, even with "don't ask again" (used when a year still has files). */
   alwaysAsk?: boolean;
-  /** Called after a delete worked (e.g. to close the viewer). */
-  onDone?: () => void;
+  /**
+   * Called after a delete worked (e.g. to close the viewer). kept: images whose file
+   * didn't go to the Recycle Bin, they're still in MiColl.
+   */
+  onDone?: (kept?: string[]) => void;
 }
 
 interface ActionsCtx {
@@ -400,8 +403,10 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
         await api.setSetting("delete_ask", "false");
         await api.setSetting("delete_mode", alsoFiles ? "disk" : "micoll");
       }
-      if (req.imageIds?.length) await api.deleteImages(req.imageIds, alsoFiles);
-      else if (req.imageId) await api.deleteImage(req.imageId, alsoFiles);
+      // images: a file another program holds stays, with its image, and is reported
+      let left: api.ImagesDeleted | null = null;
+      if (req.imageIds?.length) left = await api.deleteImages(req.imageIds, alsoFiles);
+      else if (req.imageId) left = await api.deleteImage(req.imageId, alsoFiles);
       else if (req.platform)
         await api.deletePlatform(req.platform.artistId, req.platform.name, alsoFiles);
       else if (req.artistId) await api.deleteArtist(req.artistId, alsoFiles);
@@ -410,7 +415,18 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       else if (req.periodId) await api.deletePeriod(req.periodId, alsoFiles);
       else if (req.rewardIds?.length) await api.deleteRewards(req.rewardIds, alsoFiles);
       await refresh();
-      req.onDone?.();
+      req.onDone?.(left?.kept);
+      if (left && left.kept.length) {
+        showToast({
+          tone: "error",
+          title: t("Some files weren’t deleted"),
+          problem: [
+            ...left.openIn.map((o) => tp("{n} files are open in {app}", o.files, { app: o.app })),
+            ...left.failed,
+            ...(left.openIn.length ? [t("Close them there and try again.")] : []),
+          ].join("\n"),
+        });
+      }
     } catch (e) {
       // Windows can refuse "delete files too" (e.g. too big for the recycle bin),
       // tell the user so they know the files are still on disk

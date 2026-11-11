@@ -2133,4 +2133,8 @@ export const dict: Dict = {
   "Make {n} at once": "Crea {n} in una volta",
   "Right-click: make several at once": "Clic destro: crearne diverse in una volta",
   "Stop expanding — the pictures already made stay": "Ferma l’espansione: le immagini già create restano",
+  "{n} files are open in {app}#one": "{n} file è aperto in {app}",
+  "{n} files are open in {app}#other": "{n} file sono aperti in {app}",
+  "Some files weren’t deleted": "Alcuni file non sono stati eliminati",
+  "Close them there and try again.": "Chiudili lì e riprova.",
 };

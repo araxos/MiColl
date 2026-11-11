@@ -1444,6 +1444,21 @@ thread_local! {
 /// A file still held by a COM Surrogate (dllhost.exe, Explorer's thumbnails) is freed
 /// and the delete tried again. Any other program that holds a file is named.
 fn recycle(p: &std::path::Path) -> Result<(), String> {
+    recycle_why(p).map_err(|e| match e {
+        Unrecycled::OpenIn(names) => format!("a file in it is open in {}", names.join(", ")),
+        Unrecycled::Other(e) => e,
+    })
+}
+
+/// Why a path didn't go to the Recycle Bin.
+enum Unrecycled {
+    /// other programs hold a file (their names)
+    OpenIn(Vec<String>),
+    Other(String),
+}
+
+/// recycle, telling an open file apart from other failures.
+fn recycle_why(p: &std::path::Path) -> Result<(), Unrecycled> {
     if let Err(first) = trash::delete(p) {
         match unlock::free(p) {
             unlock::Freed::Surrogates(n) => {
@@ -1452,12 +1467,10 @@ fn recycle(p: &std::path::Path) -> Result<(), String> {
                     "delete",
                     &format!("ended {n} COM Surrogate (dllhost.exe) holding {}", p.display()),
                 );
-                trash::delete(p).map_err(|e| e.to_string())?;
+                trash::delete(p).map_err(|e| Unrecycled::Other(e.to_string()))?;
             }
-            unlock::Freed::Others(names) => {
-                return Err(format!("a file in it is open in {}", names.join(", ")));
-            }
-            unlock::Freed::Nobody => return Err(first.to_string()),
+            unlock::Freed::Others(names) => return Err(Unrecycled::OpenIn(names)),
+            unlock::Freed::Nobody => return Err(Unrecycled::Other(first.to_string())),
         }
     }
     TRASH_JOURNAL.with(|j| {
@@ -4621,31 +4634,47 @@ fn create_artist(
     };
 
     if let Some(base) = base.as_ref() {
-        if platforms.is_empty() {
-            let _ = std::fs::create_dir_all(base);
-        }
-        for p in &platforms {
-            let pdir = base.join(sanitize_name(p));
-            for word in &words {
-                let _ = std::fs::create_dir_all(pdir.join(word));
+        // the folders first: a card whose folders couldn't be made (no write access, the
+        // disk gone) isn't created, the user is told why
+        let existed = base.exists();
+        let mk = |d: &std::path::Path| {
+            std::fs::create_dir_all(d).map_err(|e| format!("Couldn't create the folder {}: {e}", d.display()))
+        };
+        let made = (|| -> Result<(), String> {
+            if platforms.is_empty() {
+                mk(base)?;
             }
-            if !dated || years.is_empty() {
-                let _ = std::fs::create_dir_all(&pdir);
-            } else {
-                for y in &years {
-                    let ydir = pdir.join(y.to_string());
-                    if months {
-                        for m in 1..=12 {
-                            let _ = std::fs::create_dir_all(ydir.join(format!("{:02}", m)));
+            for p in &platforms {
+                let pdir = base.join(sanitize_name(p));
+                for word in &words {
+                    mk(&pdir.join(word))?;
+                }
+                if !dated || years.is_empty() {
+                    mk(&pdir)?;
+                } else {
+                    for y in &years {
+                        let ydir = pdir.join(y.to_string());
+                        if months {
+                            for m in 1..=12 {
+                                mk(&ydir.join(format!("{:02}", m)))?;
+                            }
+                        } else {
+                            mk(&ydir)?;
                         }
-                    } else {
-                        let _ = std::fs::create_dir_all(&ydir);
                     }
                 }
             }
+            Ok(())
+        })();
+        if let Err(e) = made {
+            // take back the empty folders this made, never anything with files in it
+            if !existed && base.is_dir() && !dir_has_files(base) {
+                let _ = std::fs::remove_dir_all(base);
+            }
+            return Err(e);
         }
         // register the folder so later content gets indexed
-        let _ = db::add_root(&conn, &base.to_string_lossy(), Some(&clean), None);
+        db::add_root(&conn, &base.to_string_lossy(), Some(&clean), None).map_err(map_err)?;
         allow_asset_dir(&app, &base.to_string_lossy());
     }
 
@@ -5856,26 +5885,79 @@ fn image_delete_entry(conn: &rusqlite::Connection, ids: &[i64], also_files: bool
 
 /// Delete one image, optionally trashing the file.
 #[tauri::command]
-fn delete_image(db: State<Db>, image_id: i64, also_files: bool) -> Result<(), String> {
+fn delete_image(db: State<Db>, image_id: i64, also_files: bool) -> Result<ImagesDeleted, String> {
     let conn = db.conn();
     delete_images_in(&conn, &[image_id], also_files)
 }
 
 /// Delete several images at once (viewer selection), under one DB lock.
 #[tauri::command]
-fn delete_images(db: State<Db>, image_ids: Vec<i64>, also_files: bool) -> Result<(), String> {
+fn delete_images(db: State<Db>, image_ids: Vec<i64>, also_files: bool) -> Result<ImagesDeleted, String> {
     let conn = db.conn();
     delete_images_in(&conn, &image_ids, also_files)
 }
 
-fn delete_images_in(conn: &rusqlite::Connection, image_ids: &[i64], also_files: bool) -> Result<(), String> {
-    let (entry, mut snap) = image_delete_entry(conn, image_ids, also_files);
+/// A delete of images: the ones whose file didn't go to the Recycle Bin stay in MiColl
+/// (else they'd come back with the next scan), and why.
+#[derive(serde::Serialize, Default, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct ImagesDeleted {
+    /// ids still in MiColl
+    kept: Vec<i64>,
+    /// files open in other programs: how many per program
+    open_in: Vec<OpenIn>,
+    /// "name: reason" for any other failure
+    failed: Vec<String>,
+}
+
+#[derive(serde::Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct OpenIn {
+    app: String,
+    files: u32,
+}
+
+impl ImagesDeleted {
+    fn note_open(&mut self, names: &[String]) {
+        let app = names.join(", ");
+        match self.open_in.iter_mut().find(|o| o.app == app) {
+            Some(o) => o.files += 1,
+            None => self.open_in.push(OpenIn { app, files: 1 }),
+        }
+    }
+}
+
+fn delete_images_in(conn: &rusqlite::Connection, image_ids: &[i64], also_files: bool) -> Result<ImagesDeleted, String> {
     let journal = TrashJournal::start();
-    for &image_id in image_ids {
-        if let Some(p) = db::image_path(conn, image_id).map_err(map_err)? {
-            if also_files && std::path::Path::new(&p).exists() {
-                let _ = recycle(std::path::Path::new(&p));
+    let mut out = ImagesDeleted::default();
+    // the files first: an image whose file stays on the disk stays in MiColl
+    if also_files {
+        for &image_id in image_ids {
+            let Some(p) = db::image_path(conn, image_id).map_err(map_err)? else { continue };
+            let path = std::path::Path::new(&p);
+            if !path.exists() {
+                continue;
             }
+            match recycle_why(path) {
+                Ok(()) => {}
+                Err(Unrecycled::OpenIn(names)) => {
+                    out.kept.push(image_id);
+                    out.note_open(&names);
+                }
+                Err(Unrecycled::Other(e)) => {
+                    out.kept.push(image_id);
+                    out.failed.push(format!("{}: {e}", file_name_of(&p)));
+                }
+            }
+        }
+    }
+    let gone: Vec<i64> = image_ids.iter().copied().filter(|id| !out.kept.contains(id)).collect();
+    if gone.is_empty() {
+        return Ok(out);
+    }
+    let (entry, mut snap) = image_delete_entry(conn, &gone, also_files);
+    for &image_id in &gone {
+        if let Some(p) = db::image_path(conn, image_id).map_err(map_err)? {
             // always trash its edit versions
             for f in db::version_files_for_orig_paths(conn, &[p]).map_err(map_err)? {
                 let vp = std::path::PathBuf::from(&f);
@@ -5888,7 +5970,7 @@ fn delete_images_in(conn: &rusqlite::Connection, image_ids: &[i64], also_files: 
     }
     snap.trashed = journal.take();
     history::log_with_snapshot(conn, entry, Some(snap));
-    Ok(())
+    Ok(out)
 }
 
 /// Full size original image as base64 data URL.

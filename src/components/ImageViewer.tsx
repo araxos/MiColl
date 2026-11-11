@@ -1018,7 +1018,10 @@ export function ImageViewer({
     // remember the list before deleting
     const snapshot = items;
     const cur = current;
-    const doneFocus = () => {
+    const doneFocus = (kept?: string[]) => {
+      // files another program held stay, and so do their images
+      kept?.forEach((id) => ids.delete(id));
+      if (ids.size === 0) return;
       const survivors = snapshot.filter((it) => !ids.has(it.id));
       if (survivors.length === 0) {
         onClose();

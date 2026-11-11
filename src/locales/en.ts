@@ -82,4 +82,6 @@ export const dict: Dict = {
   "{n} rewards have this tier. They keep their files, only the tier is taken off them.#other": "{n} rewards have this tier. They keep their files, only the tier is taken off them.",
   "Tier removed from {n} rewards#one": "Tier removed from {n} reward",
   "Tier removed from {n} rewards#other": "Tier removed from {n} rewards",
+  "{n} files are open in {app}#one": "{n} file is open in {app}",
+  "{n} files are open in {app}#other": "{n} files are open in {app}",
 };

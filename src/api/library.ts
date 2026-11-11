@@ -1803,13 +1803,29 @@ export async function addArtistPlatform(artistId: string, platform: string): Pro
   await invoke("add_artist_platform", { artistId: Number(artistId), platform });
 }
 
-export async function deleteImage(imageId: string, alsoFiles: boolean): Promise<void> {
-  await invoke("delete_image", { imageId: Number(imageId), alsoFiles });
+/**
+ * What a delete of images left: files that couldn't go to the Recycle Bin keep their
+ * image in MiColl (kept), with the programs that hold them open.
+ */
+export interface ImagesDeleted {
+  kept: string[];
+  openIn: { app: string; files: number }[];
+  failed: string[];
+}
+
+type RawImagesDeleted = { kept: number[]; openIn: { app: string; files: number }[]; failed: string[] };
+const toDeleted = (r: RawImagesDeleted | undefined): ImagesDeleted =>
+  r ? { ...r, kept: r.kept.map(String) } : { kept: [], openIn: [], failed: [] };
+
+export async function deleteImage(imageId: string, alsoFiles: boolean): Promise<ImagesDeleted> {
+  return toDeleted(await invoke<RawImagesDeleted>("delete_image", { imageId: Number(imageId), alsoFiles }));
 }
 
 /** Delete several images/videos at once (a viewer multi-selection). */
-export async function deleteImages(imageIds: string[], alsoFiles: boolean): Promise<void> {
-  await invoke("delete_images", { imageIds: imageIds.map(Number), alsoFiles });
+export async function deleteImages(imageIds: string[], alsoFiles: boolean): Promise<ImagesDeleted> {
+  return toDeleted(
+    await invoke<RawImagesDeleted>("delete_images", { imageIds: imageIds.map(Number), alsoFiles }),
+  );
 }
 
 /** How many files a fill copied in, skipped (name clash → "skip") and failed. */

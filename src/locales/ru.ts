@@ -2209,4 +2209,10 @@ export const dict: Dict = {
   "Make {n} at once": "Создать {n} сразу",
   "Right-click: make several at once": "Правый клик: создать несколько сразу",
   "Stop expanding — the pictures already made stay": "Остановить расширение — готовые изображения останутся",
+  "{n} files are open in {app}#one": "{n} файл открыт в {app}",
+  "{n} files are open in {app}#few": "{n} файла открыты в {app}",
+  "{n} files are open in {app}#many": "{n} файлов открыто в {app}",
+  "{n} files are open in {app}#other": "{n} файла открыты в {app}",
+  "Some files weren’t deleted": "Некоторые файлы не удалены",
+  "Close them there and try again.": "Закройте их там и попробуйте снова.",
 };

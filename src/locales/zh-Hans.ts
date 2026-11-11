@@ -2102,4 +2102,7 @@ export const dict: Dict = {
   "Make {n} at once": "一次生成 {n} 张",
   "Right-click: make several at once": "右键:一次生成多张",
   "Stop expanding — the pictures already made stay": "停止扩展 — 已生成的图片会保留",
+  "{n} files are open in {app}#other": "{n} 个文件在 {app} 中打开",
+  "Some files weren’t deleted": "部分文件未删除",
+  "Close them there and try again.": "请在那里关闭它们后重试。",
 };

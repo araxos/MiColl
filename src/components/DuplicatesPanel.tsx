@@ -110,12 +110,15 @@ export function DuplicatesPanel({
     if (selected.size === 0) return;
     setBusy(true);
     try {
+      // a file another program holds stays (and so does its image)
+      const gone = new Set<string>();
       for (const id of selected) {
-        await deleteImage(id, true).catch(() => {});
+        const r = await deleteImage(id, true).catch(() => null);
+        if (r && !r.kept.includes(id)) gone.add(id);
       }
       await refresh();
       setGroups((gs) =>
-        gs.map((g) => g.filter((im) => !selected.has(im.id))).filter((g) => g.length > 1),
+        gs.map((g) => g.filter((im) => !gone.has(im.id))).filter((g) => g.length > 1),
       );
       setSelected(new Set());
     } finally {
