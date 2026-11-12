@@ -548,7 +548,7 @@ pub fn restore_rows(conn: &Connection, snap: &Snapshot) -> Result<(), String> {
             insert(conn, "collections", row, false, true).map_err(e)?;
         }
     }
-    for table in ["roots", "favorites", "wallpaper_favs", "collection_items"] {
+    for table in ["roots", "favorites", "wallpaper_favs", "collection_items", "wall_set_items"] {
         for row in snap.rows_of(table) {
             let id = int(row, "id");
             let taken = match id {

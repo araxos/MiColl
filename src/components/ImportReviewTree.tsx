@@ -277,13 +277,17 @@ export function ImportReviewTree({
         ? "iri-menu relative rounded-2xl border border-white/15 bg-zinc-900/80 ring-1 ring-inset ring-white/10 backdrop-blur-2xl [transform:translateZ(0)]"
         : accent === "sakura"
           ? "sak-card rounded-2xl"
-          : "rounded-2xl border border-zinc-800 bg-zinc-900";
+          : accent === "corruptruby"
+            ? // pyre: a backstage pass, every creator a ticket (index.css .ir-*)
+              "ir-panel"
+            : "rounded-2xl border border-zinc-800 bg-zinc-900";
   // inside styles from the dialog theme too (creator box, placeholders, dividers)
   const dlg = useDialogTheme();
   const sakura = accent === "sakura";
+  const pyre = accent === "corruptruby";
   // old names kept for these two
-  const boxClass = dlg.box;
-  const softClass = dlg.soft;
+  const boxClass = pyre ? "ir-ticket" : dlg.box;
+  const softClass = pyre ? "ir-soft" : dlg.soft;
 
   /* ---- creator matching (carried over from the old review) ------------- */
 
@@ -1117,7 +1121,7 @@ export function ImportReviewTree({
   /* ---- render ------------------------------------------------------------ */
 
   // dlg.field works on the wrapper and the input (focus-within)
-  const inputCls = cn("px-2 text-xs text-zinc-100 outline-none", dlg.field);
+  const inputCls = cn("px-2 text-xs text-zinc-100 outline-none", pyre ? "ir-field" : dlg.field);
 
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -1170,8 +1174,9 @@ export function ImportReviewTree({
         >
           <div className={cn("flex items-center justify-between border-b px-5 py-4", dlg.divider)}>
             <div>
-              <h2 className="text-base font-semibold text-zinc-100">
+              <h2 className={cn("text-base font-semibold text-zinc-100", pyre && "ir-title")}>
                 {lockedArtist ? tf("Add rewards to {name}", { name: lockedArtist }) : t("Review import")}
+                {pyre && <span className="ir-pass">{t("All access")}</span>}
                 {inboxWaiting > 0 && (
                   <span
                     title={tp("{n} more downloads from your inbox come after this one", inboxWaiting)}
@@ -1224,9 +1229,28 @@ export function ImportReviewTree({
                       : "";
                   return (
                     <div key={node.creator} className={cn("p-3", boxClass)}>
+                      {/* pyre: the ticket's stub, what this creator brings in */}
+                      {pyre && (
+                        <div aria-hidden className="ir-stub">
+                          <span className="ir-stub-k">{t("Admit")}</span>
+                          <b>{allRows.length}</b>
+                          <span className="ir-stub-k">{t("Rewards")}</span>
+                          <b>
+                            {allRows.reduce(
+                              (s, r) =>
+                                s +
+                                ownImageCount(r) +
+                                mergedChildrenOf(r.folder).reduce((a, c) => a + c.imageCount, 0),
+                              0,
+                            )}
+                          </b>
+                          <span className="ir-stub-k">{t("Images")}</span>
+                          <i className="ir-stub-bar" />
+                        </div>
+                      )}
                       {/* creator header: name + release style + platform for all */}
                       <div className="mb-1 flex items-center gap-2">
-                        <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                        <span className="ir-label text-xs font-medium uppercase tracking-wide text-zinc-500">
                           {t("Creator")}
                         </span>
                         {isLocked ? (
@@ -1242,7 +1266,7 @@ export function ImportReviewTree({
                                 "Creator name — type an existing creator’s name to file these under them (applied when you leave the field)",
                               )}
                               className={cn(
-                                "h-8 w-full min-w-0 text-sm font-medium",
+                                "ir-name h-8 w-full min-w-0 text-sm font-medium",
                                 inputCls,
                                 known && "pr-8",
                               )}
@@ -1267,8 +1291,9 @@ export function ImportReviewTree({
                             )}
                           </div>
                         )}
-                        {/* set the month for the WHOLE import at once */}
-                        {node.style === "monthly" && (
+                        {/* set the month for the WHOLE import at once. One reward: its own
+                            row has the fields already, two of them would only repeat it */}
+                        {node.style === "monthly" && allRows.length > 1 && (
                           <span
                             className="flex items-center gap-1"
                             title={t(
@@ -1295,7 +1320,7 @@ export function ImportReviewTree({
                             />
                           </span>
                         )}
-                        {node.style === "custom" && (
+                        {node.style === "custom" && allRows.length > 1 && (
                           <span
                             className="flex items-center gap-1"
                             title={t(
@@ -1406,7 +1431,11 @@ export function ImportReviewTree({
                             title={t(hint)}
                             className={cn(
                               "inline-flex items-center gap-1.5 px-2.5 py-1 text-xs transition-colors",
-                              node.style === key ? cn("font-medium", dlg.controlOn) : dlg.control,
+                              node.style === key
+                                ? cn("font-medium", pyre ? "ir-chip ir-chip--on" : dlg.controlOn)
+                                : pyre
+                                  ? "ir-chip"
+                                  : dlg.control,
                             )}
                           >
                             <Icon className="h-3 w-3" />
@@ -1826,7 +1855,7 @@ export function ImportReviewTree({
                 win) */}
             <Button
               variant={sakura ? "outline" : "primary"}
-              className={sakura ? "sak-chip sak-chip--lead sak-petal-cut" : undefined}
+              className={sakura ? "sak-chip sak-chip--lead sak-petal-cut" : pyre ? "ir-go" : undefined}
               disabled={busy || rows.length === 0}
               onClick={confirm}
             >

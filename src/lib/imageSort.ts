@@ -89,14 +89,17 @@ export function sortViewerItems<T extends SortableItem>(
 /**
  * Like sortViewerItems but keeps each subfolder together.
  * The reward's own files first, then each subfolder, sorted inside each group.
+ * folderOrder: subfolder names the user put first, in that order (any case); the
+ * others follow as they are. Only saved in MiColl, the folders stay as they are.
  */
 export function sortViewerItemsGrouped<T extends SortableItem>(
   items: T[],
   field: ImgSortField,
   dir: SortDir,
   stats: Record<string, Stat>,
+  folderOrder?: string[] | null,
 ): T[] {
-  const order: string[] = [];
+  let order: string[] = [];
   const groups = new Map<string, T[]>();
   for (const it of items) {
     const g = it.group ?? "";
@@ -108,8 +111,34 @@ export function sortViewerItemsGrouped<T extends SortableItem>(
     }
     arr.push(it);
   }
+  if (folderOrder?.length && order.length > 1) {
+    const want = folderOrder.map((f) => f.toLowerCase());
+    // the reward's own files stay first
+    const rank = (g: string) => {
+      if (!g) return -1;
+      const i = want.indexOf(g.toLowerCase());
+      return i < 0 ? want.length : i;
+    };
+    order = order
+      .map((g, i) => ({ g, i }))
+      .sort((a, b) => rank(a.g) - rank(b.g) || a.i - b.i)
+      .map((x) => x.g);
+  }
   // only one group -> normal sort
   return order.flatMap((g) => sortViewerItems(groups.get(g) as T[], field, dir, stats));
+}
+
+/** Where a reward's / a creator's folder order is saved (MiColl's settings). */
+export const folderOrderKey = (scope: "reward" | "artist", id: string) => `folder_order:${scope}:${id}`;
+
+export function parseFolderOrder(raw: string | null | undefined): string[] | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) && v.every((x) => typeof x === "string") && v.length ? v : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Saved per reward (shared key if there's no reward id). */

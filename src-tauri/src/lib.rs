@@ -19,6 +19,7 @@ mod template;
 mod thumbs;
 mod transfer;
 mod unlock;
+mod wallsets;
 mod history;
 mod inbox;
 mod siteicon;
@@ -1516,7 +1517,7 @@ fn snap_rewards(conn: &rusqlite::Connection, snap: &mut history::Snapshot, rewar
     snap.add(conn, "reward_collabs", &format!("reward_id IN ({rewards_sql})"), &[]);
     snap.add(conn, "image_versions", &format!("orig_path IN ({files})"), &[]);
     snap.add(conn, "image_active_version", &format!("orig_path IN ({files})"), &[]);
-    for t in ["favorites", "wallpaper_favs", "collection_items"] {
+    for t in ["favorites", "wallpaper_favs", "collection_items", "wall_set_items"] {
         snap.add(conn, t, &format!("file_path IN ({files})"), &[]);
     }
 }
@@ -3268,6 +3269,11 @@ async fn merge_rewards(
                     rusqlite::params![old_prefix, new_prefix],
                 )
                 .map_err(map_err)?;
+                conn.execute(
+                    "UPDATE OR REPLACE wall_set_items SET file_path = ?2 || substr(file_path, length(?1)+1) WHERE substr(file_path,1,length(?1)) = ?1",
+                    rusqlite::params![old_prefix, new_prefix],
+                )
+                .map_err(map_err)?;
                 db::remap_preview_prefix(&conn, old_prefix, new_prefix).map_err(map_err)?;
             }
             // delete the merged rewards
@@ -3349,6 +3355,11 @@ async fn merge_rewards(
             .map_err(map_err)?;
             conn.execute(
                 "UPDATE OR REPLACE collection_items SET file_path = ?2 WHERE file_path = ?1",
+                rusqlite::params![old, new],
+            )
+            .map_err(map_err)?;
+            conn.execute(
+                "UPDATE OR REPLACE wall_set_items SET file_path = ?2 WHERE file_path = ?1",
                 rusqlite::params![old, new],
             )
             .map_err(map_err)?;
@@ -3967,7 +3978,15 @@ fn open_url(url: String) -> Result<(), String> {
 
 /// Set an image as the Windows desktop wallpaper.
 #[tauri::command]
-fn set_wallpaper(path: String) -> Result<(), String> {
+fn set_wallpaper(db: State<Db>, path: String) -> Result<(), String> {
+    set_wallpaper_file(&path)?;
+    // a single picture ends any slideshow
+    let conn = db.conn();
+    let _ = db::set_setting(&conn, wallsets::ACTIVE_KEY, "");
+    Ok(())
+}
+
+fn set_wallpaper_file(path: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use std::ffi::OsStr;
@@ -3984,10 +4003,10 @@ fn set_wallpaper(path: String) -> Result<(), String> {
                 win_ini: u32,
             ) -> i32;
         }
-        if !std::path::Path::new(&path).exists() {
+        if !std::path::Path::new(path).exists() {
             return Err("Image file not found.".into());
         }
-        let wide: Vec<u16> = OsStr::new(&path).encode_wide().chain(std::iter::once(0)).collect();
+        let wide: Vec<u16> = OsStr::new(path).encode_wide().chain(std::iter::once(0)).collect();
         let ok = unsafe {
             SystemParametersInfoW(
                 SPI_SETDESKWALLPAPER,
@@ -4012,6 +4031,20 @@ fn set_wallpaper(path: String) -> Result<(), String> {
 /// Missing values: every 10 minutes, fill, shuffled.
 #[tauri::command]
 fn set_wallpaper_slideshow(
+    db: State<Db>,
+    paths: Vec<String>,
+    interval_minutes: Option<u32>,
+    position: Option<String>,
+    shuffle: Option<bool>,
+) -> Result<(), String> {
+    apply_slideshow(paths, interval_minutes, position, shuffle)?;
+    // another slideshow took the desktop: no hub slideshow is running anymore
+    let conn = db.conn();
+    let _ = db::set_setting(&conn, wallsets::ACTIVE_KEY, "");
+    Ok(())
+}
+
+fn apply_slideshow(
     paths: Vec<String>,
     interval_minutes: Option<u32>,
     position: Option<String>,
@@ -5867,7 +5900,7 @@ fn image_delete_entry(conn: &rusqlite::Connection, ids: &[i64], also_files: bool
     snap.add(conn, "reward_collabs", &format!("reward_id IN ({rewards})"), &[]);
     snap.add(conn, "image_versions", &format!("orig_path IN ({files})"), &[]);
     snap.add(conn, "image_active_version", &format!("orig_path IN ({files})"), &[]);
-    for t in ["favorites", "wallpaper_favs", "collection_items"] {
+    for t in ["favorites", "wallpaper_favs", "collection_items", "wall_set_items"] {
         snap.add(conn, t, &format!("file_path IN ({files})"), &[]);
     }
     (
@@ -7285,6 +7318,250 @@ fn remove_reward_alt(path: String) -> Result<(), String> {
     recycle(p)?;
     let _ = std::fs::remove_dir(parent);
     Ok(())
+}
+
+/* ---- Wallpaper Hub: desktop slideshows over every creator (wallsets.rs) ---- */
+
+/// The hub slideshow running now: the one MiColl started last, while Windows still runs
+/// a slideshow (the user may have picked another background since).
+fn active_wall_set(conn: &rusqlite::Connection) -> Option<i64> {
+    let id = db::get_setting(conn, wallsets::ACTIVE_KEY).ok().flatten()?.parse().ok()?;
+    desktop_slideshow_running().then_some(id)
+}
+
+#[cfg(target_os = "windows")]
+fn with_desktop_wallpaper<T: Send>(
+    f: impl FnOnce(&windows::Win32::UI::Shell::IDesktopWallpaper) -> windows::core::Result<T> + Send,
+) -> Result<T, String> {
+    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED};
+    use windows::Win32::UI::Shell::{DesktopWallpaper, IDesktopWallpaper};
+    // shell + COM on its own STA thread (like set_slideshow_sta)
+    std::thread::scope(|s| {
+        s.spawn(|| unsafe {
+            let hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            let out = CoCreateInstance::<_, IDesktopWallpaper>(&DesktopWallpaper, None, CLSCTX_ALL)
+                .and_then(|wp| f(&wp))
+                .map_err(|e| e.message());
+            if hr.is_ok() {
+                CoUninitialize();
+            }
+            out
+        })
+        .join()
+        .unwrap_or_else(|_| Err("the wallpaper call crashed".into()))
+    })
+}
+
+fn desktop_slideshow_running() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::UI::Shell::DSS_SLIDESHOW;
+        with_desktop_wallpaper(|wp| unsafe { wp.GetStatus() })
+            .map(|st| st.0 & DSS_SLIDESHOW.0 != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_os = "windows"))]
+    false
+}
+
+#[tauri::command]
+fn list_wall_sets(db: State<Db>) -> Result<Vec<wallsets::WallSet>, String> {
+    let conn = db.conn();
+    let mut sets = wallsets::list(&conn).map_err(map_err)?;
+    let active = active_wall_set(&conn);
+    for s in &mut sets {
+        s.active = Some(s.id) == active;
+    }
+    Ok(sets)
+}
+
+#[tauri::command]
+fn create_wall_set(db: State<Db>, name: String) -> Result<i64, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Give the slideshow a name.".into());
+    }
+    let conn = db.conn();
+    wallsets::create(&conn, name).map_err(map_err)
+}
+
+/// Start a hub slideshow on the desktop (Windows runs one at a time).
+fn start_wall_set(conn: &rusqlite::Connection, id: i64) -> Result<(), String> {
+    let (minutes, fit, shuffle) = wallsets::get(conn, id).map_err(map_err)?.ok_or("That slideshow is gone.")?;
+    let files = wallsets::shown_files(conn, id).map_err(map_err)?;
+    if files.is_empty() {
+        return Err("None of its pictures can be a wallpaper right now (missing, encrypted or not a picture).".into());
+    }
+    apply_slideshow(files, Some(minutes as u32), Some(fit), Some(shuffle))?;
+    db::set_setting(conn, wallsets::ACTIVE_KEY, &id.to_string()).map_err(map_err)
+}
+
+/// A change to the running slideshow goes to the desktop right away.
+fn refresh_if_active(conn: &rusqlite::Connection, id: i64) -> Result<(), String> {
+    if active_wall_set(conn) == Some(id) {
+        start_wall_set(conn, id)?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn update_wall_set(
+    db: State<Db>,
+    id: i64,
+    name: Option<String>,
+    minutes: Option<i64>,
+    fit: Option<String>,
+    shuffle: Option<bool>,
+) -> Result<(), String> {
+    let conn = db.conn();
+    wallsets::update(&conn, id, name.as_deref(), minutes, fit.as_deref(), shuffle).map_err(map_err)?;
+    if minutes.is_some() || fit.is_some() || shuffle.is_some() {
+        refresh_if_active(&conn, id)?;
+    }
+    Ok(())
+}
+
+/// Delete a slideshow (no file is touched). Running, the desktop keeps showing it.
+#[tauri::command]
+fn delete_wall_set(db: State<Db>, id: i64) -> Result<(), String> {
+    let conn = db.conn();
+    if db::get_setting(&conn, wallsets::ACTIVE_KEY).ok().flatten().as_deref() == Some(id.to_string().as_str()) {
+        let _ = db::set_setting(&conn, wallsets::ACTIVE_KEY, "");
+    }
+    wallsets::delete(&conn, id).map_err(map_err)
+}
+
+/// Save the order of a reward's subfolders (scope "reward") or a creator's rule ("artist"),
+/// None = back to A-Z. Only MiColl's setting, the folders stay. Automatic covers follow.
+#[tauri::command]
+fn set_folder_order(db: State<Db>, scope: String, id: i64, order: Option<Vec<String>>) -> Result<(), String> {
+    if scope != "reward" && scope != "artist" {
+        return Err("unknown scope".into());
+    }
+    let conn = db.conn();
+    let value = match order.filter(|o| !o.is_empty()) {
+        Some(o) => serde_json::to_string(&o).map_err(map_err)?,
+        None => String::new(),
+    };
+    let rewards: Vec<i64> = if scope == "reward" {
+        vec![id]
+    } else {
+        let mut stmt = conn
+            .prepare("SELECT r.id FROM rewards r JOIN periods p ON p.id = r.period_id WHERE p.artist_id = ?1")
+            .map_err(map_err)?;
+        let rows = stmt.query_map(rusqlite::params![id], |r| r.get(0)).map_err(map_err)?;
+        rows.collect::<rusqlite::Result<Vec<i64>>>().map_err(map_err)?
+    };
+    // the order each reward had, so its old automatic cover is recognized
+    let before: Vec<Option<Vec<String>>> =
+        rewards.iter().map(|&r| db::folder_order(&conn, r)).collect::<rusqlite::Result<_>>().map_err(map_err)?;
+    db::set_setting(&conn, &format!("folder_order:{scope}:{id}"), &value).map_err(map_err)?;
+    for (rid, old) in rewards.iter().zip(before) {
+        db::refresh_auto_cover(&conn, *rid, old.as_deref()).map_err(map_err)?;
+    }
+    Ok(())
+}
+
+/// The slideshow as library images, for the viewer (it scrolls the slideshow).
+#[tauri::command]
+fn wall_set_images(app: AppHandle, db: State<Db>, id: i64) -> Result<Vec<db::FavoriteImage>, String> {
+    let conn = db.conn();
+    // make the roots servable so the URLs load (pictures from every creator)
+    if let Ok(roots) = db::list_roots(&conn) {
+        for r in roots {
+            allow_asset_dir(&app, &r.path);
+        }
+    }
+    wallsets::images(&conn, id).map_err(map_err)
+}
+
+#[tauri::command]
+fn wall_set_items(db: State<Db>, id: i64) -> Result<Vec<String>, String> {
+    let conn = db.conn();
+    wallsets::items(&conn, id).map_err(map_err)
+}
+
+#[tauri::command]
+fn add_to_wall_set(db: State<Db>, id: i64, paths: Vec<String>) -> Result<usize, String> {
+    let conn = db.conn();
+    let n = wallsets::add(&conn, id, &paths).map_err(map_err)?;
+    if n > 0 {
+        refresh_if_active(&conn, id)?;
+    }
+    Ok(n)
+}
+
+#[tauri::command]
+fn remove_from_wall_set(db: State<Db>, id: i64, paths: Vec<String>) -> Result<usize, String> {
+    let conn = db.conn();
+    let n = wallsets::remove(&conn, id, &paths).map_err(map_err)?;
+    if n > 0 && wallsets::items(&conn, id).map_err(map_err)?.is_empty() {
+        // nothing left to show: leave the desktop as it is
+        return Ok(n);
+    }
+    if n > 0 {
+        refresh_if_active(&conn, id)?;
+    }
+    Ok(n)
+}
+
+#[tauri::command]
+fn activate_wall_set(db: State<Db>, id: i64) -> Result<(), String> {
+    let conn = db.conn();
+    start_wall_set(&conn, id)
+}
+
+/// The next picture of the running slideshow.
+#[tauri::command]
+fn wall_set_next() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::core::PCWSTR;
+        use windows::Win32::UI::Shell::DSD_FORWARD;
+        with_desktop_wallpaper(|wp| unsafe { wp.AdvanceSlideshow(PCWSTR::null(), DSD_FORWARD) })?;
+    }
+    Ok(())
+}
+
+/// Stop the slideshow: the picture on screen now stays as the background.
+#[tauri::command]
+fn wall_set_stop(db: State<Db>) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::core::PCWSTR;
+        let current = with_desktop_wallpaper(|wp| unsafe {
+            // one path for every screen, else the first screen's
+            let p = match wp.GetWallpaper(PCWSTR::null()) {
+                Ok(p) => p,
+                Err(_) => {
+                    let mon = wp.GetMonitorDevicePathAt(0)?;
+                    let got = wp.GetWallpaper(PCWSTR(mon.0));
+                    windows::Win32::System::Com::CoTaskMemFree(Some(mon.0 as *const core::ffi::c_void));
+                    got?
+                }
+            };
+            let s = p.to_string().unwrap_or_default();
+            windows::Win32::System::Com::CoTaskMemFree(Some(p.0 as *const core::ffi::c_void));
+            Ok(s)
+        })?;
+        if current.is_empty() {
+            return Err("Windows didn't say which picture is on screen.".into());
+        }
+        set_wallpaper_file(&current)?;
+    }
+    let conn = db.conn();
+    db::set_setting(&conn, wallsets::ACTIVE_KEY, "").map_err(map_err)
+}
+
+/// The files of a user collection (the hub takes them over into a slideshow).
+#[tauri::command]
+fn collection_files(db: State<Db>, id: i64) -> Result<Vec<String>, String> {
+    let conn = db.conn();
+    let mut stmt = conn
+        .prepare("SELECT file_path FROM collection_items WHERE collection_id = ?1 ORDER BY rowid")
+        .map_err(map_err)?;
+    let rows = stmt.query_map(rusqlite::params![id], |r| r.get(0)).map_err(map_err)?;
+    rows.collect::<rusqlite::Result<Vec<String>>>().map_err(map_err)
 }
 
 /* ---- Image versions (non-destructive edit history) -------------------- */
@@ -11553,6 +11830,19 @@ pub fn run() {
             set_artist_kind,
             open_url,
             set_wallpaper,
+            list_wall_sets,
+            create_wall_set,
+            update_wall_set,
+            delete_wall_set,
+            wall_set_items,
+            wall_set_images,
+            set_folder_order,
+            add_to_wall_set,
+            remove_from_wall_set,
+            activate_wall_set,
+            wall_set_next,
+            wall_set_stop,
+            collection_files,
             set_wallpaper_slideshow,
             set_artist_wallpaper_fav,
             set_artist_hidden,

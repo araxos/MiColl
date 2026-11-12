@@ -1424,6 +1424,446 @@ html[data-holo-freq="2"] :is(.ruby-run i, .ruby-frame-glow, .ruby-frame-sheen, .
   box-shadow: 0 0 6px #ff2d7a;
 }
 
+/* Wallpaper Hub cards on the casual themes: the theme's color, dark, a lit top edge
+   and a soft glow below, instead of the dialogs' grey box */
+.hub-card {
+  border: 1px solid color-mix(in srgb, var(--color-brand-400) 28%, transparent);
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--color-brand-500) 17%, #0b0a0f) 0%,
+    color-mix(in srgb, var(--color-brand-700) 9%, #08080b) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-brand-300) 16%, transparent),
+    0 14px 30px -18px color-mix(in srgb, var(--color-brand-500) 70%, transparent);
+  transition: border-color 0.18s ease;
+}
+.hub-card:hover {
+  border-color: color-mix(in srgb, var(--color-brand-400) 45%, transparent);
+}
+
+/* casual themes: the page menu in the theme's color, dark, instead of the grey menu */
+.ps-panel--tint {
+  border-color: color-mix(in srgb, var(--color-brand-400) 30%, transparent);
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--color-brand-500) 16%, #0c0b10),
+    color-mix(in srgb, var(--color-brand-700) 8%, #09090b)
+  );
+}
+/* the main menu behind the page name (PageSwitcher): a tile per page in the theme's
+   gradient, a lit line along the top, the current page ringed with a glowing dot */
+.ps-line {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 0;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--color-brand-400), var(--color-accent2-500), transparent);
+}
+.ps-head {
+  color: color-mix(in srgb, var(--color-brand-300) 70%, #a1a1aa);
+}
+.ps-row {
+  color: #f4f4f5;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+.ps-row:hover {
+  background-color: color-mix(in srgb, var(--color-brand-500) 14%, transparent);
+}
+.ps-row[data-current] {
+  background-color: color-mix(in srgb, var(--color-brand-500) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-brand-400) 38%, transparent);
+}
+.ps-tile {
+  color: #fff;
+  background: linear-gradient(135deg, var(--color-brand-500), var(--color-accent2-500));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 6px 16px -6px color-mix(in srgb, var(--color-brand-500) 80%, transparent);
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ps-row:hover .ps-tile {
+  transform: scale(1.06) rotate(-3deg);
+}
+.ps-go {
+  color: #71717a;
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+.ps-row:hover .ps-go {
+  color: var(--color-brand-300);
+  transform: translateX(3px);
+}
+.ps-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  margin-right: 4px;
+  border-radius: 999px;
+  background: var(--color-brand-400);
+  box-shadow: 0 0 8px var(--color-brand-400);
+}
+
+/* iridescent: the pastel spectrum on the tile, dark ink, a white ring */
+[data-accent="iridescent"] .ps-line {
+  background: linear-gradient(90deg, transparent, #c4b5fd, #f5c2ff, #a7f3d0, #bae6fd, transparent);
+}
+[data-accent="iridescent"] .ps-head {
+  color: #c7f1ff;
+}
+[data-accent="iridescent"] .ps-tile {
+  color: #18181b;
+  background: linear-gradient(135deg, #c4b5fd, #f5c2ff 40%, #a7f3d0 75%, #bae6fd);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 6px 16px -6px rgba(196, 181, 253, 0.7);
+}
+[data-accent="iridescent"] .ps-row:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+[data-accent="iridescent"] .ps-row[data-current] {
+  background-color: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+}
+[data-accent="iridescent"] .ps-dot,
+[data-accent="iridescent"] .ps-row:hover .ps-go {
+  color: #fff;
+  background: #fff;
+  box-shadow: 0 0 8px #f5c2ff;
+}
+[data-accent="iridescent"] .ps-row:hover .ps-go {
+  background: none;
+  box-shadow: none;
+}
+
+/* cyberpunk: square, a yellow tile with the cut corner, a yellow bar on the current */
+[data-accent="cyberpunk"] .ps-line {
+  left: 0;
+  right: 0;
+  background: linear-gradient(90deg, #fcee0a, #00e5ff 60%, transparent);
+}
+[data-accent="cyberpunk"] .ps-head {
+  color: #00e5ff;
+}
+[data-accent="cyberpunk"] .ps-row {
+  border-radius: 0;
+}
+[data-accent="cyberpunk"] .ps-row:hover {
+  background-color: rgba(252, 238, 10, 0.1);
+}
+[data-accent="cyberpunk"] .ps-row[data-current] {
+  background-color: rgba(252, 238, 10, 0.12);
+  box-shadow: inset 2px 0 0 #fcee0a;
+}
+[data-accent="cyberpunk"] .ps-tile {
+  border-radius: 0;
+  color: #09090b;
+  background: #fcee0a;
+  box-shadow: none;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%);
+}
+[data-accent="cyberpunk"] .ps-row:hover .ps-tile {
+  transform: none;
+  background: #fff35c;
+}
+[data-accent="cyberpunk"] .ps-row:hover .ps-go {
+  color: #fcee0a;
+}
+[data-accent="cyberpunk"] .ps-dot {
+  border-radius: 0;
+  background: #fcee0a;
+  box-shadow: 0 0 8px #fcee0a;
+}
+
+/* sakura: the blossom gradient, a petal-round tile */
+[data-accent="sakura"] .ps-line {
+  background: linear-gradient(90deg, transparent, #f9a8d4, #f472b6, transparent);
+}
+[data-accent="sakura"] .ps-tile {
+  border-radius: 10px 3px 10px 3px;
+  background: linear-gradient(135deg, #f9a8d4, #ec4899);
+}
+[data-accent="sakura"] .ps-row:hover .ps-tile {
+  transform: scale(1.06) rotate(6deg);
+}
+
+/* pyre: the right-click plate and lit row (ctx-menu / ctx-row) carry it; the tile is a
+   dark key in a chrome rim with a white neon icon, the dot a ruby */
+[data-accent="corruptruby"] .ps-line {
+  display: none;
+}
+[data-accent="corruptruby"] .ps-head {
+  padding-left: 20px;
+  font-family: "Pyre Display", var(--ruby-display);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  color: #ff7aa8;
+  text-shadow: 0 0 6px rgba(255, 45, 122, 0.6);
+}
+[data-accent="corruptruby"] .ps-row {
+  border-radius: 0;
+}
+[data-accent="corruptruby"] .ps-row[data-current] {
+  box-shadow: none;
+}
+[data-accent="corruptruby"] .ps-title {
+  font-family: "Pyre Display", var(--ruby-display);
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+}
+[data-accent="corruptruby"] .ps-tile {
+  border-radius: 0;
+  background: linear-gradient(160deg, #1a0510, #0a0206);
+  box-shadow:
+    inset 0 0 0 1px rgba(233, 237, 242, 0.55),
+    0 0 10px rgba(255, 20, 100, 0.35);
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+}
+[data-accent="corruptruby"] .ps-tile svg {
+  filter: drop-shadow(0 0 3px #ff2d7a) drop-shadow(0 0 7px rgba(255, 45, 122, 0.7));
+}
+[data-accent="corruptruby"] .ps-row:hover .ps-tile {
+  transform: none;
+}
+[data-accent="corruptruby"] .ps-row:hover .ps-go {
+  color: #ff7aa8;
+}
+[data-accent="corruptruby"] .ps-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 0;
+  background: linear-gradient(135deg, #ffb3cc, #e0115f 55%, #6e0424);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  box-shadow: none;
+  filter: drop-shadow(0 0 4px #ff1464);
+}
+
+/* Import review on pyre: a backstage pass. Every creator is a ticket with a perforated
+   stub in holo foil that says what comes in; the picked release style and Import in
+   pass yellow. Hooks: ImportReviewTree (.ir-*) */
+[data-accent="corruptruby"] .ir-panel {
+  border-radius: 12px;
+  background: linear-gradient(180deg, #140a11, #09060a);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 24px 60px rgba(0, 0, 0, 0.65),
+    0 0 30px rgba(255, 20, 100, 0.12);
+}
+[data-accent="corruptruby"] .ir-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: Bahnschrift, Sora, sans-serif;
+  font-stretch: condensed;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff;
+}
+[data-accent="corruptruby"] .ir-pass {
+  padding: 3px 8px;
+  border-radius: 2px;
+  background: #ffe14d;
+  color: #1a1016;
+  font-size: 10px;
+  font-stretch: normal;
+  letter-spacing: 0.2em;
+}
+[data-accent="corruptruby"] .ir-ticket {
+  --ir-stub: 78px;
+  position: relative;
+  padding: 12px calc(var(--ir-stub) + 14px) 12px 14px;
+  border-radius: 10px;
+  /* the ticket paper: plum, lighter than the panel. A soft light from the top left, one
+     sleek diagonal band of pink, a fine printed grid of open crosses with a rare thin
+     sparkle (a pop-concert pass, not a gift tag) */
+  background:
+    radial-gradient(ellipse at 0% 0%, rgba(255, 170, 210, 0.12), transparent 55%),
+    linear-gradient(112deg, transparent 52%, rgba(255, 45, 130, 0.09) 60%, rgba(255, 45, 130, 0.03) 66%, transparent 72%),
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='78' height='78' viewBox='0 0 78 78'><path d='M58 12l.7 4.6 1.8.9-1.8.9-.7 4.6-.7-4.6-1.8-.9 1.8-.9z' fill='%23ffc4e0' fill-opacity='.16'/></svg>") 0 0 / 78px 78px,
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'><g fill='none' stroke='%23ffc4e0' stroke-opacity='.075' stroke-width='1' stroke-linecap='round'><path d='M6.5 3v2M6.5 8v2M3 6.5h2M8 6.5h2'/><path d='M17.5 17.5l1.2 1.2M20.3 20.3l1.2 1.2M21.5 17.5l-1.2 1.2M18.7 20.3l-1.2 1.2'/></g></svg>") 0 0 / 26px 26px,
+    linear-gradient(135deg, #3d1529, #2b0f1e 55%, #36122a);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  /* the two notches where the stub tears off (the dropdowns are portals, not cut) */
+  -webkit-mask:
+    radial-gradient(circle at calc(100% - var(--ir-stub)) 0, transparent 10px, #000 10.5px) top / 100% 51% no-repeat,
+    radial-gradient(circle at calc(100% - var(--ir-stub)) 100%, transparent 10px, #000 10.5px) bottom / 100% 51% no-repeat;
+  mask:
+    radial-gradient(circle at calc(100% - var(--ir-stub)) 0, transparent 10px, #000 10.5px) top / 100% 51% no-repeat,
+    radial-gradient(circle at calc(100% - var(--ir-stub)) 100%, transparent 10px, #000 10.5px) bottom / 100% 51% no-repeat;
+}
+/* a thin printed frame inside the ticket, like the border line of a real pass */
+[data-accent="corruptruby"] .ir-ticket::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 5px;
+  right: calc(var(--ir-stub) + 6px);
+  border: 1px solid rgba(255, 196, 224, 0.1);
+  border-radius: 6px;
+  pointer-events: none;
+}
+/* the perforation: a row of punched holes between the notches, over the stub's edge */
+[data-accent="corruptruby"] .ir-ticket::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  right: calc(var(--ir-stub) - 3px);
+  top: 14px;
+  bottom: 14px;
+  width: 6px;
+  background: radial-gradient(circle, #0e070c 0 2.1px, transparent 2.6px) center top / 6px 9px repeat-y;
+  pointer-events: none;
+}
+[data-accent="corruptruby"] .ir-stub {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--ir-stub);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: 0 10px 10px 0;
+  /* the rose-silver foil */
+  background: linear-gradient(170deg, #ffd1e3, #b9b4d6 20%, #ff8ab8 38%, #e9e6f2 55%, #ff4f93 72%, #c9e7f0 88%, #ffd1e3);
+  box-shadow:
+    inset 4px 0 6px -4px rgba(40, 0, 20, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 -1px 0 rgba(90, 30, 60, 0.35);
+  color: #1b0b14;
+  font-family: Bahnschrift, Sora, sans-serif;
+  text-align: center;
+  pointer-events: none;
+}
+[data-accent="corruptruby"] .ir-stub > * {
+  position: relative;
+  z-index: 1;
+}
+[data-accent="corruptruby"] .ir-stub::before,
+[data-accent="corruptruby"] .ir-stub::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+/* what makes it foil, not paint: fine embossed lines, metal highlights, a sparse glitter */
+[data-accent="corruptruby"] .ir-stub::before {
+  background:
+    repeating-linear-gradient(55deg, rgba(255, 255, 255, 0.4) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(125deg, rgba(255, 120, 190, 0.5) 0%, rgba(190, 170, 255, 0.5) 7%, rgba(160, 225, 255, 0.5) 14%, rgba(255, 120, 190, 0.5) 21%),
+    linear-gradient(170deg, rgba(255, 255, 255, 0.65), transparent 18%, rgba(255, 255, 255, 0.5) 34%, transparent 46%, rgba(255, 255, 255, 0.55) 62%, transparent 76%, rgba(255, 255, 255, 0.45) 92%),
+    radial-gradient(circle, #fff 0 0.7px, transparent 1.2px) 2px 5px / 13px 11px,
+    radial-gradient(circle, rgba(255, 255, 255, 0.85) 0 0.6px, transparent 1.1px) 7px 2px / 19px 15px;
+  mix-blend-mode: soft-light;
+}
+/* a band of light, still; it runs across once when the mouse comes onto the ticket */
+[data-accent="corruptruby"] .ir-stub::after {
+  background: linear-gradient(105deg, transparent 38%, rgba(255, 255, 255, 0.75) 49%, rgba(255, 230, 242, 0.4) 53%, transparent 62%) 120% 0 / 300% 100% no-repeat;
+  mix-blend-mode: screen;
+  opacity: 0.6;
+  transition: background-position 0s;
+}
+[data-accent="corruptruby"] .ir-ticket:hover .ir-stub::after {
+  background-position: -20% 0;
+  transition: background-position 0.9s cubic-bezier(0.3, 0.6, 0.3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="corruptruby"] .ir-ticket:hover .ir-stub::after {
+    transition: none;
+  }
+}
+[data-accent="corruptruby"] .ir-stub b {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+[data-accent="corruptruby"] .ir-stub-k {
+  margin-bottom: 6px;
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+[data-accent="corruptruby"] .ir-stub-k:first-child {
+  font-size: 9px;
+  letter-spacing: 0.24em;
+}
+[data-accent="corruptruby"] .ir-stub-bar {
+  width: 46px;
+  height: 16px;
+  margin-top: 2px;
+  opacity: 0.75;
+  background: repeating-linear-gradient(90deg, #1b0b14 0 1px, transparent 1px 3px, #1b0b14 3px 5px, transparent 5px 6px, #1b0b14 6px 7px, transparent 7px 10px);
+}
+[data-accent="corruptruby"] .ir-label {
+  color: #ff5c97;
+}
+[data-accent="corruptruby"] .ir-name {
+  font-family: Bahnschrift, Sora, sans-serif;
+  font-stretch: semi-condensed;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+[data-accent="corruptruby"] .ir-field {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  background-color: rgba(0, 0, 0, 0.35);
+  transition: border-color 0.15s ease;
+}
+[data-accent="corruptruby"] .ir-field:focus-within,
+[data-accent="corruptruby"] .ir-field:focus {
+  border-color: rgba(255, 225, 77, 0.6);
+}
+[data-accent="corruptruby"] .ir-soft {
+  border-color: rgba(255, 255, 255, 0.06);
+  background-color: rgba(255, 255, 255, 0.025);
+}
+[data-accent="corruptruby"] .ir-chip {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #e4e4e7;
+}
+[data-accent="corruptruby"] .ir-chip:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+[data-accent="corruptruby"] .ir-chip--on,
+[data-accent="corruptruby"] .ir-chip--on:hover {
+  border-color: #ffe14d;
+  background-color: #ffe14d;
+  color: #1a1016;
+}
+[data-accent="corruptruby"] .ir-go {
+  border: 0;
+  border-radius: 5px;
+  background: #ffe14d;
+  color: #1a1016;
+  text-shadow: none;
+  box-shadow: none;
+  font-family: Bahnschrift, Sora, sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+[data-accent="corruptruby"] .ir-go:hover:not(:disabled) {
+  background: #fff07a;
+  box-shadow: 0 0 16px rgba(255, 225, 77, 0.45);
+}
+
 /* right-click menus: a dark plate in a chrome line with two corners cut. Plate and line
    are pseudo elements, a clip on the menu itself would cut its glow and its submenus */
 [data-accent="corruptruby"] .ctx-menu.ruby-panel {

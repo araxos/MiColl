@@ -934,6 +934,105 @@ export async function favoriteImages(): Promise<FavoriteImage[]> {
   }));
 }
 
+/* ---- Wallpaper Hub: desktop slideshows over every creator ---------------- */
+
+export interface WallSet {
+  id: string;
+  name: string;
+  /** Minutes between pictures. */
+  minutes: number;
+  fit: SlideshowFit;
+  shuffle: boolean;
+  count: number;
+  /** Up to four pictures for the card. */
+  preview: string[];
+  /** Running on the desktop right now. */
+  active: boolean;
+  /** When it last got pictures (null = never), for the menu's recent ones. */
+  lastAdded: string | null;
+}
+
+export async function listWallSets(): Promise<WallSet[]> {
+  const rows = await invoke<(Omit<WallSet, "id"> & { id: number })[]>("list_wall_sets");
+  return (rows ?? []).map((r) => ({ ...r, id: String(r.id) }));
+}
+
+export async function createWallSet(name: string): Promise<string> {
+  return String(await invoke<number>("create_wall_set", { name }));
+}
+
+export async function updateWallSet(
+  id: string,
+  change: { name?: string; minutes?: number; fit?: SlideshowFit; shuffle?: boolean },
+): Promise<void> {
+  await invoke("update_wall_set", {
+    id: Number(id),
+    name: change.name ?? null,
+    minutes: change.minutes ?? null,
+    fit: change.fit ?? null,
+    shuffle: change.shuffle ?? null,
+  });
+}
+
+/** Delete a slideshow (no file is touched). */
+export async function deleteWallSet(id: string): Promise<void> {
+  await invoke("delete_wall_set", { id: Number(id) });
+}
+
+/** The pictures (original paths) in the order they were added. */
+export async function wallSetItems(id: string): Promise<string[]> {
+  return (await invoke<string[]>("wall_set_items", { id: Number(id) })) ?? [];
+}
+
+/**
+ * Save a reward's subfolder order (or a creator's rule), null = back to A-Z. Only in
+ * MiColl; automatic covers follow it.
+ */
+export async function setFolderOrder(scope: "reward" | "artist", id: string, order: string[] | null): Promise<void> {
+  await invoke("set_folder_order", { scope, id: Number(id), order });
+}
+
+/** The slideshow's pictures as library images (for the viewer), in its order. */
+export async function wallSetImages(id: string): Promise<FavoriteImage[]> {
+  const rows = await invoke<{ artistId: number; rewardId: number; image: BImage }[]>("wall_set_images", {
+    id: Number(id),
+  });
+  return (rows ?? []).map((r) => ({
+    artistId: String(r.artistId),
+    rewardId: String(r.rewardId),
+    image: mapImage(r.image),
+  }));
+}
+
+/** Add pictures, resolves to how many were new. */
+export async function addToWallSet(id: string, paths: string[]): Promise<number> {
+  return invoke<number>("add_to_wall_set", { id: Number(id), paths });
+}
+
+export async function removeFromWallSet(id: string, paths: string[]): Promise<number> {
+  return invoke<number>("remove_from_wall_set", { id: Number(id), paths });
+}
+
+/** Run it as the desktop slideshow (Windows runs one at a time). */
+export async function activateWallSet(id: string): Promise<void> {
+  await invoke("activate_wall_set", { id: Number(id) });
+}
+
+/** The next picture of the running slideshow. */
+export async function wallSetNext(): Promise<void> {
+  await invoke("wall_set_next");
+}
+
+/** Stop the slideshow, the picture on screen stays. */
+export async function wallSetStop(): Promise<void> {
+  await invoke("wall_set_stop");
+}
+
+/** The files of a user collection, over every creator. */
+export async function collectionFiles(id: string): Promise<string[]> {
+  return (await invoke<string[]>("collection_files", { id: Number(id) })) ?? [];
+}
+
 /* ---- User-made collections (the "+" tabs on a creator's page) ------------- */
 
 export async function listCollections(): Promise<Collection[]> {

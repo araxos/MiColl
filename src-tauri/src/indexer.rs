@@ -408,7 +408,7 @@ fn ext_in(path: &Path, exts: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
-fn is_image(path: &Path) -> bool {
+pub(crate) fn is_image(path: &Path) -> bool {
     ext_in(path, IMAGE_EXTS)
 }
 
@@ -566,7 +566,7 @@ fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 
 /// Same file order as the viewer (buildFolderOrder in rewardOrder.ts): folder files
 /// first, then each subfolder, natural order. So the cover is the first picture you see.
-fn viewer_order(a: &str, b: &str) -> std::cmp::Ordering {
+pub(crate) fn viewer_order(a: &str, b: &str) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     let split = |rel: &str| -> (String, String) {
         let name = rel.rsplit('/').next().unwrap_or(rel).to_string();
@@ -1644,6 +1644,9 @@ fn commit_inner(
             legacy_cover_pick(&images).as_deref(),
         )?;
         replace_images(conn, reward_id, &images)?;
+        // a creator who wants e.g. "Photoshoot" before "Backstage": the automatic cover
+        // comes from there too
+        db::follow_folder_order(conn, reward_id)?;
         touched_periods.insert(period_id);
         sum.rewards += 1;
         sum.images += images.len() as i64;

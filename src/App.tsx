@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { DataProvider } from "@/store";
 import { CoverCropMigration } from "@/components/CoverCropMigration";
 import { InboxWatcher } from "@/components/InboxWatcher";
+import { SlideshowDialogsHost } from "@/components/AddToSlideshow";
 import { UpdatePrompt } from "@/components/UpdatePrompt";
 import { OverlayScrollManager } from "@/components/OverlayScrollManager";
 import { ActionsProvider } from "@/actions";
@@ -18,6 +19,7 @@ import { DUPLICATES_EVENT, type DuplicateScope } from "@/lib/duplicates";
 import { StartPage } from "@/pages/StartPage";
 import { WishlistPage } from "@/pages/WishlistPage";
 import { FavoritesPage } from "@/pages/FavoritesPage";
+import { WallpaperHubPage } from "@/pages/WallpaperHubPage";
 import { ArtistPage } from "@/pages/ArtistPage";
 import { MonthDetailPage } from "@/pages/MonthDetailPage";
 import { SettingsPage } from "@/pages/SettingsPage";
@@ -338,6 +340,7 @@ export default function App() {
             <CoverCropMigration active={booted && !locked && !safe} />
             <UpdatePrompt active={booted && !locked && !safe} />
             <InboxWatcher active={booted && !locked && !safe} />
+            <SlideshowDialogsHost />
             <PhoneUploads />
             {/* the floating scrollbar of every panel, dialog and list */}
             <OverlayScrollManager />
@@ -368,6 +371,7 @@ export default function App() {
               <Route path="/" element={<StartPage onLock={lockNow} />} />
               <Route path="/wishlist" element={<WishlistPage onLock={lockNow} />} />
               <Route path="/favorites" element={<FavoritesPage onLock={lockNow} />} />
+              <Route path="/wallpapers" element={<WallpaperHubPage onLock={lockNow} />} />
               <Route path="/artist/:artistId" element={<ArtistPage onLock={lockNow} />} />
               <Route
                 path="/artist/:artistId/month/:monthId"

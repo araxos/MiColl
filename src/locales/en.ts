@@ -84,4 +84,10 @@ export const dict: Dict = {
   "Tier removed from {n} rewards#other": "Tier removed from {n} rewards",
   "{n} files are open in {app}#one": "{n} file is open in {app}",
   "{n} files are open in {app}#other": "{n} files are open in {app}",
+  "{n} pictures#one": "{n} picture",
+  "{n} pictures#other": "{n} pictures",
+  "{n} pictures added#one": "{n} picture added",
+  "{n} pictures added#other": "{n} pictures added",
+  "{n} pictures selected#one": "{n} picture selected",
+  "{n} pictures selected#other": "{n} pictures selected",
 };

@@ -573,6 +573,25 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_collection_items_path ON collection_items(file_path);
 
+        -- Wallpaper Hub: desktop slideshows over pictures of any creator (wallsets.rs).
+        -- Pictures by absolute path like collections, so they survive re-indexing.
+        CREATE TABLE IF NOT EXISTS wall_sets (
+            id         INTEGER PRIMARY KEY,
+            name       TEXT NOT NULL,
+            minutes    INTEGER NOT NULL DEFAULT 10,
+            fit        TEXT NOT NULL DEFAULT 'fill',
+            shuffle    INTEGER NOT NULL DEFAULT 1,
+            sort       INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS wall_set_items (
+            set_id    INTEGER NOT NULL,
+            file_path TEXT NOT NULL,
+            sort      INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (set_id, file_path)
+        );
+        CREATE INDEX IF NOT EXISTS idx_wall_set_items_path ON wall_set_items(file_path);
+
         -- Non-destructive edit "versions" of an image. The ORIGINAL file is never
         -- modified; each edit is a separate file in app-data. Keyed by the original
         -- image's absolute path (NOT images.id, which a rescan deletes+recreates) so
@@ -744,6 +763,8 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     // (saved, because the local folder can move later), sd_backup_at = date.
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN sd_backup TEXT", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN sd_backup_path TEXT", []);
+    // Wallpaper Hub: when a slideshow last got pictures (the right-click menu's "recent")
+    let _ = conn.execute("ALTER TABLE wall_sets ADD COLUMN last_added TEXT", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN sd_backup_at TEXT", []);
     // "new" badge, default 0 so an existing library doesn't light up everything
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN fresh INTEGER NOT NULL DEFAULT 0", []);
@@ -2352,6 +2373,103 @@ pub fn reward_scope(conn: &Connection, id: i64) -> rusqlite::Result<Option<(Stri
 
 /// Attach imported files to a reward: set its folder, mark it owned and replace
 /// its images. Frees the folder_path from other rows first (UNIQUE).
+/* ---- folder order: which subfolder of a reward the viewer shows first ---------- */
+
+/// The subfolder order the user saved for a reward (the viewer's folder menu): its own,
+/// else its creator's rule. None = nothing saved. Only names, the folders stay as they are.
+pub fn folder_order(conn: &Connection, reward_id: i64) -> rusqlite::Result<Option<Vec<String>>> {
+    let parse = |raw: Option<String>| -> Option<Vec<String>> {
+        let v: Vec<String> = serde_json::from_str(raw.as_deref()?).ok()?;
+        (!v.is_empty()).then_some(v)
+    };
+    if let Some(v) = parse(get_setting(conn, &format!("folder_order:reward:{reward_id}"))?) {
+        return Ok(Some(v));
+    }
+    let artist: Option<i64> = conn
+        .query_row(
+            "SELECT p.artist_id FROM rewards r JOIN periods p ON p.id = r.period_id WHERE r.id = ?1",
+            params![reward_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(match artist {
+        Some(a) => parse(get_setting(conn, &format!("folder_order:artist:{a}"))?),
+        None => None,
+    })
+}
+
+/// The automatic cover the viewer's order gives: a picture right in the reward folder,
+/// else the first picture of the first subfolder (the saved order first, then A-Z).
+pub fn ordered_cover(images: &[(String, String)], order: &[String]) -> Option<String> {
+    let want: Vec<String> = order.iter().map(|o| o.to_lowercase()).collect();
+    let group = |rel: &str| rel.replace('\\', "/").split_once('/').map(|(g, _)| g.to_string());
+    let rank = |rel: &str| match group(rel) {
+        None => (0usize, String::new()),
+        Some(g) => {
+            let i = want.iter().position(|w| *w == g.to_lowercase()).unwrap_or(want.len());
+            (1 + i, g)
+        }
+    };
+    images
+        .iter()
+        .filter(|(abs, _)| crate::indexer::is_image(std::path::Path::new(abs)))
+        .min_by(|a, b| {
+            let (ra, ga) = rank(&a.1);
+            let (rb, gb) = rank(&b.1);
+            ra.cmp(&rb)
+                .then_with(|| crate::indexer::viewer_order(&ga, &gb))
+                .then_with(|| crate::indexer::viewer_order(&a.1, &b.1))
+        })
+        .map(|(abs, _)| abs.clone())
+}
+
+/// Put the automatic cover where the viewer's order starts. Only a cover that is
+/// provably automatic moves: none yet, the plain A-Z pick, or the pick of the order
+/// that was saved before (`before`). A picked cover stays, also one picked before covers
+/// were flagged as picked.
+pub fn refresh_auto_cover(conn: &Connection, reward_id: i64, before: Option<&[String]>) -> rusqlite::Result<()> {
+    let order = folder_order(conn, reward_id)?;
+    let (custom, current): (i64, Option<String>) = match conn
+        .query_row(
+            "SELECT COALESCE(cover_custom, 0), cover_image FROM rewards WHERE id = ?1",
+            params![reward_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?
+    {
+        Some(v) => v,
+        None => return Ok(()),
+    };
+    if custom != 0 {
+        return Ok(());
+    }
+    let mut stmt = conn.prepare("SELECT file_path, COALESCE(rel_name, '') FROM images WHERE reward_id = ?1")?;
+    let images = stmt
+        .query_map(params![reward_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let Some(want) = ordered_cover(&images, order.as_deref().unwrap_or(&[])) else { return Ok(()) };
+    let automatic = match &current {
+        None => true,
+        Some(c) => {
+            ordered_cover(&images, &[]).as_deref() == Some(c.as_str())
+                || before.is_some_and(|b| ordered_cover(&images, b).as_deref() == Some(c.as_str()))
+                || order.as_deref().is_some_and(|o| ordered_cover(&images, o).as_deref() == Some(c.as_str()))
+        }
+    };
+    if automatic && current.as_deref() != Some(want.as_str()) {
+        conn.execute("UPDATE rewards SET cover_image = ?2 WHERE id = ?1", params![reward_id, want])?;
+    }
+    Ok(())
+}
+
+/// After a (re)index: the cover follows a saved folder order, if there is one.
+pub fn follow_folder_order(conn: &Connection, reward_id: i64) -> rusqlite::Result<()> {
+    if folder_order(conn, reward_id)?.is_none() {
+        return Ok(());
+    }
+    refresh_auto_cover(conn, reward_id, None)
+}
+
 pub fn set_reward_content(
     conn: &Connection,
     reward_id: i64,
@@ -2464,6 +2582,10 @@ pub fn move_reward(
         "UPDATE OR REPLACE collection_items SET file_path = ?2 || substr(file_path, length(?1)+1) WHERE substr(file_path,1,length(?1)) = ?1",
         params![old_folder, new_folder],
     )?;
+    conn.execute(
+        "UPDATE OR REPLACE wall_set_items SET file_path = ?2 || substr(file_path, length(?1)+1) WHERE substr(file_path,1,length(?1)) = ?1",
+        params![old_folder, new_folder],
+    )?;
     // keep edit versions attached
     remap_versions_prefix(conn, old_folder, new_folder)?;
     Ok(())
@@ -2512,6 +2634,7 @@ pub fn relink_prefix(conn: &Connection, old_prefix: &str, new_prefix: &str) -> r
         "UPDATE OR REPLACE wallpaper_favs SET file_path = ?2 || substr(file_path, length(?1)+1) WHERE substr(file_path,1,length(?1)) = ?1",
         "UPDATE OR REPLACE favorites SET file_path = ?2 || substr(file_path, length(?1)+1) WHERE substr(file_path,1,length(?1)) = ?1",
         "UPDATE OR REPLACE collection_items SET file_path = ?2 || substr(file_path, length(?1)+1) WHERE substr(file_path,1,length(?1)) = ?1",
+        "UPDATE OR REPLACE wall_set_items SET file_path = ?2 || substr(file_path, length(?1)+1) WHERE substr(file_path,1,length(?1)) = ?1",
     ] {
         conn.execute(sql, params![old_prefix, new_prefix])?;
     }
@@ -2562,6 +2685,10 @@ pub fn delete_images_by_ids(conn: &Connection, ids: &[i64]) -> rusqlite::Result<
         )?;
         conn.execute(
             "DELETE FROM collection_items WHERE file_path IN (SELECT file_path FROM images WHERE id = ?1)",
+            params![id],
+        )?;
+        conn.execute(
+            "DELETE FROM wall_set_items WHERE file_path IN (SELECT file_path FROM images WHERE id = ?1)",
             params![id],
         )?;
         if let Some(p) = orig {
@@ -2771,6 +2898,10 @@ pub fn apply_image_rename(
         "UPDATE OR REPLACE collection_items SET file_path = ?2 WHERE file_path = ?1",
         params![old_path, new_path],
     )?;
+    conn.execute(
+        "UPDATE OR REPLACE wall_set_items SET file_path = ?2 WHERE file_path = ?1",
+        params![old_path, new_path],
+    )?;
     Ok(())
 }
 
@@ -2966,6 +3097,10 @@ pub fn delete_image(conn: &Connection, image_id: i64) -> rusqlite::Result<()> {
         "DELETE FROM collection_items WHERE file_path IN (SELECT file_path FROM images WHERE id = ?1)",
         params![image_id],
     )?;
+    conn.execute(
+        "DELETE FROM wall_set_items WHERE file_path IN (SELECT file_path FROM images WHERE id = ?1)",
+        params![image_id],
+    )?;
     // remove edit versions of this file
     if let Some(p) = image_path(conn, image_id)? {
         delete_versions_for_orig_paths(conn, &[p])?;
@@ -3009,6 +3144,7 @@ pub fn clear_library(conn: &Connection) -> rusqlite::Result<()> {
          -- Memberships go with the files; the collections themselves (the user's own
          -- groupings) survive a library wipe, like their settings do.
          DELETE FROM collection_items;
+         DELETE FROM wall_set_items;
          DELETE FROM image_active_version;
          DELETE FROM image_versions;",
     )
@@ -4627,6 +4763,21 @@ mod tests {
 
     /// a collection is a path mark like a favourite: follows renames/moves,
     /// shows in the creator page, deleting the group removes nothing else
+    #[test]
+    fn the_automatic_cover_follows_the_folder_order() {
+        let imgs = |v: &[&str]| v.iter().map(|r| (format!("C:\\R\\{r}"), r.to_string())).collect::<Vec<_>>();
+        let pics = imgs(&["Backstage/01.jpg", "Photoshoot/01.jpg", "Photoshoot/00.mp4"]);
+        assert_eq!(ordered_cover(&pics, &[]).as_deref(), Some("C:\\R\\Backstage/01.jpg"));
+        assert_eq!(
+            ordered_cover(&pics, &["photoshoot".into()]).as_deref(),
+            Some("C:\\R\\Photoshoot/01.jpg"),
+            "any case"
+        );
+        // a picture right in the reward folder stays first
+        let with_root = imgs(&["Backstage/01.jpg", "Photoshoot/01.jpg", "cover.png"]);
+        assert_eq!(ordered_cover(&with_root, &["Photoshoot".into()]).as_deref(), Some("C:\\R\\cover.png"));
+    }
+
     #[test]
     fn collection_membership_follows_the_file_and_deletes_cleanly() {
         let conn = Connection::open_in_memory().unwrap();

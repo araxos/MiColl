@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import { cn } from "@/lib/utils";
 import { OverlayScrollbar } from "@/components/OverlayScrollbar";
 import { Button } from "@/components/ui/Button";
-import { Lock, Search, Settings, Tv, TvMinimal, Gift, Eye, EyeOff, History, Inbox, X } from "lucide-react";
+import { Lock, Search, Settings, Tv, TvMinimal, Gift, Eye, EyeOff, History, Inbox, X, ChevronDown } from "lucide-react";
+import { PageSwitcher } from "@/components/PageSwitcher";
 import { GlobeSearchIcon } from "@/lib/globeSearchIcon";
 import { BrandMark } from "@/components/BrandMark";
 import { CyberLogo } from "@/components/CyberLogo";
@@ -115,6 +116,7 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
   const cinemaButton = useCinemaButton();
   const passwordSet = usePasswordSet();
   const onDashboard = location.pathname === "/";
+  const onWallpapers = location.pathname.startsWith("/wallpapers");
   const sakura = accent === "sakura";
   const cyber = accent === "cyberpunk";
   const irid = accent === "iridescent";
@@ -123,6 +125,8 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
   const tauri = isTauri();
 
   const { openMenu } = useActions();
+  // the main menu behind the page name: where it opens, null = closed
+  const [pageMenu, setPageMenu] = useState<{ x: number; y: number } | null>(null);
   const { artists, backed } = useData();
   const showHidden = useShowHidden();
   const hiddenCount = artists.filter((a) => a.hidden).length;
@@ -176,6 +180,7 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
             : "border-b border-white/5 bg-gradient-to-r from-brand-900/35 via-zinc-950/55 to-brand-900/30 backdrop-blur",
         )}
       >
+        <div className="flex items-center gap-2">
         <button
           onClick={goHome}
           onDoubleClick={() => {
@@ -184,7 +189,7 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
           title={
             getHomeDblToggle() ? t("Home (double-click: switch SFW/NSFW)") : t("Home")
           }
-          className="group/home flex items-center gap-2"
+          className="flex items-center"
         >
           {sakura ? (
             // sakura: the theme icon next to "Dashboard" morphs into a blossom (SakuraMark)
@@ -222,7 +227,18 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
               )}
             </span>
           )}
-          {/* only the text dims on hover, the mark stays as it is */}
+        </button>
+        {/* the page's name opens the page menu (Dashboard, Wallpaper Hub). The mark next
+            to it stays the home button. Only the text dims on hover */}
+        <button
+          // the main menu gets its own panel, not the right-click menu (PageSwitcher)
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setPageMenu({ x: r.left - 6, y: r.bottom + 8 });
+          }}
+          title={t("Open another page")}
+          className="group/home flex items-center gap-1"
+        >
           <span
             className={cn(
               "transition-opacity group-hover/home:opacity-80",
@@ -231,9 +247,16 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
                 : "text-[15px] font-semibold tracking-tight text-zinc-100",
             )}
           >
-            {t("Dashboard")}
+            {onWallpapers ? t("Wallpaper Hub") : t("Dashboard")}
           </span>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 transition-opacity group-hover/home:opacity-80",
+              irid ? "text-zinc-200" : "text-zinc-400",
+            )}
+          />
         </button>
+        </div>
 
         {titleSlot && (
           <>
@@ -586,6 +609,14 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
             />
           )}
         </AnimatePresence>
+        {pageMenu && (
+          <PageSwitcher
+            x={pageMenu.x}
+            y={pageMenu.y}
+            current={onDashboard ? "dashboard" : onWallpapers ? "wallpapers" : null}
+            onClose={() => setPageMenu(null)}
+          />
+        )}
       </header>
   );
 }

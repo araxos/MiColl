@@ -17,6 +17,7 @@ import { SdNoticeDialog } from "@/components/SdNoticeDialog";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useData } from "@/store";
 import { useActions } from "@/actions";
+import { useSlideshowMenu } from "@/components/AddToSlideshow";
 import { KEEP_FOLDERS_KEY, folderPathOf, setRewardCover, exportFiles, createReward, createMissingReward, ensurePeriod, ensureCustomPeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, setRewardsTier, setRewardNotes, type SdMode } from "@/api/library";
 import { isTauri } from "@/lib/tauri";
 import { useCardSize } from "@/lib/useCardSize";
@@ -133,6 +134,7 @@ export function RewardGrid({
   }, [itemsIn, owners]);
   const { openMenu, reveal, requestDelete, rescanReward, showToast, bringBackFromSd, fillRewardInteractive } =
     useActions();
+  const slideshowMenu = useSlideshowMenu();
   const navigate = useNavigate();
   // small buttons use the theme's control style (not grey zinc)
   const { control } = useDialogTheme();
@@ -737,6 +739,8 @@ export function RewardGrid({
     const srcs = rewardSrcs(r);
     // displayPath = the picture you see in MiColl (active version)
     const imgSrcs = r.images.filter((im) => im.kind === "image").map((im) => im.displayPath || im.path).filter((p): p is string => !!p);
+    // the originals, for the Wallpaper Hub (it shows each picture's active version itself)
+    const imgPaths = r.images.filter((im) => im.kind === "image" && im.path).map((im) => im.path);
 
     // borrowed rewards only get read-only actions and the link itself
     // (everything else, especially Delete, belongs to the owner)
@@ -772,6 +776,7 @@ export function RewardGrid({
                 icon: <MonitorPlay className="h-4 w-4" />,
                 onClick: () => void setFolderWallpaper(imgSrcs, r.title),
               },
+              slideshowMenu(imgPaths),
             ]
           : []),
         ...(srcs.length
@@ -825,6 +830,7 @@ export function RewardGrid({
               icon: <MonitorPlay className="h-4 w-4" />,
               onClick: () => void setFolderWallpaper(imgSrcs, r.title),
             },
+            slideshowMenu(imgPaths),
           ]
         : []),
       // only when there's a custom cover

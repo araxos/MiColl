@@ -46,6 +46,8 @@ import {
   Images,
   LayoutGrid,
   ImagePlus,
+  ArrowUpToLine,
+  ArrowDownToLine,
 } from "lucide-react";
 import type { Collection } from "@/types";
 import { Cover } from "@/components/Cover";
@@ -71,6 +73,8 @@ import {
   setArtistPreview,
   saveCoverCrop,
   setSetting,
+  getSetting,
+  setFolderOrder,
   encryptionState,
   mediaStats,
   mediaDimensions,
@@ -101,6 +105,8 @@ import { MovePicker } from "@/components/MovePicker";
 import { CoverCropModal } from "@/components/CoverCropModal";
 import {
   sortViewerItemsGrouped,
+  folderOrderKey,
+  parseFolderOrder,
   loadImgSort,
   saveImgSort,
   dirLabel,
@@ -115,6 +121,7 @@ import type { MenuItem } from "@/components/ContextMenu";
 import { RenameDialog, type RenameTarget } from "@/components/RenameDialog";
 import { ImageEditor } from "@/components/ImageEditor";
 import { openInNewWindow } from "@/lib/popout";
+import { useSlideshowMenu } from "@/components/AddToSlideshow";
 import { DASHBOARD_SHAPE, useTileShapeFor, type TileScope } from "@/lib/tileShape";
 import { useCardSize } from "@/lib/useCardSize";
 import { getViewerStartsInGrid } from "@/lib/viewerStart";
@@ -320,10 +327,32 @@ export function ImageViewer({
     return removedIds.size ? merged.filter((it) => !removedIds.has(it.id)) : merged;
   }, [rawItems, addedItems, removedIds]);
 
+  // the order of the subfolders, saved in MiColl (the folders stay as they are): this
+  // reward's own, else its creator's rule
+  const artistKey = coverTargets?.artistId ?? null;
+  const [folderPrefs, setFolderPrefs] = useState<{ reward: string[] | null; artist: string[] | null }>({
+    reward: null,
+    artist: null,
+  });
+  useEffect(() => {
+    if (!isTauri() || (!rewardKey && !artistKey)) return;
+    let alive = true;
+    void Promise.all([
+      rewardKey ? getSetting(folderOrderKey("reward", rewardKey)).catch(() => null) : null,
+      artistKey ? getSetting(folderOrderKey("artist", artistKey)).catch(() => null) : null,
+    ]).then(([r, a]) => {
+      if (alive) setFolderPrefs({ reward: parseFolderOrder(r), artist: parseFolderOrder(a) });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [rewardKey, artistKey]);
+  const folderOrder = folderPrefs.reward ?? folderPrefs.artist;
+
   const items = useMemo(
-    // sort inside each subfolder group (reward files first)
-    () => sortViewerItemsGrouped(allRawItems, sortField, sortDir, stats),
-    [allRawItems, sortField, sortDir, stats],
+    // sort inside each subfolder group (reward files first), the groups in the saved order
+    () => sortViewerItemsGrouped(allRawItems, sortField, sortDir, stats, folderOrder),
+    [allRawItems, sortField, sortDir, stats, folderOrder],
   );
 
   // startIndex is a position in the sorted list (0 = first image of the sort)
@@ -364,6 +393,78 @@ export function ImageViewer({
     const i = items.findIndex((it) => it.id === id);
     if (i >= 0) setIndex((prev) => (prev === i ? prev : i));
   }, [items]);
+
+  /** Right-click on a subfolder's marker / header: put it first or last. */
+  const folderMenu = (e: React.MouseEvent, group: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!group || !isTauri() || (!rewardKey && !artistKey)) return;
+    // the subfolders as they're shown now
+    const shown = [...new Set(items.map((it) => it.group ?? ""))].filter(Boolean);
+    if (shown.length < 2) return;
+    const others = shown.filter((g) => g !== group);
+    const save = async (scope: "reward" | "artist", id: string, order: string[] | null) => {
+      try {
+        await setFolderOrder(scope, id, order);
+        // automatic covers follow the order: the cards show the new one
+        void refresh();
+      } catch (err) {
+        showToast({ tone: "error", title: t("Couldn’t save the folder order"), problem: String(err) });
+      }
+    };
+    const setReward = (order: string[] | null) => {
+      if (!rewardKey) return;
+      setFolderPrefs((p) => ({ ...p, reward: order }));
+      void save("reward", rewardKey, order);
+    };
+    const creator = artistKey ? findArtist(artistKey)?.name : undefined;
+    const menu: MenuItem[] = [];
+    if (rewardKey) {
+      menu.push(
+        {
+          label: t("Show this folder first"),
+          icon: <ArrowUpToLine className="h-4 w-4" />,
+          onClick: () => setReward([group, ...others]),
+        },
+        {
+          label: t("Show this folder last"),
+          icon: <ArrowDownToLine className="h-4 w-4" />,
+          onClick: () => setReward([...others, group]),
+        },
+      );
+    }
+    if (artistKey && creator) {
+      menu.push({
+        label: tf("Show it first in every reward of {name}", { name: creator }),
+        icon: <FolderOpen className="h-4 w-4" />,
+        onClick: () => {
+          const rule = [group, ...(folderPrefs.artist ?? []).filter((g) => g.toLowerCase() !== group.toLowerCase())];
+          // the creator's rule takes over this reward too
+          setFolderPrefs({ reward: null, artist: rule });
+          if (rewardKey && folderPrefs.reward) void save("reward", rewardKey, null);
+          void save("artist", artistKey, rule);
+        },
+      });
+    }
+    if (folderPrefs.reward && rewardKey) {
+      menu.push({
+        label: t("Reset folder order"),
+        icon: <RotateCcw className="h-4 w-4" />,
+        onClick: () => setReward(null),
+      });
+    }
+    if (folderPrefs.artist && artistKey && creator) {
+      menu.push({
+        label: tf("Reset the folder order of {name}", { name: creator }),
+        icon: <RotateCcw className="h-4 w-4" />,
+        onClick: () => {
+          setFolderPrefs((p) => ({ ...p, artist: null }));
+          void save("artist", artistKey, null);
+        },
+      });
+    }
+    openMenu(e, menu);
+  };
 
   const pickSort = (f: ImgSortField) => {
     if (f === sortField) {
@@ -488,6 +589,7 @@ export function ImageViewer({
   // id on stage in the latest render, so a load event knows if it's still current
   const stageIdRef = useRef<string | null>(null);
   const { openMenu, reveal, openExternally, requestDelete, showToast } = useActions();
+  const slideshowMenu = useSlideshowMenu();
   const { refresh, findArtist } = useData();
 
   // "Wallpaper favourites" on for this artist (local so the menu label flips right away)
@@ -1770,6 +1872,16 @@ export function ImageViewer({
         })),
       });
     }
+    // Wallpaper Hub: this picture, or the selected pictures when it's one of them
+    if (tStill && target.path && isTauri()) {
+      const bulk = selectMode && selected.size > 1 && selected.has(target.id);
+      const stills = bulk
+        ? items
+            .filter((it) => selected.has(it.id) && it.path && it.kind !== "video" && it.kind !== "archive")
+            .map((it) => it.path!)
+        : [target.path];
+      menu.push(slideshowMenu(stills));
+    }
     if (tStill && target.path && isTauri() && wallpaperFavOn) {
       const isFav = favPaths.has(target.path);
       menu.push({
@@ -2132,7 +2244,11 @@ export function ImageViewer({
           {gridGroups.map((g) => (
             <div key={g.group || "__own__"} className="mb-6 last:mb-0">
               {g.group && (
-                <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+                <div
+                  onContextMenu={(e) => folderMenu(e, g.group)}
+                  title={t("Right-click: show this folder first or last")}
+                  className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-zinc-400"
+                >
                   {/* label stays neutral, the marker uses the accent */}
                   <FolderOpen className={cn("h-3.5 w-3.5 shrink-0", verTheme.accentText)} />
                   <span className="truncate">{g.group}</span>
@@ -2430,6 +2546,7 @@ export function ImageViewer({
                 <div
                   className="group/sep flex h-14 shrink-0 cursor-default items-center px-1"
                   aria-label={it.group}
+                  onContextMenu={(e) => folderMenu(e, it.group as string)}
                   onMouseEnter={(e) => {
                     const r = e.currentTarget.getBoundingClientRect();
                     setFolderTip({ label: it.group as string, left: r.left + r.width / 2, top: r.top });
