@@ -7431,6 +7431,19 @@ fn delete_wall_set(db: State<Db>, id: i64) -> Result<(), String> {
     wallsets::delete(&conn, id).map_err(map_err)
 }
 
+/// Every saved folder order (key -> JSON list), read once by the frontend.
+#[tauri::command]
+fn folder_orders(db: State<Db>) -> Result<std::collections::HashMap<String, String>, String> {
+    let conn = db.conn();
+    let mut stmt = conn
+        .prepare("SELECT key, value FROM settings WHERE key LIKE 'folder_order:%' AND value <> ''")
+        .map_err(map_err)?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .map_err(map_err)?;
+    rows.collect::<rusqlite::Result<_>>().map_err(map_err)
+}
+
 /// Save the order of a reward's subfolders (scope "reward") or a creator's rule ("artist"),
 /// None = back to A-Z. Only MiColl's setting, the folders stay. Automatic covers follow.
 #[tauri::command]
@@ -11837,6 +11850,7 @@ pub fn run() {
             wall_set_items,
             wall_set_images,
             set_folder_order,
+            folder_orders,
             add_to_wall_set,
             remove_from_wall_set,
             activate_wall_set,

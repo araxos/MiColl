@@ -112,11 +112,11 @@ export function sortViewerItemsGrouped<T extends SortableItem>(
     arr.push(it);
   }
   if (folderOrder?.length && order.length > 1) {
-    const want = folderOrder.map((f) => f.toLowerCase());
+    const want = folderOrder.map(folderNameKey);
     // the reward's own files stay first
     const rank = (g: string) => {
       if (!g) return -1;
-      const i = want.indexOf(g.toLowerCase());
+      const i = want.indexOf(folderNameKey(g));
       return i < 0 ? want.length : i;
     };
     order = order
@@ -126,6 +126,32 @@ export function sortViewerItemsGrouped<T extends SortableItem>(
   }
   // only one group -> normal sort
   return order.flatMap((g) => sortViewerItems(groups.get(g) as T[], field, dir, stats));
+}
+
+/**
+ * A folder name as the order compares it: letters and digits only, any case. So
+ * "Photoshoot 📸" and "Photoshoot 🌸" are the same folder. A name with no letters at
+ * all is kept as it is.
+ */
+export function folderNameKey(name: string): string {
+  const lower = name.normalize("NFKC").toLowerCase();
+  const core = lower.replace(/[^\p{L}\p{N}]+/gu, "");
+  return core || lower.trim();
+}
+
+/**
+ * Every saved folder order, read once at start (and kept current by the viewer), so a
+ * reward opens in its order right away instead of jumping when the setting arrives.
+ */
+const folderOrderCache = new Map<string, string[] | null>();
+export function cachedFolderOrder(key: string): string[] | null {
+  return folderOrderCache.get(key) ?? null;
+}
+export function cacheFolderOrder(key: string, order: string[] | null) {
+  folderOrderCache.set(key, order);
+}
+export function fillFolderOrderCache(all: Record<string, string>) {
+  for (const [k, v] of Object.entries(all)) folderOrderCache.set(k, parseFolderOrder(v));
 }
 
 /** Where a reward's / a creator's folder order is saved (MiColl's settings). */

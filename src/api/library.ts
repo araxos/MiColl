@@ -984,6 +984,11 @@ export async function wallSetItems(id: string): Promise<string[]> {
   return (await invoke<string[]>("wall_set_items", { id: Number(id) })) ?? [];
 }
 
+/** Every saved folder order (settings key -> JSON list), for the viewer's cache. */
+export async function folderOrders(): Promise<Record<string, string>> {
+  return (await invoke<Record<string, string>>("folder_orders")) ?? {};
+}
+
 /**
  * Save a reward's subfolder order (or a creator's rule), null = back to A-Z. Only in
  * MiColl; automatic covers follow it.

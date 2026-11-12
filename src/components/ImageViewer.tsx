@@ -107,6 +107,9 @@ import {
   sortViewerItemsGrouped,
   folderOrderKey,
   parseFolderOrder,
+  folderNameKey,
+  cachedFolderOrder,
+  cacheFolderOrder,
   loadImgSort,
   saveImgSort,
   dirLabel,
@@ -330,10 +333,11 @@ export function ImageViewer({
   // the order of the subfolders, saved in MiColl (the folders stay as they are): this
   // reward's own, else its creator's rule
   const artistKey = coverTargets?.artistId ?? null;
-  const [folderPrefs, setFolderPrefs] = useState<{ reward: string[] | null; artist: string[] | null }>({
-    reward: null,
-    artist: null,
-  });
+  // from the cache first, so the first picture is the right one at once (no reorder)
+  const [folderPrefs, setFolderPrefs] = useState<{ reward: string[] | null; artist: string[] | null }>(() => ({
+    reward: rewardKey ? cachedFolderOrder(folderOrderKey("reward", rewardKey)) : null,
+    artist: artistKey ? cachedFolderOrder(folderOrderKey("artist", artistKey)) : null,
+  }));
   useEffect(() => {
     if (!isTauri() || (!rewardKey && !artistKey)) return;
     let alive = true;
@@ -341,7 +345,17 @@ export function ImageViewer({
       rewardKey ? getSetting(folderOrderKey("reward", rewardKey)).catch(() => null) : null,
       artistKey ? getSetting(folderOrderKey("artist", artistKey)).catch(() => null) : null,
     ]).then(([r, a]) => {
-      if (alive) setFolderPrefs({ reward: parseFolderOrder(r), artist: parseFolderOrder(a) });
+      if (!alive) return;
+      const reward = parseFolderOrder(r);
+      const artist = parseFolderOrder(a);
+      if (rewardKey) cacheFolderOrder(folderOrderKey("reward", rewardKey), reward);
+      if (artistKey) cacheFolderOrder(folderOrderKey("artist", artistKey), artist);
+      // only a real change re-sorts (the cache was right in the normal case)
+      setFolderPrefs((p) =>
+        JSON.stringify(p.reward) === JSON.stringify(reward) && JSON.stringify(p.artist) === JSON.stringify(artist)
+          ? p
+          : { reward, artist },
+      );
     });
     return () => {
       alive = false;
@@ -404,6 +418,7 @@ export function ImageViewer({
     if (shown.length < 2) return;
     const others = shown.filter((g) => g !== group);
     const save = async (scope: "reward" | "artist", id: string, order: string[] | null) => {
+      cacheFolderOrder(folderOrderKey(scope, id), order);
       try {
         await setFolderOrder(scope, id, order);
         // automatic covers follow the order: the cards show the new one
@@ -438,7 +453,7 @@ export function ImageViewer({
         label: tf("Show it first in every reward of {name}", { name: creator }),
         icon: <FolderOpen className="h-4 w-4" />,
         onClick: () => {
-          const rule = [group, ...(folderPrefs.artist ?? []).filter((g) => g.toLowerCase() !== group.toLowerCase())];
+          const rule = [group, ...(folderPrefs.artist ?? []).filter((g) => folderNameKey(g) !== folderNameKey(group))];
           // the creator's rule takes over this reward too
           setFolderPrefs({ reward: null, artist: rule });
           if (rewardKey && folderPrefs.reward) void save("reward", rewardKey, null);

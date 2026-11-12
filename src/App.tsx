@@ -25,6 +25,8 @@ import { MonthDetailPage } from "@/pages/MonthDetailPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauri } from "@/lib/tauri";
+import { folderOrders } from "@/api/library";
+import { fillFolderOrderCache } from "@/lib/imageSort";
 import { enterSafeMode, leaveSafeMode, useSafeMode } from "@/lib/safeMode";
 import {
   firstRunPending,
@@ -86,6 +88,14 @@ export default function App() {
     if (portableOffer || firstRun) dismissSplash();
     else if (booted) splashReady("app");
   }, [booted, portableOffer, firstRun]);
+
+  // the saved subfolder orders, so the viewer opens a reward in its order right away
+  useEffect(() => {
+    if (!isTauri() || !booted) return;
+    void folderOrders()
+      .then(fillFolderOrderCache)
+      .catch(() => {});
+  }, [booted]);
 
   // window/taskbar icon, applied at boot and when the accent changes ("auto" follows the
   // theme)

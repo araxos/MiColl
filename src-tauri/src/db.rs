@@ -2398,15 +2398,27 @@ pub fn folder_order(conn: &Connection, reward_id: i64) -> rusqlite::Result<Optio
     })
 }
 
+/// A folder name as the order compares it (same as folderNameKey in imageSort.ts):
+/// letters and digits only, any case, so "Photoshoot 📸" and "Photoshoot 🌸" match.
+pub fn folder_name_key(name: &str) -> String {
+    let lower = name.to_lowercase();
+    let core: String = lower.chars().filter(|c| c.is_alphanumeric()).collect();
+    if core.is_empty() {
+        lower.trim().to_string()
+    } else {
+        core
+    }
+}
+
 /// The automatic cover the viewer's order gives: a picture right in the reward folder,
 /// else the first picture of the first subfolder (the saved order first, then A-Z).
 pub fn ordered_cover(images: &[(String, String)], order: &[String]) -> Option<String> {
-    let want: Vec<String> = order.iter().map(|o| o.to_lowercase()).collect();
+    let want: Vec<String> = order.iter().map(|o| folder_name_key(o)).collect();
     let group = |rel: &str| rel.replace('\\', "/").split_once('/').map(|(g, _)| g.to_string());
     let rank = |rel: &str| match group(rel) {
         None => (0usize, String::new()),
         Some(g) => {
-            let i = want.iter().position(|w| *w == g.to_lowercase()).unwrap_or(want.len());
+            let i = want.iter().position(|w| *w == folder_name_key(&g)).unwrap_or(want.len());
             (1 + i, g)
         }
     };
@@ -4772,6 +4784,12 @@ mod tests {
             ordered_cover(&pics, &["photoshoot".into()]).as_deref(),
             Some("C:\\R\\Photoshoot/01.jpg"),
             "any case"
+        );
+        // the same folder with another emoji at the end
+        let emoji = imgs(&["Backstage 🎬/01.jpg", "Photoshoot 🌸/01.jpg"]);
+        assert_eq!(
+            ordered_cover(&emoji, &["Photoshoot 📸".into()]).as_deref(),
+            Some("C:\\R\\Photoshoot 🌸/01.jpg")
         );
         // a picture right in the reward folder stays first
         let with_root = imgs(&["Backstage/01.jpg", "Photoshoot/01.jpg", "cover.png"]);
