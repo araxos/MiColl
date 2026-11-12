@@ -2161,4 +2161,11 @@ export const dict: Dict = {
   "Reset folder order": "重置文件夹顺序",
   "Reset the folder order of {name}": "重置 {name} 的文件夹顺序",
   "Right-click: show this folder first or last": "右键:首先或最后显示此文件夹",
+  "Free": "自由",
+  "Original ratio": "原始比例",
+  "Your screen": "你的屏幕",
+  "Ultrawide": "超宽屏",
+  "Phone": "手机",
+  "Format — the wallpaper sizes also scale the crop to that size": "格式 — 壁纸尺寸也会把裁剪缩放到该尺寸",
+  "Drag a box — also from the dark edge": "拖出选框 — 也可从深色边缘开始",
 };

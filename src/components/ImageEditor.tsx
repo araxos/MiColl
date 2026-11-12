@@ -219,6 +219,119 @@ interface Rect {
   h: number;
 }
 
+/* ---- crop box geometry (natural pixels, W x H = the picture) ---------------- */
+
+/** A crop format: a ratio (w / h), and for wallpapers the size the crop is scaled to. */
+interface CropPreset {
+  id: string;
+  label: string;
+  ratio?: number;
+  size?: { w: number; h: number };
+}
+
+/** What a press on the crop stage does: draw a new box, move it, or pull edges. */
+type CropDrag =
+  | { kind: "new"; ax: number; ay: number }
+  | { kind: "move"; sx: number; sy: number; r: Rect }
+  | { kind: "resize"; l: boolean; r: boolean; t: boolean; b: boolean; rect: Rect };
+
+const clampN = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+
+/** The biggest box of that ratio inside `box`, centred. */
+function largestInside(box: Rect, ratio: number): Rect {
+  let w = box.w;
+  let h = w / ratio;
+  if (h > box.h) {
+    h = box.h;
+    w = h * ratio;
+  }
+  return { x: box.x + (box.w - w) / 2, y: box.y + (box.h - h) / 2, w, h };
+}
+
+/** A box from the fixed corner (ax, ay) toward the pointer, kept in the picture and at ratio. */
+function boxFrom(ax: number, ay: number, qx: number, qy: number, W: number, H: number, ratio?: number): Rect {
+  const px = clampN(qx, 0, W);
+  const py = clampN(qy, 0, H);
+  const sx = px >= ax ? 1 : -1;
+  const sy = py >= ay ? 1 : -1;
+  let w = Math.abs(px - ax);
+  let h = Math.abs(py - ay);
+  if (ratio) {
+    // the box follows the pointer on the axis that wants it bigger
+    if (w / Math.max(h, 1e-6) > ratio) h = w / ratio;
+    else w = h * ratio;
+    const maxW = sx > 0 ? W - ax : ax;
+    const maxH = sy > 0 ? H - ay : ay;
+    if (w > maxW) {
+      w = maxW;
+      h = w / ratio;
+    }
+    if (h > maxH) {
+      h = maxH;
+      w = h * ratio;
+    }
+  }
+  return { x: sx > 0 ? ax : ax - w, y: sy > 0 ? ay : ay - h, w, h };
+}
+
+/** Pull the box's edges / corners to the pointer (ratio kept when set). */
+function resizeBox(d: Extract<CropDrag, { kind: "resize" }>, px: number, py: number, W: number, H: number, ratio?: number): Rect {
+  const r0 = d.rect;
+  let L = r0.x;
+  let T = r0.y;
+  let R = r0.x + r0.w;
+  let B = r0.y + r0.h;
+  if (ratio && (d.l || d.r) && (d.t || d.b)) {
+    return boxFrom(d.l ? R : L, d.t ? B : T, px, py, W, H, ratio);
+  }
+  if (d.l) L = clampN(px, 0, R - 2);
+  if (d.r) R = clampN(px, L + 2, W);
+  if (d.t) T = clampN(py, 0, B - 2);
+  if (d.b) B = clampN(py, T + 2, H);
+  if (!ratio) return { x: L, y: T, w: R - L, h: B - T };
+  // an edge at a fixed ratio: the other side follows, centred, inside the picture
+  if (d.l || d.r) {
+    let w = R - L;
+    const maxW = d.l ? R : W - L;
+    w = Math.min(w, maxW, H * ratio);
+    const h = w / ratio;
+    return { x: d.l ? R - w : L, y: clampN(r0.y + r0.h / 2 - h / 2, 0, H - h), w, h };
+  }
+  let h = B - T;
+  const maxH = d.t ? B : H - T;
+  h = Math.min(h, maxH, W / ratio);
+  const w = h * ratio;
+  return { x: clampN(r0.x + r0.w / 2 - w / 2, 0, W - w), y: d.t ? B - h : T, w, h };
+}
+
+/** What the pointer is over: an edge / corner (which ones), the inside, or nothing. */
+function cropHit(rect: Rect, px: number, py: number, tol: number): "move" | { l: boolean; r: boolean; t: boolean; b: boolean } | null {
+  const R = rect.x + rect.w;
+  const B = rect.y + rect.h;
+  const inX = px >= rect.x - tol && px <= R + tol;
+  const inY = py >= rect.y - tol && py <= B + tol;
+  if (!inX || !inY) return null;
+  // on a tiny box both edges are near: take the closer one
+  let l = Math.abs(px - rect.x) <= tol;
+  let r = Math.abs(px - R) <= tol;
+  if (l && r) (px < rect.x + rect.w / 2 ? (r = false) : (l = false));
+  let t = Math.abs(py - rect.y) <= tol;
+  let b = Math.abs(py - B) <= tol;
+  if (t && b) (py < rect.y + rect.h / 2 ? (b = false) : (t = false));
+  if (l || r || t || b) return { l, r, t, b };
+  return px >= rect.x && px <= R && py >= rect.y && py <= B ? "move" : null;
+}
+
+function cropCursorFor(hit: ReturnType<typeof cropHit>): string {
+  if (!hit) return "crosshair";
+  if (hit === "move") return "move";
+  if ((hit.l && hit.t) || (hit.r && hit.b)) return "nwse-resize";
+  if ((hit.r && hit.t) || (hit.l && hit.b)) return "nesw-resize";
+  return hit.l || hit.r ? "ew-resize" : "ns-resize";
+}
+
+const CROP_PRESET_KEY = "micoll.cropPreset";
+
 /**
  * Fullscreen image editor: object remover (paint a mask, Erase fills it),
  * crop, resize, cutout, transform and adjust. The working image is a PNG data URL,
@@ -309,6 +422,16 @@ export function ImageEditor({
   const [detectStrength, setDetectStrength] = useState(60); // detect sensitivity 0..100
   const [hasMask, setHasMask] = useState(false);
   const [cropRect, setCropRect] = useState<Rect | null>(null);
+  // crop: the format (remembered), the drag going on, the cursor over the stage
+  const [cropPresetId, setCropPresetId] = useState<string>(() => {
+    try {
+      return localStorage.getItem(CROP_PRESET_KEY) ?? "free";
+    } catch {
+      return "free";
+    }
+  });
+  const cropDragRef = useRef<CropDrag | null>(null);
+  const [cropCursor, setCropCursor] = useState("crosshair");
   const [busy, setBusy] = useState(false);
   const [busyMsg, setBusyMsg] = useState(() => t("Working…"));
   // the premium themes' working effect on the picture, only for the long waits
@@ -664,7 +787,112 @@ export function ImageEditor({
 
   // middle mouse drag pans too
   const panRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
+  // crop formats. The screen and the wallpaper sizes also scale the crop to that size
+  const screenPx = (() => {
+    const d = window.devicePixelRatio || 1;
+    return { w: Math.round(window.screen.width * d), h: Math.round(window.screen.height * d) };
+  })();
+  const sized = (w: number, h: number) => ({ ratio: w / h, size: { w, h } });
+  const CROP_PRESETS: CropPreset[] = [
+    { id: "free", label: t("Free") },
+    { id: "original", label: t("Original ratio"), ratio: dims ? dims.w / dims.h : undefined },
+    { id: "screen", label: `${t("Your screen")} · ${screenPx.w} × ${screenPx.h}`, ...sized(screenPx.w, screenPx.h) },
+    { id: "wqhd", label: "WQHD · 2560 × 1440", ...sized(2560, 1440) },
+    { id: "fhd", label: "Full HD · 1920 × 1080", ...sized(1920, 1080) },
+    { id: "4k", label: "4K · 3840 × 2160", ...sized(3840, 2160) },
+    { id: "uwqhd", label: `${t("Ultrawide")} · 3440 × 1440`, ...sized(3440, 1440) },
+    { id: "phone", label: `${t("Phone")} · 1080 × 2400`, ...sized(1080, 2400) },
+    { id: "1:1", label: "1:1", ratio: 1 },
+    { id: "4:5", label: "4:5", ratio: 4 / 5 },
+    { id: "2:3", label: "2:3", ratio: 2 / 3 },
+    { id: "3:2", label: "3:2", ratio: 3 / 2 },
+    { id: "4:3", label: "4:3", ratio: 4 / 3 },
+    { id: "16:9", label: "16:9", ratio: 16 / 9 },
+    { id: "16:10", label: "16:10", ratio: 16 / 10 },
+    { id: "21:9", label: "21:9", ratio: 21 / 9 },
+    { id: "9:16", label: "9:16", ratio: 9 / 16 },
+  ];
+  const cropPreset = CROP_PRESETS.find((c) => c.id === cropPresetId) ?? CROP_PRESETS[0];
+  const cropRatio = cropPreset.ratio;
+
+  /** A new format: the box takes its shape (the biggest that fits the box, or the picture). */
+  const pickCropPreset = (id: string) => {
+    setCropPresetId(id);
+    try {
+      localStorage.setItem(CROP_PRESET_KEY, id);
+    } catch {
+      /* not remembered */
+    }
+    const ratio = CROP_PRESETS.find((c) => c.id === id)?.ratio;
+    if (!ratio || !dims) return;
+    const whole = { x: 0, y: 0, w: dims.w, h: dims.h };
+    const inside = cropRect && cropRect.w >= 8 && cropRect.h >= 8 ? cropRect : whole;
+    commit();
+    setCropRect(largestInside(inside, ratio));
+  };
+
+  // crop on the whole stage: a box can start on the black around the picture (it
+  // snaps to the edge), the box can be moved and pulled at its edges and corners, and
+  // a press outside it draws a new one
+  const cropDown = (e: React.PointerEvent) => {
+    if (busy || !dims || !maskRef.current) return;
+    e.preventDefault();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* pointer already gone */
+    }
+    const p = toNat(e);
+    dragUndoRef.current = snapshot();
+    const hit = cropRect && cropRect.w >= 2 && cropRect.h >= 2 ? cropHit(cropRect, p.x, p.y, 10 / p.scale) : null;
+    if (hit === "move" && cropRect) {
+      cropDragRef.current = { kind: "move", sx: p.x, sy: p.y, r: cropRect };
+    } else if (hit && hit !== "move" && cropRect) {
+      cropDragRef.current = { kind: "resize", ...hit, rect: cropRect };
+    } else {
+      const ax = clamp(p.x, dims.w);
+      const ay = clamp(p.y, dims.h);
+      cropDragRef.current = { kind: "new", ax, ay };
+      setCropRect({ x: ax, y: ay, w: 0, h: 0 });
+    }
+  };
+  const cropMove = (e: React.PointerEvent) => {
+    if (!dims || !maskRef.current) return;
+    const p = toNat(e);
+    const d = cropDragRef.current;
+    if (!d) {
+      // hovering: the cursor says what a press would do
+      const hit = cropRect && cropRect.w >= 2 && cropRect.h >= 2 ? cropHit(cropRect, p.x, p.y, 10 / p.scale) : null;
+      const c = cropCursorFor(hit);
+      if (c !== cropCursor) setCropCursor(c);
+      return;
+    }
+    if (d.kind === "new") {
+      setCropRect(boxFrom(d.ax, d.ay, p.x, p.y, dims.w, dims.h, cropRatio));
+    } else if (d.kind === "move") {
+      setCropRect({
+        ...d.r,
+        x: clampN(d.r.x + p.x - d.sx, 0, dims.w - d.r.w),
+        y: clampN(d.r.y + p.y - d.sy, 0, dims.h - d.r.h),
+      });
+    } else {
+      setCropRect(resizeBox(d, p.x, p.y, dims.w, dims.h, cropRatio));
+    }
+  };
+  const cropUp = () => {
+    if (!cropDragRef.current) return;
+    cropDragRef.current = null;
+    // a click without a drag leaves no box
+    setCropRect((r) => (r && (r.w < 2 || r.h < 2) ? null : r));
+    if (dragUndoRef.current) commit(dragUndoRef.current);
+    dragUndoRef.current = null;
+  };
+
   const onStagePointerDown = (e: React.PointerEvent) => {
+    if (tool === "crop" && e.button === 0) {
+      cropDown(e);
+      return;
+    }
     if (e.button !== 1 || viewRef.current.z <= 1) return;
     e.preventDefault();
     try {
@@ -675,11 +903,13 @@ export function ImageEditor({
     panRef.current = { px: e.clientX, py: e.clientY, x: viewRef.current.x, y: viewRef.current.y };
   };
   const onStagePointerMove = (e: React.PointerEvent) => {
+    if (tool === "crop") cropMove(e);
     const p = panRef.current;
     if (!p) return;
     moveView(clampView(viewRef.current.z, p.x + e.clientX - p.px, p.y + e.clientY - p.py));
   };
   const onStagePointerUp = () => {
+    cropUp();
     panRef.current = null;
   };
 
@@ -783,15 +1013,12 @@ export function ImageEditor({
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     const p = toNat(e);
     // remember the "before" state now, push it when the drag ends
-    if (tool === "erase" || tool === "crop") dragUndoRef.current = snapshot();
+    if (tool === "erase") dragUndoRef.current = snapshot();
     if (tool === "erase") {
       paintingRef.current = true;
       lastRef.current = null;
       strokeTo(clamp(p.x, dims.w), clamp(p.y, dims.h), brush / p.scale);
       if (maskMode === "add") setHasMask(true);
-    } else if (tool === "crop") {
-      cropStartRef.current = { x: clamp(p.x, dims.w), y: clamp(p.y, dims.h) };
-      setCropRect({ x: cropStartRef.current.x, y: cropStartRef.current.y, w: 0, h: 0 });
     }
   };
 
@@ -800,22 +1027,12 @@ export function ImageEditor({
     const p = toNat(e);
     if (tool === "erase" && paintingRef.current) {
       strokeTo(clamp(p.x, dims.w), clamp(p.y, dims.h), brush / p.scale);
-    } else if (tool === "crop" && cropStartRef.current) {
-      const s = cropStartRef.current;
-      const cx = clamp(p.x, dims.w);
-      const cy = clamp(p.y, dims.h);
-      setCropRect({
-        x: Math.min(s.x, cx),
-        y: Math.min(s.y, cy),
-        w: Math.abs(cx - s.x),
-        h: Math.abs(cy - s.y),
-      });
     }
   };
 
   const onPointerUp = () => {
     const painted = paintingRef.current && tool === "erase";
-    const cropped = !!cropStartRef.current && tool === "crop";
+    const cropped = false;
     if (painted) {
       recomputeHasMask();
       // save the brush as input for Detect (also fills the cache)
@@ -1099,6 +1316,10 @@ export function ImageEditor({
               fit: exPic && dims && (exPic.w !== dims.w || exPic.h !== dims.h) ? exPic : null,
             };
       if (mode !== "blur") await warmModel("lama", note(t("Expanding (AI)…")));
+      // each try goes on top of the one before it in the history. snapshot() reads the
+      // picture this click started from, so from the second try on the step before is
+      // carried here (else every try saved that same start and the first ones were lost)
+      let prev: Snapshot | null = null;
       for (run = 1; run <= times && !exStopRef.current; run++) {
         if (run > 1) {
           setBusyMsg(note(t("Expanding (AI)…")));
@@ -1108,7 +1329,10 @@ export function ImageEditor({
         const seed = Math.floor(Math.random() * 2 ** 31);
         const result = await editExpand(job.src, job.W, job.H, job.x, job.y, mode, seed, job.fit, people);
         exLastRef.current = mode === "blur" ? null : { ...job, result, mode, people };
-        pushWorking(result);
+        const before: Snapshot = prev ?? snapshot();
+        commit(before);
+        setWorking(result);
+        prev = { ...before, working: result };
       }
     } catch (err) {
       // stopped on purpose: the finished ones stay, nothing went wrong
@@ -1242,10 +1466,13 @@ export function ImageEditor({
     const img = imgRef.current;
     if (!img || !cropRect || cropRect.w < 2 || cropRect.h < 2) return;
     const cv = document.createElement("canvas");
-    cv.width = Math.round(cropRect.w);
-    cv.height = Math.round(cropRect.h);
+    // a wallpaper format comes out at its size (WQHD = 2560 x 1440), else as cut
+    cv.width = cropPreset.size?.w ?? Math.round(cropRect.w);
+    cv.height = cropPreset.size?.h ?? Math.round(cropRect.h);
     const ctx = cv.getContext("2d");
     if (!ctx) return;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     ctx.drawImage(
       img,
       cropRect.x,
@@ -1669,10 +1896,20 @@ export function ImageEditor({
         {/* crop shows the current selection instead of options */}
         {tool === "crop" && (
           <>
+            <ThemedSelect
+              value={cropPreset.id}
+              onChange={pickCropPreset}
+              options={CROP_PRESETS.map((c) => ({ value: c.id, label: c.label }))}
+              title={t("Format — the wallpaper sizes also scale the crop to that size")}
+              className="viewer-chip h-9 w-56 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 text-xs text-zinc-300"
+              minWidth={240}
+            />
             <span className="viewer-chip inline-flex h-9 items-center rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 text-xs tabular-nums text-zinc-300">
               {cropRect && cropRect.w >= 2 && cropRect.h >= 2
-                ? `${Math.round(cropRect.w)} × ${Math.round(cropRect.h)} px`
-                : t("No selection")}
+                ? `${Math.round(cropRect.w)} × ${Math.round(cropRect.h)} px${
+                    cropPreset.size ? ` → ${cropPreset.size.w} × ${cropPreset.size.h}` : ""
+                  }`
+                : t("Drag a box — also from the dark edge")}
             </span>
             <button
               onClick={() => {
@@ -1989,6 +2226,7 @@ export function ImageEditor({
           onPointerCancel={onStagePointerUp}
           // stop Windows middle-click autoscroll
           onMouseDown={(e) => e.button === 1 && e.preventDefault()}
+          style={tool === "crop" && !busy ? { cursor: cropCursor } : undefined}
           className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden px-4 pb-1 pt-4"
         >
           {working ? (
@@ -2039,9 +2277,10 @@ export function ImageEditor({
                 onPointerUp={onPointerUp}
                 className={cn(
                   "absolute inset-0 h-full w-full rounded-lg",
-                  tool === "erase" || tool === "crop"
+                  tool === "erase"
                     ? "cursor-crosshair opacity-50"
-                    : "pointer-events-none opacity-0",
+                    : // crop is handled on the stage (it starts on the black too)
+                      "pointer-events-none opacity-0",
                   busy && "pointer-events-none",
                 )}
               />
@@ -2065,7 +2304,30 @@ export function ImageEditor({
                     width: cropPct(cropRect.w, dims.w),
                     height: cropPct(cropRect.h, dims.h),
                   }}
-                />
+                >
+                  {/* thirds, for framing */}
+                  <div className="absolute inset-y-0 left-1/3 w-px bg-white/25" />
+                  <div className="absolute inset-y-0 left-2/3 w-px bg-white/25" />
+                  <div className="absolute inset-x-0 top-1/3 h-px bg-white/25" />
+                  <div className="absolute inset-x-0 top-2/3 h-px bg-white/25" />
+                  {/* the handles: corners and edge middles */}
+                  {[
+                    [0, 0],
+                    [0.5, 0],
+                    [1, 0],
+                    [0, 0.5],
+                    [1, 0.5],
+                    [0, 1],
+                    [0.5, 1],
+                    [1, 1],
+                  ].map(([hx, hy]) => (
+                    <span
+                      key={`${hx}-${hy}`}
+                      className="absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-sm border border-white bg-brand-500 shadow"
+                      style={{ left: `${hx * 100}%`, top: `${hy * 100}%` }}
+                    />
+                  ))}
+                </div>
               )}
             </div>
           ) : (

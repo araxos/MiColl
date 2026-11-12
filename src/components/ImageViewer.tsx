@@ -1030,6 +1030,10 @@ export function ImageViewer({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (editingRef.current) return;
+      // typing in a field (a dialog over the viewer: new slideshow, rename …): every key
+      // is the text's, no shortcut (Space would start the slideshow, arrows would page)
+      const typing = e.target instanceof Element ? e.target : null;
+      if (typing?.closest('input:not([type="range"]):not([type="checkbox"]), textarea, select, [contenteditable="true"]')) return;
       bump(); // any key reveals the chrome and restarts the auto-hide timer
       if (e.key === "?") {
         e.preventDefault();

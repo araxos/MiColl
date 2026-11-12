@@ -2196,4 +2196,11 @@ export const dict: Dict = {
   "Reset folder order": "Ordner-Reihenfolge zurücksetzen",
   "Reset the folder order of {name}": "Ordner-Reihenfolge von {name} zurücksetzen",
   "Right-click: show this folder first or last": "Rechtsklick: diesen Ordner zuerst oder zuletzt zeigen",
+  "Free": "Frei",
+  "Original ratio": "Originalformat",
+  "Your screen": "Dein Bildschirm",
+  "Ultrawide": "Ultrawide",
+  "Phone": "Handy",
+  "Format — the wallpaper sizes also scale the crop to that size": "Format — die Wallpaper-Größen skalieren den Zuschnitt auch auf diese Größe",
+  "Drag a box — also from the dark edge": "Box ziehen — auch vom dunklen Rand aus",
 };

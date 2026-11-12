@@ -2280,4 +2280,11 @@ export const dict: Dict = {
   "Reset folder order": "Сбросить порядок папок",
   "Reset the folder order of {name}": "Сбросить порядок папок {name}",
   "Right-click: show this folder first or last": "Правый клик: показывать папку первой или последней",
+  "Free": "Свободно",
+  "Original ratio": "Исходные пропорции",
+  "Your screen": "Ваш экран",
+  "Ultrawide": "Ультраширокий",
+  "Phone": "Телефон",
+  "Format — the wallpaper sizes also scale the crop to that size": "Формат — размеры обоев также масштабируют обрезку до этого размера",
+  "Drag a box — also from the dark edge": "Нарисуйте рамку — можно и от тёмного края",
 };

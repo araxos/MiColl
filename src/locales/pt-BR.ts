@@ -2196,4 +2196,11 @@ export const dict: Dict = {
   "Reset folder order": "Redefinir ordem das pastas",
   "Reset the folder order of {name}": "Redefinir a ordem das pastas de {name}",
   "Right-click: show this folder first or last": "Clique direito: mostrar esta pasta primeiro ou por último",
+  "Free": "Livre",
+  "Original ratio": "Proporção original",
+  "Your screen": "Sua tela",
+  "Ultrawide": "Ultrawide",
+  "Phone": "Celular",
+  "Format — the wallpaper sizes also scale the crop to that size": "Formato — os tamanhos de papel de parede também ajustam o corte a esse tamanho",
+  "Drag a box — also from the dark edge": "Arraste uma caixa — também a partir da borda escura",
 };

@@ -2161,4 +2161,11 @@ export const dict: Dict = {
   "Reset folder order": "フォルダーの順番をリセット",
   "Reset the folder order of {name}": "{name} のフォルダーの順番をリセット",
   "Right-click: show this folder first or last": "右クリック: このフォルダーを最初または最後に表示",
+  "Free": "フリー",
+  "Original ratio": "元の比率",
+  "Your screen": "あなたの画面",
+  "Ultrawide": "ウルトラワイド",
+  "Phone": "スマホ",
+  "Format — the wallpaper sizes also scale the crop to that size": "形式 — 壁紙サイズは切り抜きをそのサイズに拡大縮小します",
+  "Drag a box — also from the dark edge": "枠をドラッグ — 暗い余白からでもOK",
 };
