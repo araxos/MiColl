@@ -2287,4 +2287,9 @@ export const dict: Dict = {
   "Phone": "Телефон",
   "Format — the wallpaper sizes also scale the crop to that size": "Формат — размеры обоев также масштабируют обрезку до этого размера",
   "Drag a box — also from the dark edge": "Нарисуйте рамку — можно и от тёмного края",
+  "Other cover…": "Другая обложка…",
+  "Choose a cover… (optional)": "Выбрать обложку… (необязательно)",
+  "No cover": "Без обложки",
+  "Couldn’t set the cover": "Не удалось установить обложку",
+  "Click to copy the path": "Нажмите, чтобы скопировать путь",
 };

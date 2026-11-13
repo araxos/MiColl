@@ -791,6 +791,42 @@ export function ImportReviewTree({
     ]);
   };
   /**
+   * The folders above a reward up to the dropped folder that aren't the creator, its
+   * platform or a date (those are already the tree's levels): "RewardX" for
+   * RewardX/Photoshoot. Shown before the name so the structure is visible.
+   */
+  const outerFolders = (r: DraftRow, creator: string): string[] => {
+    if (!root) return [];
+    const base = parentDir(root);
+    const rest = r.folder.slice(base.length).replace(/^[\\/]+/, "");
+    if (!r.folder.startsWith(base) || !rest) return [];
+    const norm = (x: string) => x.trim().toLowerCase();
+    const segs = rest.split(/[\\/]+/).slice(0, -1);
+    const sep = root.includes("\\") ? "\\" : "/";
+    return segs.filter((seg, i) => {
+      if (norm(seg) === norm(r.platform) || /^\d/.test(seg.trim())) return false;
+      if (norm(seg) !== norm(creator)) return true;
+      // a folder named like the creator is their folder, unless it holds only this one
+      // reward (a dropped "RewardX" the creator was named after)
+      const here = [base, ...segs.slice(0, i + 1)].join(sep);
+      return rows.filter((x) => x.mergedInto === null && x.folder.startsWith(here + sep)).length === 1;
+    });
+  };
+  /**
+   * The folder just above a reward can become the reward instead, the reward going in
+   * as a group (RewardX/Photoshoot -> "RewardX" with Photoshoot inside). Only when that
+   * folder holds no other reward and isn't a reward itself.
+   */
+  const wrapperOf = (r: DraftRow, creator: string): string | null => {
+    if (r.root || r.mergedInto !== null || r.synthetic) return null;
+    const up = parentDir(r.folder);
+    if (!up || !outerFolders(r, creator).includes(baseName(up))) return null;
+    if (rows.some((x) => x.folder === up)) return null;
+    if (rows.some((x) => x !== r && x.mergedInto === null && parentDir(x.folder) === up)) return null;
+    return up;
+  };
+
+  /**
    * The parent's own file count: total minus unfolded children (folded ones stay included).
    */
   const ownImageCount = (r: DraftRow) => {
@@ -1577,6 +1613,38 @@ export function ImportReviewTree({
                                         <span className="truncate text-zinc-600">{baseName(r.folder)}</span>
                                       </button>
                                     ) : (
+                                      <>
+                                      {/* where it sits: the folders above it (RewardX ›). Click the
+                                          one right above to make that the reward, with this one
+                                          as a group inside it */}
+                                      {outerFolders(r, node.creator).length > 0 && (() => {
+                                        const outer = outerFolders(r, node.creator);
+                                        const wrap = wrapperOf(r, node.creator);
+                                        return (
+                                          <span className="flex min-w-0 max-w-[45%] shrink items-center gap-1 text-zinc-500">
+                                            {outer.map((seg, i) =>
+                                              i === outer.length - 1 && wrap ? (
+                                                <button
+                                                  key={i}
+                                                  type="button"
+                                                  onClick={() => bundleRows([r], wrap)}
+                                                  title={tf(
+                                                    "Import as “{outer}” with “{name}” as a folder inside it (undo via the toggle on that row)",
+                                                    { outer: seg, name: r.title || baseName(r.folder) },
+                                                  )}
+                                                  className="truncate rounded-md border border-dashed border-brand-500/40 px-1.5 py-0.5 text-brand-200 transition-colors hover:bg-brand-500/15"
+                                                >
+                                                  {seg}
+                                                </button>
+                                              ) : (
+                                                <span key={i} className="truncate">
+                                                  {seg}
+                                                </span>
+                                              ),
+                                            ).flatMap((el, i) => [el, <span key={`s${i}`} className="shrink-0 text-zinc-600">›</span>])}
+                                          </span>
+                                        );
+                                      })()}
                                       <div className="relative flex min-w-0 flex-1">
                                         <input
                                           value={r.title}
@@ -1607,6 +1675,7 @@ export function ImportReviewTree({
                                           </button>
                                         )}
                                       </div>
+                                      </>
                                     )}
                                     {r.category && node.style !== "custom" && <Badge tone="zinc">{r.category}</Badge>}
                                     {node.style === "custom" && (

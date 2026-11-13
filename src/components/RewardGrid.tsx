@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
-import { CheckSquare, Pencil, Trash2, X, FolderOpen, RotateCcw, RefreshCw, CopyCheck, MousePointerSquareDashed, Share2, FolderInput, FolderPlus, MonitorPlay, FileQuestion, HardDrive, DatabaseBackup, Users, Unlink, ExternalLink, Info, Layers, StickyNote, Tag, Sparkles, Puzzle } from "lucide-react";
+import { CheckSquare, Pencil, Trash2, X, FolderOpen, RotateCcw, RefreshCw, CopyCheck, MousePointerSquareDashed, Share2, FolderInput, FolderPlus, MonitorPlay, FileQuestion, HardDrive, DatabaseBackup, Users, Unlink, ExternalLink, Info, Layers, StickyNote, Tag, Sparkles, Puzzle, ImagePlus } from "lucide-react";
 import { openDuplicates } from "@/lib/duplicates";
 import { RewardSlot } from "@/components/RewardSlot";
 import { ImageViewer, type CoverTargets, type ViewerItem } from "@/components/ImageViewer";
@@ -18,7 +18,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useData } from "@/store";
 import { useActions } from "@/actions";
 import { useSlideshowMenu } from "@/components/AddToSlideshow";
-import { KEEP_FOLDERS_KEY, folderPathOf, setRewardCover, exportFiles, createReward, createMissingReward, ensurePeriod, ensureCustomPeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, setRewardsTier, setRewardNotes, type SdMode } from "@/api/library";
+import { KEEP_FOLDERS_KEY, folderPathOf, setRewardCover, exportFiles, createReward, createMissingReward, importWishCover, ensurePeriod, ensureCustomPeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, setRewardsTier, setRewardNotes, type SdMode } from "@/api/library";
 import { isTauri } from "@/lib/tauri";
 import { useCardSize } from "@/lib/useCardSize";
 import { useDragOut } from "@/lib/dragOut";
@@ -297,17 +297,42 @@ export function RewardGrid({
     }
   };
 
-  /** Add a "missing" placeholder card, then refresh. */
-  const doCreateMissing = async (name: string) => {
+  /** Add a "missing" placeholder card (with its own preview picture, if picked), then refresh. */
+  const doCreateMissing = async (name: string, cover?: string) => {
     const periodId = newMissing?.periodId;
     setNewMissing(null);
     if (!periodId) return;
+    let id: number;
     try {
-      await createMissingReward(periodId, name);
-      await refresh();
-      showToast({ tone: "success", title: tf("Added missing “{name}”", { name }) });
+      id = await createMissingReward(periodId, name);
     } catch (e) {
       showToast({ tone: "error", title: t("Couldn’t add missing reward"), detail: `${e}` });
+      return;
+    }
+    // the card is there now: whatever the cover does, the grid shows it
+    try {
+      // copied into MiColl's data folder: a picture in a reward folder would count as owned
+      if (cover) await setRewardCover(String(id), await importWishCover(cover));
+      showToast({ tone: "success", title: tf("Added missing “{name}”", { name }) });
+    } catch (e) {
+      showToast({ tone: "error", title: t("Couldn’t set the cover"), detail: `${e}` });
+    } finally {
+      await refresh();
+    }
+  };
+
+  /** A missing reward's own preview picture (copied into MiColl's data folder). */
+  const pickMissingCover = async (rewardId: string) => {
+    const picked = await open({
+      multiple: false,
+      filters: [{ name: "Image", extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp"] }],
+    });
+    if (typeof picked !== "string") return;
+    try {
+      await setRewardCover(rewardId, await importWishCover(picked));
+      await refresh();
+    } catch (e) {
+      showToast({ tone: "error", title: t("Couldn’t set the cover"), detail: `${e}` });
     }
   };
 
@@ -937,6 +962,16 @@ export function RewardGrid({
           ]
         : []),
       // MiSD submenu. On the disk: only bring back. Otherwise queue move or copy.
+      // a missing reward: its own preview picture, to know what it is
+      ...(backed && r.status === "missing" && !r.collabFrom && isTauri()
+        ? [
+            {
+              label: r.coverCustom ? t("Other cover…") : t("Choose a cover…"),
+              icon: <ImagePlus className="h-4 w-4" />,
+              onClick: () => void pickMissingCover(r.id),
+            },
+          ]
+        : []),
       ...(backed && r.status !== "missing"
         ? [
             {
@@ -1472,7 +1507,8 @@ export function RewardGrid({
             hint={t(
               "A placeholder card you can fill with files later — no folder is created until you do.",
             )}
-            onCreate={(name) => void doCreateMissing(name)}
+            coverPick
+            onCreate={(name, _year, cover) => void doCreateMissing(name, cover)}
             onClose={() => setNewMissing(null)}
           />
         )}

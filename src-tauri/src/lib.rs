@@ -4044,6 +4044,46 @@ fn set_wallpaper_slideshow(
     Ok(())
 }
 
+/// Where pictures from several folders are gathered for Windows' slideshow (set at start,
+/// in MiColl's data folder; it must stay while the slideshow runs).
+static SLIDESHOW_STAGE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+/// The pictures as one folder's: as they are when they already share one, else hard
+/// links (same disk, no space used) or copies in the stage folder, numbered so the
+/// order stays. The stage holds only the newest slideshow.
+fn slideshow_one_folder(files: Vec<String>) -> Result<Vec<String>, String> {
+    let parent = |f: &String| std::path::Path::new(f).parent().map(|p| p.to_path_buf());
+    let first = parent(&files[0]);
+    if files.iter().all(|f| parent(f) == first) {
+        return Ok(files);
+    }
+    let dir = SLIDESHOW_STAGE.get().ok_or("The slideshow folder isn't ready yet.")?.clone();
+    stage_slideshow(&dir, &files)
+}
+
+fn stage_slideshow(dir: &std::path::Path, files: &[String]) -> Result<Vec<String>, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    // the last slideshow's pictures go (only what MiColl put there)
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            if e.path().is_file() {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    let mut out = Vec::with_capacity(files.len());
+    for (i, f) in files.iter().enumerate() {
+        let src = std::path::Path::new(f);
+        let name = src.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "picture".into());
+        let dest = dir.join(format!("{:04} {name}", i + 1));
+        if std::fs::hard_link(src, &dest).is_err() {
+            std::fs::copy(src, &dest).map_err(|e| format!("{}: {e}", src.display()))?;
+        }
+        out.push(dest.to_string_lossy().into_owned());
+    }
+    Ok(out)
+}
+
 fn apply_slideshow(
     paths: Vec<String>,
     interval_minutes: Option<u32>,
@@ -4060,6 +4100,10 @@ fn apply_slideshow(
         if files.is_empty() {
             return Err("No image files to use as wallpaper.".into());
         }
+        // Windows' slideshow only takes pictures from ONE folder ("The parameter is
+        // incorrect" otherwise): pictures from several folders (a hub slideshow, a reward
+        // with subfolders) are gathered in a folder of MiColl's first
+        let files = slideshow_one_folder(files)?;
         // max one day (the tick is ms in a u32)
         let minutes = interval_minutes.unwrap_or(10).clamp(1, 24 * 60);
         let opts = SlideshowOpts {
@@ -11617,6 +11661,7 @@ pub fn run() {
             // the error log (off unless turned on in Settings), first so startup errors
             // land in it too
             applog::init(&dir, setting_is_true(&dir.join("micoll.db"), applog::SETTING_KEY));
+            let _ = SLIDESHOW_STAGE.set(dir.join("wallpaper-slideshow"));
             if applog::enabled() {
                 applog::write(
                     "INFO",
@@ -12873,6 +12918,34 @@ mod tests {
             .collect();
         assert!(extras.contains(&"Lumi - Starfall"), "got {:?}", extras);
 
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod slideshow_stage_tests {
+    #[test]
+    fn pictures_from_several_folders_land_in_one() {
+        let base = std::env::temp_dir().join(format!("micoll-stage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        for (d, f) in [("A", "1.jpg"), ("B", "1.jpg")] {
+            std::fs::create_dir_all(base.join(d)).unwrap();
+            std::fs::write(base.join(d).join(f), d).unwrap();
+        }
+        let stage = base.join("stage");
+        std::fs::create_dir_all(&stage).unwrap();
+        std::fs::write(stage.join("old.jpg"), b"x").unwrap();
+        let files = vec![
+            base.join("A").join("1.jpg").to_string_lossy().into_owned(),
+            base.join("B").join("1.jpg").to_string_lossy().into_owned(),
+        ];
+        let out = super::stage_slideshow(&stage, &files).unwrap();
+        assert_eq!(out.len(), 2);
+        assert!(out.iter().all(|p| std::path::Path::new(p).parent() == Some(stage.as_path())));
+        assert_eq!(std::fs::read(&out[0]).unwrap(), b"A");
+        assert_eq!(std::fs::read(&out[1]).unwrap(), b"B", "same names, both kept");
+        assert!(!stage.join("old.jpg").exists(), "the last slideshow's pictures go");
+        assert!(base.join("A").join("1.jpg").exists(), "the originals stay");
         let _ = std::fs::remove_dir_all(&base);
     }
 }

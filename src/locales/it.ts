@@ -2203,4 +2203,9 @@ export const dict: Dict = {
   "Phone": "Telefono",
   "Format — the wallpaper sizes also scale the crop to that size": "Formato: le dimensioni da sfondo scalano anche il ritaglio a quella misura",
   "Drag a box — also from the dark edge": "Trascina un riquadro, anche dal bordo scuro",
+  "Other cover…": "Altra copertina…",
+  "Choose a cover… (optional)": "Scegli una copertina… (facoltativo)",
+  "No cover": "Nessuna copertina",
+  "Couldn’t set the cover": "Impossibile impostare la copertina",
+  "Click to copy the path": "Clicca per copiare il percorso",
 };

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
-import { X, FolderInput, Folder, Check, Plus } from "lucide-react";
+import { X, FolderInput, Folder, Check, Plus, ImagePlus } from "lucide-react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useData } from "@/store";
 import { Button } from "@/components/ui/Button";
 import { useDialogTheme } from "@/lib/dialogTheme";
@@ -572,8 +573,9 @@ export function NewFolderDialog({
   initialYear,
   yearWords = false,
   confirmLabel,
+  coverPick = false,
 }: {
-  onCreate: (name: string, year?: string) => void;
+  onCreate: (name: string, year?: string, cover?: string) => void;
   onClose: () => void;
   /** Title of the dialog. */
   title?: string;
@@ -589,16 +591,26 @@ export function NewFolderDialog({
   yearWords?: boolean;
   /** The button, "Create" by default. */
   confirmLabel?: string;
+  /** Offer an optional cover picture (a missing reward's own preview). */
+  coverPick?: boolean;
 }) {
   const t = useT();
   const [name, setName] = useState(initial);
+  const [cover, setCover] = useState<string | null>(null);
+  const chooseCover = async () => {
+    const picked = await openDialog({
+      multiple: false,
+      filters: [{ name: "Image", extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp"] }],
+    });
+    if (typeof picked === "string") setCover(picked);
+  };
   const showYear = years !== undefined;
   // start empty so the datalist shows all years
   const [year, setYear] = useState(initialYear ?? "");
   // name is needed, year is optional (empty = Misc, otherwise 4 digits)
   const yearOk = !showYear || yearWords || year.trim() === "" || /^\d{4}$/.test(year.trim());
   const valid = !!name.trim() && yearOk;
-  const submit = () => valid && onCreate(name.trim(), showYear ? year.trim() : undefined);
+  const submit = () => valid && onCreate(name.trim(), showYear ? year.trim() : undefined, cover ?? undefined);
 
   // premium themes get their own surface, standard ones the dark dialog
   const { panel: panelClass, input: inputClass, primary: createClass } = useDialogTheme();
@@ -665,6 +677,28 @@ export function NewFolderDialog({
               <p className="mt-1 text-xs text-zinc-500">{t("No year → filed under “Misc”.")}</p>
             )}
           </>
+        )}
+        {coverPick && (
+          <div className="mt-3 flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => void chooseCover()}>
+              <ImagePlus className="h-4 w-4" />
+              {cover ? t("Other cover…") : t("Choose a cover… (optional)")}
+            </Button>
+            {cover && (
+              <>
+                <span className="min-w-0 flex-1 truncate text-xs text-zinc-400" title={cover}>
+                  {cover.split(/[\\/]/).pop()}
+                </span>
+                <button
+                  onClick={() => setCover(null)}
+                  title={t("No cover")}
+                  className="shrink-0 text-zinc-500 hover:text-zinc-300"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
+          </div>
         )}
         {hint && <p className="mt-2 text-xs text-zinc-500">{hint}</p>}
         <div className="mt-4 flex justify-end gap-2">

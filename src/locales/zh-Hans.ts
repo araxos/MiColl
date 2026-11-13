@@ -2168,4 +2168,9 @@ export const dict: Dict = {
   "Phone": "手机",
   "Format — the wallpaper sizes also scale the crop to that size": "格式 — 壁纸尺寸也会把裁剪缩放到该尺寸",
   "Drag a box — also from the dark edge": "拖出选框 — 也可从深色边缘开始",
+  "Other cover…": "其他封面…",
+  "Choose a cover… (optional)": "选择封面…(可选)",
+  "No cover": "无封面",
+  "Couldn’t set the cover": "无法设置封面",
+  "Click to copy the path": "点击复制路径",
 };

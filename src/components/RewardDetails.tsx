@@ -93,6 +93,17 @@ export function RewardDetails({
 
   const paths = reward.images.map((im) => im.path).filter((p): p is string => !!p);
 
+  /** Click on the location: the folder's path to the clipboard. */
+  const copyPath = async () => {
+    if (!reward.folderPath) return;
+    try {
+      await navigator.clipboard.writeText(reward.folderPath);
+      showToast({ tone: "success", title: t("Path copied"), detail: reward.folderPath });
+    } catch (e) {
+      showToast({ tone: "error", title: t("Couldn’t copy the path"), detail: String(e) });
+    }
+  };
+
   // ---- alts: other versions of this reward, zips in its _Alts folder ----
   const { reveal, showToast } = useActions();
   const altsOn = isTauri() && reward.status === "owned" && !!reward.folderPath && !reward.sdVolume;
@@ -333,35 +344,6 @@ export function RewardDetails({
             ))}
           </div>
 
-          {reward.folderPath && (
-            <>
-              <label className="mt-4 block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                {t("Location")}
-              </label>
-              <div className="mt-1.5 flex items-center gap-2">
-                <p
-                  className={cn("min-w-0 flex-1 truncate px-2.5 py-2 text-xs text-zinc-400", dlg.field)}
-                  title={reward.folderPath}
-                >
-                  {reward.folderPath}
-                </p>
-                {isTauri() && (
-                  <button
-                    onClick={onReveal}
-                    title={t("Show in Explorer")}
-                    className={cn(
-                      "inline-flex shrink-0 items-center gap-1.5 px-3 py-2 text-sm text-zinc-200 transition-colors",
-                      dlg.field,
-                      dlg.menuRow,
-                    )}
-                  >
-                    <FolderOpen className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-
           {busy && (
             <p className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
               <Loader2 className={cn("h-3.5 w-3.5 animate-spin", dlg.accentText)} />
@@ -514,6 +496,39 @@ export function RewardDetails({
                 </button>
               )}
             </div>
+          )}
+          {reward.folderPath && (
+            <>
+              <label className="mt-5 block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                {t("Location")}
+              </label>
+              <div className="mt-1.5 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void copyPath()}
+                  className={cn(
+                    "min-w-0 flex-1 truncate px-2.5 py-2 text-left text-xs text-zinc-400 transition-colors hover:text-zinc-200",
+                    dlg.field,
+                  )}
+                  title={`${reward.folderPath}\n${t("Click to copy the path")}`}
+                >
+                  {reward.folderPath}
+                </button>
+                {isTauri() && (
+                  <button
+                    onClick={onReveal}
+                    title={t("Show in Explorer")}
+                    className={cn(
+                      "inline-flex shrink-0 items-center gap-1.5 px-3 py-2 text-sm text-zinc-200 transition-colors",
+                      dlg.field,
+                      dlg.menuRow,
+                    )}
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </>
           )}
         </div>
       </motion.div>

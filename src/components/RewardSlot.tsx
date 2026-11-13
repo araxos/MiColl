@@ -78,6 +78,8 @@ export function RewardSlot({
 
   // MiSD marker for this reward
   const sdState = rewardSdState(reward);
+  // a missing reward can carry its own preview picture (picked by the user)
+  const hasPreview = !owned && !skipped && !!reward.cover;
 
   return (
     <motion.div layout layoutDependency={layoutKey} className="group relative" onContextMenu={onContextMenu}>
@@ -231,18 +233,29 @@ export function RewardSlot({
           </>
         ) : (
           <>
+          {/* a missing reward with its own preview picture: shown dark, the labels on top */}
+          {hasPreview && (
+            <>
+              <div className="absolute inset-0">
+                <Cover path={reward.cover} seed={reward.title} size={400} rounded="rounded-none" />
+              </div>
+              <span className="pointer-events-none absolute inset-0 bg-black/65" />
+            </>
+          )}
           <div
             className={cn(
-              "flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-center",
-              premium
-                ? "bg-zinc-950/70 backdrop-blur-md"
-                : "bg-[color-mix(in_srgb,var(--color-brand-500)_6%,#18181b)]",
+              "relative flex h-full w-full flex-col items-center justify-center gap-1 p-2 text-center",
+              hasPreview
+                ? "[text-shadow:0_1px_3px_rgba(0,0,0,0.9)]"
+                : premium
+                  ? "bg-zinc-950/70 backdrop-blur-md"
+                  : "bg-[color-mix(in_srgb,var(--color-brand-500)_6%,#18181b)]",
             )}
           >
             {skipped ? (
               <Ban className={cn("h-5 w-5", premium ? "text-zinc-400" : "text-zinc-600")} />
             ) : (
-              <span className={cn("text-2xl font-light", premium ? "text-zinc-300/80" : "text-zinc-700")}>
+              <span className={cn("text-2xl font-light", premium || hasPreview ? "text-zinc-300/80" : "text-zinc-700")}>
                 #{index + 1}
               </span>
             )}
@@ -254,7 +267,7 @@ export function RewardSlot({
                   ? premium
                     ? "text-zinc-300"
                     : "text-zinc-600"
-                  : premium
+                  : premium || hasPreview
                     ? "text-amber-300"
                     : "text-amber-500",
               )}
@@ -278,7 +291,7 @@ export function RewardSlot({
             <span
               className={cn(
                 "line-clamp-2 px-1 text-[10px] leading-tight",
-                premium ? "text-zinc-200" : "text-zinc-500",
+                premium || hasPreview ? "text-zinc-200" : "text-zinc-500",
               )}
             >
               {reward.title}

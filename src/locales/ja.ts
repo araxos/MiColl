@@ -2168,4 +2168,9 @@ export const dict: Dict = {
   "Phone": "スマホ",
   "Format — the wallpaper sizes also scale the crop to that size": "形式 — 壁紙サイズは切り抜きをそのサイズに拡大縮小します",
   "Drag a box — also from the dark edge": "枠をドラッグ — 暗い余白からでもOK",
+  "Other cover…": "別のカバー…",
+  "Choose a cover… (optional)": "カバーを選択…(任意)",
+  "No cover": "カバーなし",
+  "Couldn’t set the cover": "カバーを設定できませんでした",
+  "Click to copy the path": "クリックでパスをコピー",
 };
