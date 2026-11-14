@@ -2128,6 +2128,11 @@ export const dict: Dict = {
   "Copy path": "Kopiuj ścieżkę",
   "Path copied": "Skopiowano ścieżkę",
   "Couldn’t copy the path": "Nie udało się skopiować ścieżki",
+  "That file doesn’t fit here": "Ten plik tu nie pasuje",
+  "Add as alts": "Dodaj jako alty",
+  "Use as cover": "Użyj jako okładki",
+  "Use as thumbnail": "Użyj jako miniatury",
+  "Use as wallpaper": "Użyj jako tapety",
   "Couldn’t find this folder.": "Nie znaleziono tego folderu.",
   "Moving your collection…": "Przenoszenie kolekcji…",
   "{done} of {total}": "{done} z {total}",
@@ -2292,4 +2297,6 @@ export const dict: Dict = {
   "No cover": "Bez okładki",
   "Couldn’t set the cover": "Nie udało się ustawić okładki",
   "Click to copy the path": "Kliknij, aby skopiować ścieżkę",
+  "Start": "Start",
+  "On the desktop now": "Teraz na pulpicie",
 };

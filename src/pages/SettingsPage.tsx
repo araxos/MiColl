@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useFileDrop } from "@/lib/fileDrop";
 import { getVersion } from "@tauri-apps/api/app";
 import { downloadDir } from "@tauri-apps/api/path";
 import { listen } from "@tauri-apps/api/event";
@@ -525,6 +526,8 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     });
     if (typeof picked === "string") changeWallpaper(picked);
   };
+  // or drop a picture on the wallpaper box
+  const wallDrop = useFileDrop("image", t("Use as wallpaper"), (p) => changeWallpaper(p[0]), { enabled: backed });
   const [hideNames, setHideNamesOn] = useState(getHideNames());
   // saved as "show +", shown here as "hide", flipped only here
   const [cardPlus, setCardPlusOn] = useState(getCardPlus);
@@ -1573,7 +1576,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
           />
         </div>
         {/* custom wallpaper with a dark veil */}
-        <div className={cn("mt-3", cardInner)}>
+        <div className={cn("mt-3", cardInner)} {...wallDrop}>
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <h2 className="text-sm font-semibold text-zinc-100">{t("Wallpaper")}</h2>

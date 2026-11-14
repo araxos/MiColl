@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useFileDrop } from "@/lib/fileDrop";
 import {
   addRewardAlts,
   listRewardAlts,
@@ -129,7 +130,11 @@ export function RewardDetails({
         : { multiple: true, title: t("Add zip…"), filters: [{ name: "Zip", extensions: ["zip"] }] },
     );
     const list = typeof picked === "string" ? [picked] : picked ?? [];
-    if (!list.length) return;
+    await addAltPaths(list);
+  };
+  /** Zips and folders, picked or dropped onto the Alts box. */
+  const addAltPaths = async (list: string[]) => {
+    if (!list.length || altBusy) return;
     setAltBusy(true);
     setAltMsg(null);
     const off = await listen<{ name: string; done: number; total: number }>("alt-progress", (e) =>
@@ -152,6 +157,11 @@ export function RewardDetails({
       void loadAlts();
     }
   };
+
+  const altDrop = useFileDrop("any", t("Add as alts"), (list) => void addAltPaths(list), {
+    multiple: true,
+    enabled: altsOn,
+  });
 
   const removeAlt = async (a: RewardAlt) => {
     if (confirmAlt !== a.path) {
@@ -270,6 +280,8 @@ export function RewardDetails({
         saveNotes();
         onClose();
       }}
+      // data-drop-block: a drop beside the Alts box doesn't import into the grid behind
+      data-drop-block=""
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
     >
       <motion.div
@@ -352,7 +364,7 @@ export function RewardDetails({
           )}
 
           {altsOn && (
-            <>
+            <div {...altDrop}>
               <label className="mt-4 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
                 <Layers className="h-3.5 w-3.5" />
                 {t("Alts")}
@@ -448,7 +460,7 @@ export function RewardDetails({
               {altMsg && (
                 <p className="mt-2 whitespace-pre-line text-xs text-rose-300 [overflow-wrap:anywhere]">{altMsg}</p>
               )}
-            </>
+            </div>
           )}
 
           {(onToggleExtra || onTogglePartial || onCollab) && (

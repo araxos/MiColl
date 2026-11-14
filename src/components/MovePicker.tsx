@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { X, FolderInput, Folder, Check, Plus, ImagePlus } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { useFileDrop } from "@/lib/fileDrop";
 import { useData } from "@/store";
 import { Button } from "@/components/ui/Button";
 import { useDialogTheme } from "@/lib/dialogTheme";
@@ -604,6 +605,8 @@ export function NewFolderDialog({
     });
     if (typeof picked === "string") setCover(picked);
   };
+  // or drop a picture anywhere on the dialog
+  const coverDrop = useFileDrop("image", t("Use as cover"), (p) => setCover(p[0]), { enabled: coverPick });
   const showYear = years !== undefined;
   // start empty so the datalist shows all years
   const [year, setYear] = useState(initialYear ?? "");
@@ -615,11 +618,12 @@ export function NewFolderDialog({
   // premium themes get their own surface, standard ones the dark dialog
   const { panel: panelClass, input: inputClass, primary: createClass } = useDialogTheme();
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+    <div data-drop-block="" className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
       <motion.div
         initial={{ opacity: 0, y: 12, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         className={cn("w-[24rem] p-5", panelClass)}
+        {...coverDrop}
       >
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold text-zinc-100">{title}</h2>

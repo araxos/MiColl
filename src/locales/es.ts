@@ -2052,6 +2052,11 @@ export const dict: Dict = {
   "Copy path": "Copiar ruta",
   "Path copied": "Ruta copiada",
   "Couldn’t copy the path": "No se pudo copiar la ruta",
+  "That file doesn’t fit here": "Ese archivo no encaja aquí",
+  "Add as alts": "Añadir como alts",
+  "Use as cover": "Usar como portada",
+  "Use as thumbnail": "Usar como miniatura",
+  "Use as wallpaper": "Usar como fondo",
   "Couldn’t find this folder.": "No se encontró esta carpeta.",
   "Moving your collection…": "Moviendo tu colección…",
   "{done} of {total}": "{done} de {total}",
@@ -2208,4 +2213,6 @@ export const dict: Dict = {
   "No cover": "Sin portada",
   "Couldn’t set the cover": "No se pudo poner la portada",
   "Click to copy the path": "Haz clic para copiar la ruta",
+  "Start": "Iniciar",
+  "On the desktop now": "Ahora en el escritorio",
 };

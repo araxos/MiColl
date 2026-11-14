@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { useFileDrop } from "@/lib/fileDrop";
 import {
   BadgeCheck,
   Check,
@@ -290,6 +291,10 @@ export function TemplatesPanel({
     }
   };
 
+  const templateDrop = useFileDrop("json", t("Import template"), (p) => void importTemplatePath(p[0]), {
+    enabled: backed,
+  });
+
   const importViaPicker = async () => {
     const picked = await open({
       multiple: false,
@@ -297,6 +302,10 @@ export function TemplatesPanel({
       filters: [{ name: t("MiColl template"), extensions: ["json"] }],
     });
     if (typeof picked !== "string") return;
+    await importTemplatePath(picked);
+  };
+  const importTemplatePath = async (picked: string) => {
+    if (busy) return;
     setBusy(true);
     setStatus(null);
     try {
@@ -318,8 +327,8 @@ export function TemplatesPanel({
   if (!backed) return null;
 
   return (
-    // no top margin, the card already has padding
-    <div>
+    // no top margin, the card already has padding. A .micoll.json dropped here is imported
+    <div {...templateDrop}>
       <div className="mb-1 flex items-center gap-2">
         <Sparkles className="h-6 w-6 text-brand-300" />
         <h1 className="settings-title text-2xl font-bold tracking-tight text-zinc-50">{t("Templates")}</h1>

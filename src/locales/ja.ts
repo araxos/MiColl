@@ -2021,6 +2021,11 @@ export const dict: Dict = {
   "Copy path": "パスをコピー",
   "Path copied": "パスをコピーしました",
   "Couldn’t copy the path": "パスをコピーできませんでした",
+  "That file doesn’t fit here": "このファイルはここでは使えません",
+  "Add as alts": "Altとして追加",
+  "Use as cover": "カバーにする",
+  "Use as thumbnail": "サムネイルにする",
+  "Use as wallpaper": "壁紙にする",
   "Couldn’t find this folder.": "このフォルダーが見つかりません。",
   "Moving your collection…": "コレクションを移動中…",
   "{done} of {total}": "{total} 中 {done}",
@@ -2173,4 +2178,6 @@ export const dict: Dict = {
   "No cover": "カバーなし",
   "Couldn’t set the cover": "カバーを設定できませんでした",
   "Click to copy the path": "クリックでパスをコピー",
+  "Start": "開始",
+  "On the desktop now": "デスクトップで再生中",
 };

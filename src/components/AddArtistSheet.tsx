@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useFileDrop } from "@/lib/fileDrop";
 import {
   X,
   Image as ImageIcon,
@@ -242,15 +243,18 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
       title: t("Choose a creator thumbnail"),
       filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp"] }],
     });
-    if (typeof picked === "string") {
-      setPreviewPath(picked);
-      try {
-        setPreviewData(await api.readImage(picked));
-      } catch {
-        setPreviewData("");
-      }
+    if (typeof picked === "string") await applyThumbnail(picked);
+  };
+  const applyThumbnail = async (picked: string) => {
+    setPreviewPath(picked);
+    try {
+      setPreviewData(await api.readImage(picked));
+    } catch {
+      setPreviewData("");
     }
   };
+  // or drop a picture anywhere on the sheet
+  const thumbDrop = useFileDrop("image", t("Use as thumbnail"), (p) => void applyThumbnail(p[0]));
 
   const pickBaseFolder = async () => {
     const picked = await open({ directory: true, multiple: false, title: t("Choose where to create this creator’s folders") });
@@ -343,13 +347,14 @@ export function AddArtistSheet({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 pt-[4.5rem] backdrop-blur-sm">
+    <div data-drop-block="" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 pt-[4.5rem] backdrop-blur-sm">
       {/* keep the top bar draggable while the sheet is open */}
       <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-14" />
       <motion.div
         initial={{ opacity: 0, y: 12, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         className={cn("flex max-h-full w-[40rem] max-w-full flex-col overflow-hidden shadow-2xl", panelClass)}
+        {...thumbDrop}
       >
         <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
           <div className="flex items-center gap-2">

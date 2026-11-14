@@ -18,6 +18,7 @@ import {
   Search,
   Shuffle,
   SkipForward,
+  SlidersHorizontal,
   Square,
   Trash2,
   Wallpaper,
@@ -211,79 +212,164 @@ export function WallpaperHubPage({ onLock }: { onLock?: () => void }) {
                 </Button>
               </div>
             ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-4">
-                {/* New slideshow as the first tile, the size of a card */}
-                <button
-                  onClick={() => void newSet()}
-                  className={cn(
-                    "group flex min-h-[14rem] flex-col items-center justify-center gap-2 border-dashed text-zinc-400 transition-colors hover:text-zinc-100",
-                    hubBox,
-                  )}
-                >
-                  <span className={cn("flex h-11 w-11 items-center justify-center rounded-full transition-transform group-hover:scale-110", dlg.control)}>
-                    <Plus className={cn("h-5 w-5", dlg.accentText)} />
-                  </span>
-                  <span className="text-sm font-medium">{t("New slideshow")}</span>
-                </button>
-                {sets.map((s) => (
-                  <div key={s.id} className={cn("flex flex-col overflow-hidden", hubBox)}>
-                    <button
-                      onClick={() => setOpenId(s.id)}
-                      title={t("Open")}
-                      className="relative grid aspect-video grid-cols-2 grid-rows-2 gap-px overflow-hidden bg-black/40"
-                    >
-                      {s.preview.length === 0 ? (
-                        <div className="col-span-2 row-span-2 flex items-center justify-center">
-                          <Images className="h-8 w-8 text-zinc-600" />
-                        </div>
-                      ) : (
-                        s.preview.map((p, i) => (
-                          <div
-                            key={p}
-                            className={cn(
-                              "overflow-hidden",
-                              s.preview.length === 1 && "col-span-2 row-span-2",
-                              s.preview.length === 2 && "row-span-2",
-                              s.preview.length === 3 && i === 0 && "row-span-2",
-                            )}
-                          >
-                            <Thumb path={p} />
-                          </div>
-                        ))
-                      )}
-                      {s.active && (
+              <>
+                {/* the one on the desktop, big on top */}
+                {sets
+                  .filter((s) => s.active)
+                  .map((s) => (
+                    <div key={s.id} className={cn("mb-7 flex flex-wrap items-center gap-5 p-4", hubBox)}>
+                      <button
+                        onClick={() => setOpenId(s.id)}
+                        title={t("Open")}
+                        className="hub-feature-screen aspect-video w-[320px] max-w-full shrink-0 overflow-hidden"
+                      >
+                        {s.preview[0] ? (
+                          <Thumb path={s.preview[0]} />
+                        ) : (
+                          <span className="flex h-full items-center justify-center">
+                            <Images className="h-8 w-8 text-zinc-600" />
+                          </span>
+                        )}
+                      </button>
+                      <div className="flex min-w-0 flex-1 flex-col gap-2">
                         <span
                           className={cn(
-                            "absolute left-2 top-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-white",
+                            "inline-flex w-fit items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium text-white",
                             dlg.accent,
                           )}
                         >
                           <Monitor className="h-3 w-3" />
-                          {t("On the desktop")}
+                          {t("On the desktop now")}
                         </span>
-                      )}
-                    </button>
-                    <div className="flex flex-1 flex-col gap-2 p-3">
-                      <button onClick={() => setOpenId(s.id)} className="truncate text-left text-sm font-semibold text-zinc-100">
-                        {s.name}
-                      </button>
-                      <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-zinc-400">
-                        <span>{tp("{n} pictures", s.count)}</span>
-                        <span>·</span>
-                        <span>{tf("every {time}", { time: every(s.minutes) })}</span>
-                        {s.shuffle && <Shuffle className="h-3 w-3" />}
-                        <span>· {t(FIT_LABEL[s.fit])}</span>
+                        <button
+                          onClick={() => setOpenId(s.id)}
+                          className="truncate text-left text-2xl font-semibold text-zinc-50"
+                        >
+                          {s.name}
+                        </button>
+                        <div className="text-sm text-zinc-400">
+                          {[
+                            tp("{n} pictures", s.count),
+                            tf("every {time}", { time: every(s.minutes) }),
+                            t(FIT_LABEL[s.fit]),
+                            ...(s.shuffle ? [t("Shuffle")] : []),
+                          ].join(" · ")}
+                        </div>
+                        {s.preview.length > 1 && (
+                          <div className="flex items-center gap-1.5">
+                            {s.preview.slice(1).map((p) => (
+                              <span key={p} className="hub-strip aspect-[16/10] w-14 overflow-hidden">
+                                <Thumb path={p} />
+                              </span>
+                            ))}
+                            {s.count > s.preview.length && (
+                              <span className="ml-1 text-xs text-zinc-500">+{s.count - s.preview.length}</span>
+                            )}
+                          </div>
+                        )}
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          <RunButtons set={s} busy={busyId === s.id} onRun={(what) => void run(s.id, what)} />
+                          <Button variant="outline" size="sm" onClick={() => setOpenId(s.id)}>
+                            {t("Open")}
+                          </Button>
+                        </div>
                       </div>
-                      <RunButtons set={s} busy={busyId === s.id} onRun={(what) => void run(s.id, what)} />
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+
+                <div className={cn("mb-3 text-[11px] font-semibold uppercase tracking-[0.12em]", dlg.accentText)}>
+                  {t("All slideshows")}
+                </div>
+                {/* the others as monitors of one size, the same rows on every one */}
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-x-4 gap-y-6">
+                  {sets
+                    .filter((s) => !s.active)
+                    .map((s) => (
+                      <div key={s.id} className="flex min-w-0 flex-col gap-1.5">
+                        <button onClick={() => setOpenId(s.id)} title={t("Open")} className="hub-monitor">
+                          <ScreenMosaic paths={s.preview} />
+                          <i aria-hidden className="hub-stand" />
+                        </button>
+                        <button
+                          onClick={() => setOpenId(s.id)}
+                          className="mt-1 truncate text-left text-sm font-semibold text-zinc-100"
+                        >
+                          {s.name}
+                        </button>
+                        <div className="flex justify-between gap-2 text-[11px] text-zinc-400">
+                          <span className="truncate">{tp("{n} pictures", s.count)}</span>
+                          <span className="shrink-0">{tf("every {time}", { time: every(s.minutes) })}</span>
+                        </div>
+                        <div className="mt-0.5 flex gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 justify-center"
+                            disabled={busyId === s.id || s.count === 0}
+                            onClick={() => void run(s.id, "start")}
+                            title={t("Set as desktop slideshow")}
+                          >
+                            {busyId === s.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                            {t("Start")}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="px-2"
+                            onClick={() => setOpenId(s.id)}
+                            title={t("Open")}
+                            aria-label={t("Open")}
+                          >
+                            <SlidersHorizontal className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  {/* New slideshow as the last monitor */}
+                  <button onClick={() => void newSet()} className="group flex min-w-0 flex-col gap-1.5 text-left">
+                    <span className="hub-monitor">
+                      <span className="hub-screen hub-screen--new">
+                        <Plus className={cn("h-7 w-7 transition-transform group-hover:scale-110", dlg.accentText)} />
+                      </span>
+                      <i aria-hidden className="hub-stand" />
+                    </span>
+                    <span className={cn("mt-1 text-sm font-semibold", dlg.accentText)}>{t("New slideshow")}</span>
+                  </button>
+                </div>
+              </>
             )}
           </>
         )}
       </div>
     </Layout>
+  );
+}
+
+/** Up to three of a slideshow's pictures on a monitor: one big, two stacked beside it. */
+function ScreenMosaic({ paths }: { paths: string[] }) {
+  const shown = paths.slice(0, 3);
+  return (
+    <span className="hub-screen">
+      {shown.length === 0 ? (
+        <span className="col-span-2 row-span-2 flex items-center justify-center">
+          <Images className="h-7 w-7 text-zinc-600" />
+        </span>
+      ) : (
+        shown.map((p, i) => (
+          <span
+            key={p}
+            className={cn(
+              "overflow-hidden",
+              shown.length === 1 && "col-span-2 row-span-2",
+              shown.length === 2 && "row-span-2",
+              shown.length === 3 && i === 0 && "row-span-2",
+            )}
+          >
+            <Thumb path={p} />
+          </span>
+        ))
+      )}
+    </span>
   );
 }
 

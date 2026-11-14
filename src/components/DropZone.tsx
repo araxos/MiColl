@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { FolderInput, Image as ImageIcon } from "lucide-react";
+import { FolderInput, Image as ImageIcon, Upload } from "lucide-react";
+import { acceptsPath, FILE_DROP_EVENT, type FileDropDetail } from "@/lib/fileDrop";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { isTauri } from "@/lib/tauri";
 import { isDraggingOut } from "@/api/library";
@@ -33,6 +34,7 @@ interface DropTarget {
  */
 type Resolution =
   | { kind: "cover"; key: string; rect: Rect; caption: string }
+  | { kind: "file"; key: string; rect: Rect; caption: string; accept?: string; multi: boolean }
   | { kind: "blocked" }
   | { kind: "target"; target: DropTarget }
   | { kind: "none" };
@@ -63,6 +65,18 @@ function resolveDrop(pos: { x: number; y: number }, routeBlocked: boolean): Reso
   let cover: { key: string; el: HTMLElement } | null = null;
   while (el) {
     const d = el.dataset;
+    // a box that takes files (useFileDrop): the deepest one wins, nothing gets imported
+    if (d.dropFile) {
+      const r = el.getBoundingClientRect();
+      return {
+        kind: "file",
+        key: d.dropFile,
+        rect: { left: r.left, top: r.top, width: r.width, height: r.height },
+        caption: d.dropFileLabel ?? "",
+        accept: d.dropFileAccept,
+        multi: d.dropFileMulti !== undefined,
+      };
+    }
     const isDropEl =
       d.dropArtist ||
       d.dropReward ||
@@ -133,7 +147,12 @@ function resolveDrop(pos: { x: number; y: number }, routeBlocked: boolean): Reso
  */
 export function DropZone() {
   const t = useT();
-  const { importDropped, importIntoReward, backed } = useActions();
+  const { importDropped, importIntoReward, backed, showToast } = useActions();
+  // read in the once-registered listener
+  const showToastRef = useRef(showToast);
+  showToastRef.current = showToast;
+  const tRef = useRef(t);
+  tRef.current = t;
   const [over, setOver] = useState(false);
   const [hit, setHit] = useState<Resolution>({ kind: "none" });
   // dropping on Settings does nothing. Read through a ref because the listener is
@@ -170,6 +189,16 @@ export function DropZone() {
           const r = resolveDrop(p.position, blockedRoute());
           setHit({ kind: "none" });
           if (!p.paths || p.paths.length === 0) return;
+          if (r.kind === "file") {
+            const fit = p.paths.filter((f) => acceptsPath(r.accept, f));
+            if (!fit.length) {
+              showToastRef.current({ tone: "error", title: tRef.current("That file doesn’t fit here") });
+              return;
+            }
+            const detail: FileDropDetail = { key: r.key, paths: r.multi ? fit : fit.slice(0, 1) };
+            window.dispatchEvent(new CustomEvent(FILE_DROP_EVENT, { detail }));
+            return;
+          }
           if (r.kind === "cover") {
             // a cover is one picture: take the first image, folders are ignored
             const img = p.paths.find((f) => IMAGE_RE.test(f));
@@ -198,6 +227,25 @@ export function DropZone() {
   }, [importDropped, importIntoReward]);
 
   if (!over || hit.kind === "blocked") return null;
+
+  // a box that takes files: highlight it with what the drop does
+  if (hit.kind === "file") {
+    return (
+      <div className="pointer-events-none fixed inset-0 z-[120]">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="absolute rounded-lg border-2 border-brand-400 ring-4 ring-brand-400/30 shadow-[0_0_0_9999px_rgba(9,9,11,0.55)]"
+          style={{ left: hit.rect.left, top: hit.rect.top, width: hit.rect.width, height: hit.rect.height }}
+        >
+          <div className="absolute -top-3 left-1/2 flex max-w-[90vw] -translate-x-1/2 -translate-y-full items-center gap-2 whitespace-nowrap rounded-full border border-brand-400/60 bg-zinc-900/95 px-3.5 py-1.5 text-sm shadow-2xl">
+            <Upload className="h-4 w-4 shrink-0 text-brand-300" />
+            <span className="truncate font-semibold text-zinc-50">{hit.caption}</span>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
 
   // cover slot: its own highlight, nothing gets imported
   if (hit.kind === "cover") {

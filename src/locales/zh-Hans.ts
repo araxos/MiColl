@@ -2021,6 +2021,11 @@ export const dict: Dict = {
   "Copy path": "复制路径",
   "Path copied": "已复制路径",
   "Couldn’t copy the path": "无法复制路径",
+  "That file doesn’t fit here": "此文件不适用于这里",
+  "Add as alts": "添加为备选",
+  "Use as cover": "用作封面",
+  "Use as thumbnail": "用作缩略图",
+  "Use as wallpaper": "用作壁纸",
   "Couldn’t find this folder.": "找不到此文件夹。",
   "Moving your collection…": "正在移动你的收藏…",
   "{done} of {total}": "{done} / {total}",
@@ -2173,4 +2178,6 @@ export const dict: Dict = {
   "No cover": "无封面",
   "Couldn’t set the cover": "无法设置封面",
   "Click to copy the path": "点击复制路径",
+  "Start": "开始",
+  "On the desktop now": "正在桌面上播放",
 };
