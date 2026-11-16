@@ -86,8 +86,15 @@ export interface Reward {
   isExtra?: boolean;
   /** Only part of the release is in the folder (the user's mark, a badge on the tile). */
   isPartial?: boolean;
-  /** The creator's tier it came with ("2", "Gold" …), the user's mark. */
+  /** The creator's tier it came with ("2", "Gold" …), the user's mark. Its month's tier
+   * when it has none of its own (tierInherited). */
   tier?: string | null;
+  /** The tier is the month's, the reward has no own one. */
+  tierInherited?: boolean;
+  /** How the user got it: "free" / "paid" / "leaked" (the month's when it has none). */
+  access?: string | null;
+  /** The access mark is the month's. */
+  accessInherited?: boolean;
   /** The user's notes ("Tier 3, bonus PSD still missing"), set in Details. */
   notes?: string | null;
   /** Added but never opened -> shows the "new" badge. Cleared when the viewer opens it. */
@@ -174,6 +181,10 @@ export interface Month {
   rewards: Reward[];
   /** Platform of this period, null until confirmed. */
   platform?: string | null;
+  /** The month's tier: its rewards without their own tier have it. */
+  tier?: string | null;
+  /** The month's free / paid / leaked mark, for its rewards without their own. */
+  access?: string | null;
   /** Platform couldn't be detected, the user needs to confirm it. */
   needsReview?: boolean;
 }

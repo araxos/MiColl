@@ -56,14 +56,14 @@ export function FavoritesPanel({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
-        className="fixed inset-x-0 bottom-0 top-14 z-40 bg-black/30"
+        className="fixed inset-x-0 bottom-0 top-[52px] z-40 bg-black/30"
       />
       <motion.aside
         initial={{ x: "100%" }}
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
         transition={{ type: "spring", stiffness: 380, damping: 38 }}
-        className="fixed bottom-0 right-0 top-14 z-50 flex w-72 flex-col border-l border-brand-500/20 bg-gradient-to-b from-brand-950/85 to-zinc-950/95 shadow-2xl shadow-black/50 backdrop-blur-xl"
+        className="fixed bottom-0 right-0 top-[52px] z-50 flex w-72 flex-col border-l border-brand-500/20 bg-gradient-to-b from-brand-950/85 to-zinc-950/95 shadow-2xl shadow-black/50 backdrop-blur-xl"
       >
         <div className="flex items-center justify-between border-b border-brand-500/20 px-4 py-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-zinc-100">

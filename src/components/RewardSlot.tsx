@@ -7,6 +7,7 @@ import { Cover } from "@/components/Cover";
 import { SdBadge, rewardSdState, rewardSdTitle } from "@/components/SdBadge";
 import { FileCountChip } from "@/components/FileCountChip";
 import { tierLabel } from "@/lib/tier";
+import { ACCESS_KINDS, AccessIcon, accessLabel, type Access } from "@/lib/access";
 import type { Reward } from "@/types";
 
 export function RewardSlot({
@@ -79,6 +80,9 @@ export function RewardSlot({
   // MiSD marker for this reward
   const sdState = rewardSdState(reward);
   // a missing reward can carry its own preview picture (picked by the user)
+  // free / paid / leaked (the month's when it has none of its own)
+  const access =
+    reward.access && ACCESS_KINDS.includes(reward.access as Access) ? (reward.access as Access) : null;
   const hasPreview = !owned && !skipped && !!reward.cover;
 
   return (
@@ -310,14 +314,41 @@ export function RewardSlot({
           </>
         )}
       </button>
-      {reward.tier && (
+      {(reward.tier || access) && (
         // outside the button, so it can hang over the right edge (the button clips);
-        // it sits where the title shade starts. Look per theme: .reward-tier in index.css
+        // it sits where the title shade starts. Look per theme: .reward-tier in index.css.
+        // Tier and free/paid/leaked share one tag: the mark is then only its symbol
+        // (hover it for the word); alone it's symbol and word
         <span
-          title={tf("Tier: {tier}", { tier: reward.tier })}
-          className="reward-tier pointer-events-none absolute -right-1.5 bottom-11 z-10 max-w-[75%] truncate px-1.5 py-0.5 text-[11px] font-semibold leading-tight"
+          className="reward-tier pointer-events-none absolute -right-1.5 bottom-11 z-10 flex max-w-[75%] items-center gap-1 px-1.5 py-0.5 text-[11px] font-semibold leading-tight"
         >
-          {tierLabel(reward.tier, tf)}
+          {access && (
+            <span
+              // the symbol takes the mouse so its tooltip shows (the tag lets clicks through)
+              className="pointer-events-auto flex shrink-0 items-center"
+              title={
+                reward.accessInherited
+                  ? tf("{mark} (from the month)", { mark: accessLabel(access, t) })
+                  : accessLabel(access, t)
+              }
+            >
+              <AccessIcon access={access} />
+            </span>
+          )}
+          {reward.tier ? (
+            <span
+              className="min-w-0 truncate"
+              title={
+                reward.tierInherited
+                  ? tf("Tier: {tier} (from the month)", { tier: reward.tier })
+                  : tf("Tier: {tier}", { tier: reward.tier })
+              }
+            >
+              {tierLabel(reward.tier, tf)}
+            </span>
+          ) : (
+            access && <span className="truncate">{accessLabel(access, t)}</span>
+          )}
         </span>
       )}
     </motion.div>

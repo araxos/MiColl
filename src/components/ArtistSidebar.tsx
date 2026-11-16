@@ -515,7 +515,7 @@ export function ArtistSidebar({
       transition={{ type: "spring", stiffness: 380, damping: 36 }}
       className={cn(
         // z-20 so it stays under the header (z-30), will-change-transform to avoid flicker
-        "fixed right-0 top-14 bottom-0 z-20 flex w-80 flex-col shadow-2xl shadow-black/40 will-change-transform",
+        "fixed right-0 top-[52px] bottom-0 z-20 flex w-80 flex-col shadow-2xl shadow-black/40 will-change-transform",
         surface,
       )}
     >

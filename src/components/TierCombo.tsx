@@ -16,5 +16,5 @@ export function TierCombo(props: {
   onLeave?: (v: string) => void;
 }) {
   const tf = useTf();
-  return <NameCombo {...props} maxLength={40} label={(s) => tierLabel(s, tf)} />;
+  return <NameCombo {...props} maxLength={120} bubble label={(s) => tierLabel(s, tf)} />;
 }

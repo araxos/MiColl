@@ -729,7 +729,8 @@ export function StartPage({ onLock }: { onLock: () => void }) {
       onLock={onLock}
       search={{ value: q, onChange: setQ, placeholder: t("Search Creators…") }}
     >
-      <div className="w-full px-6 pb-8 pt-5 2xl:px-10">
+      {/* iridescent: the bar sits closer under the top bar, the grid moves up with it */}
+      <div className={cn("w-full px-6 pb-8 2xl:px-10", irid ? "pt-3" : "pt-5")}>
         {/* the filter bar collapses in cinema mode so the whole grid moves up */}
         <AnimatePresence initial={false}>
         {!minimal && (
@@ -751,7 +752,7 @@ export function StartPage({ onLock }: { onLock: () => void }) {
             "relative z-20 mb-5 flex flex-wrap items-center justify-between gap-3",
             // iridescent: light frosted panel, translateZ(0) against black flicker
             irid &&
-              "rounded-2xl border border-white/12 bg-zinc-900/28 px-4 py-2.5 backdrop-blur-xl [transform:translateZ(0)]",
+              "mb-3 rounded-none border border-white/12 bg-zinc-900/28 px-4 py-2.5 backdrop-blur-xl [transform:translateZ(0)]",
             // sakura: frosted rose glass with petal-cut corners (index.css .sak-dash-bar)
             sakura && "sak-dash-bar px-4 py-2.5",
             // corruptruby: black glass with a neon rim (index.css .ruby-bar)

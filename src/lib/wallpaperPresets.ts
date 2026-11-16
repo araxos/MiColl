@@ -1,13 +1,13 @@
 /**
  * Built-in wallpapers of the premium themes (iridescent, cyberpunk, sakura).
  * Separate from wallpaper.ts because this file imports the images (Vite bundles them).
- * "shader" has no image, it's the captured shader frame (see iridSnapshot),
- * picking it just clears the wallpaper.
+ * "shader" has no image: the live shader (IridescentFx) while the background may move,
+ * else its captured frame (see iridSnapshot).
  */
 
 import type { AccentKey } from "@/lib/theme";
 import prismFold from "@/assets/wallpapers/iri-prism-fold.jpg";
-import pearlDrift from "@/assets/wallpapers/iri-pearl-drift.svg";
+import starRain from "@/assets/wallpapers/iri-star-rain.webp";
 import steelVeil from "@/assets/wallpapers/iri-steel-veil.svg";
 import cpDataTear from "@/assets/wallpapers/cyber-01-data-tear.webp";
 import cpRestricted from "@/assets/wallpapers/cyber-02-restricted.webp";
@@ -20,6 +20,9 @@ export type SakuraAnimatedId = "moon-pond";
 
 /** Pyre pictures with a moving version (RubyEmberWall). */
 export type RubyAnimatedId = "ember";
+
+/** Iridescent pictures with a moving version (IriSteelVeil). */
+export type IriAnimatedId = "steel-veil";
 import toriiMist from "@/assets/wallpapers/sakura-torii-mist.svg";
 import petalWind from "@/assets/wallpapers/sakura-petal-wind.svg";
 import moonPond from "@/assets/wallpapers/sakura-moon-pond.svg";
@@ -41,10 +44,10 @@ export interface WallpaperPreset {
   /** The moving version shown instead while "Animated background" is on
    *  (CyberpunkAnimated, SakuraMoonPond, RubyEmberWall). Without one the picture stays
    *  still either way. */
-  animated?: CyberAnimatedId | SakuraAnimatedId | RubyAnimatedId;
+  animated?: CyberAnimatedId | SakuraAnimatedId | RubyAnimatedId | IriAnimatedId;
 }
 
-/** What iridescent shows when nothing is chosen and the animated background is off. */
+/** Iridescent's default, with the animation on (it moves, IriSteelVeil) as well as off. */
 export const IRI_DEFAULT_WALLPAPER = "steel-veil";
 
 /** Iridescent presets in menu order. */
@@ -52,23 +55,24 @@ export const IRI_WALLPAPERS: WallpaperPreset[] = [
   {
     id: "steel-veil",
     label: "Steel veil",
-    hint: "Bands of light leaning across dark slate. The theme’s default still.",
+    hint: "Bands of light leaning across dark slate, the theme’s default. Animated when the animated background is on.",
     url: steelVeil,
     accent: "iridescent",
+    animated: "steel-veil",
   },
   {
     id: "shader",
-    label: "Shader still",
-    hint: "A frame captured from the animated background — the theme's own look, held still.",
+    label: "Shader",
+    hint: "The theme’s flowing shader — moving when the animated background is on, a captured frame of it when off.",
     url: "",
     accent: "iridescent",
   },
   {
-    id: "pearl-drift",
-    // SVG, only 4 KB and sharp at any size
-    label: "Pearl drift",
-    hint: "The theme’s own foil, held still — a pale pearl sheet with its four pastels drifting across it.",
-    url: pearlDrift,
+    id: "star-rain",
+    // WebP at 2560x1440, 37 KB
+    label: "Star rain",
+    hint: "Glass crystals falling at a slant through a dark violet night, each pulling a soft trail of light.",
+    url: starRain,
     accent: "iridescent",
   },
   {

@@ -1,7 +1,18 @@
-import { memo, useCallback, useMemo, useRef } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Check, FolderOpen, Trash2, RotateCcw, Coffee, BadgeCheck, CopyCheck, RefreshCw, HardDrive, DatabaseBackup, Sparkle, CalendarRange, Pencil } from "lucide-react";
+import { Check, FolderOpen, Trash2, RotateCcw, Coffee, BadgeCheck, CopyCheck, RefreshCw, HardDrive, DatabaseBackup, Sparkle, CalendarRange, Pencil, Layers, Info, Share2 } from "lucide-react";
+import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
+import { MonthDetails } from "@/components/MonthDetails";
+import { ShareSheet } from "@/components/ShareSheet";
+import { SharePhoneModal } from "@/components/SharePhoneModal";
+import { MegaUploadModal } from "@/components/MegaUploadModal";
+import { AnimatePresence } from "framer-motion";
+import { TierDialog } from "@/components/TierDialog";
+import { creatorTiers, tierLabel } from "@/lib/tier";
+import { ACCESS_KINDS, accessLabel, accessMenu, type Access } from "@/lib/access";
+import { CircleDollarSign } from "lucide-react";
+import { useData } from "@/store";
 import { SakuraBlossomIcon } from "@/lib/classIcons";
 import { openDuplicates } from "@/lib/duplicates";
 import { RubyCheckMark, RubyEmbers } from "@/components/RubyCardFrame";
@@ -19,10 +30,13 @@ import {
   setPeriodPreview,
   setPeriodSkipped,
   setPeriodSpan,
+  setPeriodTier,
+  setPeriodAccess,
   revealPeriod,
   folderPathOf,
   sdMark,
   sdBackupDrop,
+  exportFiles,
 } from "@/api/library";
 import { SdBadge, type SdState } from "@/components/SdBadge";
 import { cn } from "@/lib/utils";
@@ -35,11 +49,50 @@ const ringColor: Record<string, string> = {
   empty: "stroke-zinc-600",
 };
 
+/** The month tier dialog, with the creator's tiers on the month's platform. */
+function MonthTierDialog({ month, artistId, onClose }: { month: Month; artistId?: string; onClose: () => void }) {
+  const t = useT();
+  const tf = useTf();
+  const { artists } = useData();
+  const { refresh } = useLibraryActions();
+  const { showToast } = useActions();
+  const [busy, setBusy] = useState(false);
+  const artist = artists.find((a) => a.id === artistId);
+  const save = async (tier: string | null) => {
+    setBusy(true);
+    try {
+      await setPeriodTier(month.id, tier);
+      showToast({
+        tone: "success",
+        title: tier ? tf("Month tier set: {tier}", { tier: tierLabel(tier, tf) }) : t("Month tier removed"),
+        detail: tier ? t("Rewards with their own tier keep it.") : undefined,
+      });
+      onClose();
+      await refresh();
+    } catch (e) {
+      showToast({ tone: "error", title: t("Couldn’t set the tier"), detail: `${e}` });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <TierDialog
+      count={month.rewards.filter((r) => !r.collabFrom).length}
+      current={month.tier ?? null}
+      suggestions={creatorTiers(artist, month.platform)}
+      busy={busy}
+      onSave={(tier) => void save(tier)}
+      onCancel={onClose}
+    />
+  );
+}
+
 function MonthCardBase({
   month,
   onOpen: onOpenMonth,
   hideYear = false,
   onRename,
+  onDialog,
 }: {
   month: Month;
   /** Called with the month id. One function for the whole grid so memo works. */
@@ -48,6 +101,8 @@ function MonthCardBase({
   hideYear?: boolean;
   /** Custom style: the card has a name to change. */
   onRename?: (month: Month) => void;
+  /** Opens one of the card's dialogs (MonthCardWithDialogs holds them). */
+  onDialog: (kind: MonthDialog) => void;
 }) {
   const t = useT();
   const tf = useTf();
@@ -459,8 +514,25 @@ function MonthCardBase({
     });
   }, [sakHolo, month.id]);
 
+  // the month's free / paid / leaked mark
+  const accessMark =
+    month.access && ACCESS_KINDS.includes(month.access as Access) ? (month.access as Access) : null;
+  // free / paid / leaked: a thin line along the card's bottom. Colors per theme:
+  // .month-access in index.css
+  const accessLine = accessMark ? (
+    <span className="month-access" data-access={accessMark} title={accessLabel(accessMark, t)} />
+  ) : null;
   const onContextMenu = (e: React.MouseEvent) => {
+    // the month's own files (borrowed collabs are someone else's)
+    const shareSrcs = own.flatMap((r) => r.images.map((im) => im.path)).filter((p): p is string => !!p);
     const items: MenuItem[] = [
+      // Details / skipped / Reload in the icon row, like a reward's
+      {
+        label: t("Details"),
+        icon: <Info className="h-4 w-4" />,
+        quick: 0,
+        onClick: () => onDialog("details"),
+      },
       {
         label: t("Show in Explorer"),
         icon: <FolderOpen className="h-4 w-4" />,
@@ -469,8 +541,8 @@ function MonthCardBase({
         },
         copyPath: () => folderPathOf("period", month.id),
       },
-      // reset cover only for a real month
-      ...(!skipped
+      // reset cover only for a real month with a picked cover (else there's nothing to reset)
+      ...(!skipped && month.coverImage
         ? [
             {
               label: t("Reset cover"),
@@ -487,6 +559,7 @@ function MonthCardBase({
             {
               label: skipped ? t("Unmark skipped (break)") : t("Mark as skipped (break)"),
               icon: <Coffee className="h-4 w-4" />,
+              quick: 1,
               onClick: () => {
                 if (backed) void setPeriodSkipped(month.id, !skipped).then(() => refresh());
               },
@@ -494,6 +567,26 @@ function MonthCardBase({
           ]
         : []),
     ];
+    // the month's tier: every reward in it without its own tier gets it
+    if (backed && !month.collabOnly && !skipped) {
+      items.push({
+        label: month.tier ? t("Change month tier") : t("Set month tier"),
+        icon: <Layers className="h-4 w-4" />,
+        hint: month.tier ? tierLabel(month.tier, tf) : undefined,
+        onClick: () => onDialog("tier"),
+      });
+      // free / paid / leaked for the whole month (rewards with their own mark keep it)
+      items.push({
+        label: t("Free / paid / leaked"),
+        icon: <CircleDollarSign className="h-4 w-4" />,
+        hint: month.access ? accessLabel(month.access as Access, t) : undefined,
+        children: accessMenu(month.access, t, (a) =>
+          void setPeriodAccess(month.id, a)
+            .then(() => refresh())
+            .catch((e) => showToast({ tone: "error", title: t("Couldn’t change that"), detail: `${e}` })),
+        ),
+      });
+    }
     if (onRename) {
       items.push({
         label: t("Rename"),
@@ -533,6 +626,14 @@ function MonthCardBase({
         label: t("Find duplicates"),
         icon: <CopyCheck className="h-4 w-4" />,
         onClick: () => openDuplicates({ label: month.label, periodId: Number(month.id) }),
+      });
+    }
+    // Share before MiSD, MiSD second to last (like a reward's menu)
+    if (shareSrcs.length) {
+      items.push({
+        label: t("Share"),
+        icon: <Share2 className="h-4 w-4" />,
+        onClick: () => onDialog("share"),
       });
     }
     // MiSD submenu: two separate queues + what's already on the disk
@@ -611,12 +712,13 @@ function MonthCardBase({
       // only this month (see rescanMonth)
       label: t("Reload"),
       icon: <RefreshCw className="h-4 w-4" />,
+      quick: 2,
       onClick: () => artistId && rescanMonth(artistId, month.id),
     });
     // collab-only months have nothing to delete, remove the link on the reward instead
     if (!month.collabOnly) {
       items.push({
-        label: skipped ? t("Delete break…") : t("Delete month…"),
+        label: skipped ? t("Delete break") : t("Delete month"),
         icon: <Trash2 className="h-4 w-4" />,
         danger: true,
         // break/empty month -> delete the period, otherwise delete its rewards
@@ -751,6 +853,7 @@ function MonthCardBase({
             className="relative flex items-center justify-between gap-2 px-3 py-2.5"
             style={{ borderTop: `1px solid ${CP.line}` }}
           >
+            {accessLine}
             {/* month number in the top left corner of the strip (square corners) */}
             <div
               className="-ml-3 -mt-2.5 grid h-7 min-w-[1.75rem] max-w-[5rem] place-items-center truncate rounded-none border border-l-0 border-t-0 px-2 font-mono text-xs font-bold"
@@ -850,11 +953,10 @@ function MonthCardBase({
 
           {/* one line footer, % shows on hover over the crystals */}
           <div className="iri-foot relative flex items-center justify-between gap-2 border-t border-white/15 px-3 py-2.5">
-            {/* month label in the strip's top left corner (negative margins cancel the
-                padding,
-                only the inner corner is rounded) */}
-            <div className="iri-pill -ml-3 -mt-2.5 inline-block min-w-0 max-w-full truncate rounded-none rounded-br-lg !border-l-0 !border-t-0 px-2.5 py-1 text-xs font-semibold">
-              {label}
+            {accessLine}
+            {/* month label in a box the strip's full height, closed by one line on its right */}
+            <div className="iri-pill -my-2.5 -ml-3 flex min-w-0 items-center self-stretch rounded-none !border-y-0 !border-l-0 px-2.5 text-xs font-semibold">
+              <span className="truncate">{label}</span>
             </div>
             {/* crystals and % swap in a fixed size box. h-4 keeps the strip height. */}
             <div className="group/pips relative flex h-4 shrink-0 items-center">
@@ -934,6 +1036,7 @@ function MonthCardBase({
           </div>
 
           <div className="ruby-month-foot relative flex items-center justify-between gap-2 px-3 py-2.5">
+            {accessLine}
             <div className="ruby-month-label min-w-0 max-w-full truncate text-xs font-bold">{label}</div>
             {tracked ? (
               // gems and % swap in a fixed size box, h-4 keeps the footer height
@@ -951,7 +1054,7 @@ function MonthCardBase({
             ) : (
               <div className="flex shrink-0 items-center gap-2 text-[11px] font-medium text-[#ffd6e4]">
                 <span className="ruby-gem" />
-                {tp("{n} rewards", owned)}
+                {owned}
               </div>
             )}
           </div>
@@ -1021,6 +1124,7 @@ function MonthCardBase({
 
           {/* one line footer: month pill + 3 petal pips, % on hover */}
           <div className="sak-foot relative flex items-center justify-between gap-2 px-3 py-2.5">
+            {accessLine}
             {/* in the top left corner (see the iridescent footer) */}
             <div className="sak-pill -ml-3 -mt-2.5 inline-block min-w-0 max-w-full truncate rounded-none rounded-br-lg !border-l-0 !border-t-0 px-2.5 py-1 text-xs font-semibold">
               {label}
@@ -1089,6 +1193,7 @@ function MonthCardBase({
           </div>
 
           <div className="cp-foot-quiet relative flex items-center justify-between gap-2 px-3 py-2.5">
+            {accessLine}
             {/* same corner label as the template card, in the theme's yellow */}
             <div className="cp-label-quiet -ml-3 -mt-2.5 grid h-7 min-w-[1.75rem] max-w-[5rem] place-items-center truncate rounded-none border border-l-0 border-t-0 px-2 font-mono text-xs font-bold">
               {label}
@@ -1096,7 +1201,7 @@ function MonthCardBase({
             {/* one empty level bar next to the count */}
             <div className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] font-medium text-[#8ff3ff]">
               <span className="h-3.5 w-1.5 -skew-x-12 rounded-[1px] border border-[#00e5ff]/60" />
-              {tp("{n} rewards", owned)}
+              {owned}
             </div>
           </div>
         </div>
@@ -1141,14 +1246,15 @@ function MonthCardBase({
           </div>
 
           <div className="iri-foot-quiet relative flex items-center justify-between gap-2 border-t border-white/12 px-3 py-2.5">
-            {/* same corner label as the template card */}
-            <div className="iri-pill -ml-3 -mt-2.5 inline-block min-w-0 max-w-full truncate rounded-none rounded-br-lg !border-l-0 !border-t-0 px-2.5 py-1 text-xs font-semibold">
-              {label}
+            {accessLine}
+            {/* same label box as the template card */}
+            <div className="iri-pill -my-2.5 -ml-3 flex min-w-0 items-center self-stretch rounded-none !border-y-0 !border-l-0 px-2.5 text-xs font-semibold">
+              <span className="truncate">{label}</span>
             </div>
             {/* one outline crystal next to the count */}
             <div className="flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-[#dbe7ff]">
               <span className="iri-kite iri-kite--off h-3 w-3 rotate-45" />
-              {tp("{n} rewards", owned)}
+              {owned}
             </div>
           </div>
         </div>
@@ -1192,13 +1298,14 @@ function MonthCardBase({
           </div>
 
           <div className="sak-foot relative flex items-center justify-between gap-2 px-3 py-2.5">
+            {accessLine}
             <div className="sak-pill -ml-3 -mt-2.5 inline-block min-w-0 max-w-full truncate rounded-none rounded-br-lg !border-l-0 !border-t-0 px-2.5 py-1 text-xs font-semibold">
               {label}
             </div>
             {/* one outline petal next to the count */}
             <div className="flex shrink-0 items-center gap-1.5 text-[11px] font-medium text-[#f0c8dc]">
               <span className="sak-petal-pip sak-petal-pip--off h-3.5 w-2.5" />
-              {tp("{n} rewards", owned)}
+              {owned}
             </div>
           </div>
         </div>
@@ -1249,7 +1356,7 @@ function MonthCardBase({
             <Badge tone={!tracked ? "zinc" : state === "complete" ? "green" : state === "partial" ? "amber" : "zinc"}>
               {tracked
                 ? tf("{owned}/{total} owned", { owned, total: month.officialTotal ?? 0 })
-                : tp("{n} rewards", owned)}
+                : owned}
             </Badge>
           </div>
         </div>
@@ -1259,9 +1366,74 @@ function MonthCardBase({
           </ProgressRing>
         )}
       </div>
+      {/* free / paid / leaked: a thin line along the bottom */}
+      {accessLine}
     </motion.button>
   );
 }
 
 // memo: only the changed month re-renders (the store keeps the others the same object)
-export const MonthCard = memo(MonthCardBase);
+type MonthDialog = "tier" | "details" | "share";
+
+/** Share a month: all its own files, like a reward's Share (phone, MEGA, a copy…). */
+function MonthShare({ month, artistId, onClose }: { month: Month; artistId?: string; onClose: () => void }) {
+  const t = useT();
+  const tf = useTf();
+  const tp = useTp();
+  const { artists } = useData();
+  const { showToast } = useActions();
+  const [phone, setPhone] = useState(false);
+  const [mega, setMega] = useState(false);
+  const srcs = ownRewards(month)
+    .flatMap((r) => r.images.map((im) => im.path))
+    .filter((p): p is string => !!p);
+  const creator = artists.find((a) => a.id === artistId)?.name;
+  const name = creator ? `${creator} ${month.label}` : month.label;
+  const saveCopy = async () => {
+    const dir = await openFolderDialog({ directory: true, multiple: false, title: tf("Save “{name}” to…", { name }) });
+    if (typeof dir !== "string") return;
+    try {
+      const n = await exportFiles(srcs, dir, name);
+      showToast({ tone: "success", title: tf("Saved {what}", { what: tp("{n} files", n) }), detail: `${dir}\\${name}` });
+    } catch (e) {
+      showToast({ tone: "error", title: t("Couldn’t save a copy"), detail: `${e}` });
+    }
+  };
+  return (
+    <>
+      {!phone && !mega && (
+        <ShareSheet
+          req={{ srcs, name, creator, image: srcs.length === 1 ? srcs[0] : null }}
+          onPhone={() => setPhone(true)}
+          onMega={() => setMega(true)}
+          onSaveCopy={() => void saveCopy()}
+          onClose={onClose}
+        />
+      )}
+      <AnimatePresence>
+        {phone && <SharePhoneModal srcs={srcs} name={name} onClose={onClose} />}
+      </AnimatePresence>
+      <AnimatePresence>
+        {mega && <MegaUploadModal srcs={srcs} name={month.label} creator={creator} onClose={onClose} />}
+      </AnimatePresence>
+    </>
+  );
+}
+
+/** The card with its dialogs (tier, details, share). */
+function MonthCardWithDialogs(props: Omit<Parameters<typeof MonthCardBase>[0], "onDialog">) {
+  const [dialog, setDialog] = useState<MonthDialog | null>(null);
+  const { artistId } = useParams<{ artistId: string }>();
+  const open = useCallback((kind: MonthDialog) => setDialog(kind), []);
+  const close = () => setDialog(null);
+  return (
+    <>
+      <MonthCardBase {...props} onDialog={open} />
+      {dialog === "tier" && <MonthTierDialog month={props.month} artistId={artistId} onClose={close} />}
+      {dialog === "details" && <MonthDetails month={props.month} onClose={close} />}
+      {dialog === "share" && <MonthShare month={props.month} artistId={artistId} onClose={close} />}
+    </>
+  );
+}
+
+export const MonthCard = memo(MonthCardWithDialogs);

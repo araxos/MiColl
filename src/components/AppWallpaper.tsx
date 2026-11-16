@@ -24,6 +24,7 @@ import { RubyEmberWall } from "@/components/RubyEmberWall";
 // CyberpunkFx (the old glitch background) stays in the codebase but isn't mounted
 import { CyberpunkAnimated, type CyberAnimatedId } from "@/components/CyberpunkAnimated";
 import { IridescentFx } from "@/components/IridescentFx";
+import { IriSteelVeil } from "@/components/IriSteelVeil";
 import { ClassicGlintsFx } from "@/components/ClassicGlintsFx";
 
 /**
@@ -67,11 +68,14 @@ export function AppWallpaper() {
       alive = false;
     };
   }, [wallpaperPath]);
-  // iridescent default still, used when nothing is chosen and the animation is off
+  // iridescent default (Steel veil), with the animation on or off. Also stands in for
+  // a stored preset id a newer build dropped. "Shader" is the old animated look.
   const iriDefault =
-    accent === "iridescent" && !animated && !wallpaperPath
+    accent === "iridescent" && (!wallpaperPath || (isWallpaperPreset(wallpaperPath) && !preset))
       ? findWallpaperPreset(IRI_DEFAULT_WALLPAPER)
       : undefined;
+  const iriPreset = preset?.accent === "iridescent" ? preset : iriDefault;
+  const iriAnim = irid && iriPreset?.animated === "steel-veil";
   // cyberpunk default (design 01), with the animation on or off. Also stands in for a
   // stored preset id a newer build dropped.
   const cyberDefault =
@@ -93,11 +97,13 @@ export function AppWallpaper() {
   const rubyAnim = accent === "corruptruby" && animated && rubyPreset?.animated === "ember";
   // the picture painted over the whole background (the shader preset is handled by
   // iridStill)
-  const custom = cyberAnim || sakAnim || rubyAnim
+  const custom = cyberAnim || sakAnim || rubyAnim || iriAnim
     ? ""
     : preset
       ? preset.url
       : (iriDefault?.url ?? cyberDefault?.url ?? rubyDefault?.url ?? file);
+  // the live shader only when "Shader" is the chosen picture
+  const iriShader = irid && !custom && !iriAnim;
 
   // a custom picture covers everything, so skip the iridescent shader behind it
   const iridStill = !custom && !animated && accent === "iridescent" && !!snapshot;
@@ -135,7 +141,8 @@ export function AppWallpaper() {
       {sakStill && <SakuraStill />}
       {/* premium FX above the veil. Only the iridescent shader gets replaced by a
           custom wallpaper, petals and rain still fall over it. */}
-      {irid && !custom && <IridescentFx />}
+      {iriShader && <IridescentFx />}
+      {iriAnim && <IriSteelVeil />}
       {/* cyberpunk's moving picture: covers everything like a picture, so it sits
           under the dim like one */}
       {cyberAnim && <CyberpunkAnimated variant={cyberAnim} />}

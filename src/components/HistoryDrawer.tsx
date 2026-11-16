@@ -98,7 +98,7 @@ export function HistoryDrawer({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
-        className="fixed inset-x-0 bottom-0 top-14 z-40 bg-black/30"
+        className="fixed inset-x-0 bottom-0 top-[52px] z-40 bg-black/30"
       />
       <motion.aside
         initial={{ x: "100%" }}
@@ -106,7 +106,7 @@ export function HistoryDrawer({
         exit={{ x: "100%" }}
         transition={{ type: "spring", stiffness: 380, damping: 38 }}
         className={cn(
-          "fixed bottom-0 right-0 top-14 z-50 flex w-80 flex-col shadow-2xl shadow-black/50",
+          "fixed bottom-0 right-0 top-[52px] z-50 flex w-80 flex-col shadow-2xl shadow-black/50",
           surface,
         )}
       >

@@ -18,7 +18,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useData } from "@/store";
 import { useActions } from "@/actions";
 import { useSlideshowMenu } from "@/components/AddToSlideshow";
-import { KEEP_FOLDERS_KEY, folderPathOf, setRewardCover, exportFiles, createReward, createMissingReward, importWishCover, ensurePeriod, ensureCustomPeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, setRewardsTier, setRewardNotes, type SdMode } from "@/api/library";
+import { KEEP_FOLDERS_KEY, folderPathOf, setRewardCover, exportFiles, createReward, createMissingReward, importWishCover, ensurePeriod, ensureCustomPeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, setRewardsTier, setRewardsAccess, setRewardNotes, type SdMode } from "@/api/library";
 import { isTauri } from "@/lib/tauri";
 import { useCardSize } from "@/lib/useCardSize";
 import { useDragOut } from "@/lib/dragOut";
@@ -32,6 +32,8 @@ import { isVirtualMonthId, type Artist, type Reward } from "@/types";
 import { CollabPicker } from "@/components/CollabPicker";
 import { TierDialog } from "@/components/TierDialog";
 import { creatorTiers, sortByTier } from "@/lib/tier";
+import { accessLabel, accessMenu, type Access } from "@/lib/access";
+import { CircleDollarSign } from "lucide-react";
 import { TileGate } from "@/components/TileGate";
 
 const MEDIA_EXTS = [
@@ -711,12 +713,31 @@ export function RewardGrid({
     }
   };
 
+  /** Free / paid / leaked on rewards (null removes their own mark). */
+  const markAccess = async (ids: string[], access: Access | null) => {
+    try {
+      const n = await setRewardsAccess(ids, access);
+      await refresh();
+      showToast({
+        tone: "success",
+        title: access ? tf("{n} marked as {mark}", { n, mark: accessLabel(access, t) }) : tf("Mark removed from {n}", { n }),
+      });
+    } catch (e) {
+      showToast({ tone: "error", title: t("Couldn\u2019t change that"), detail: `${e}` });
+    }
+  };
+
   // the tier dialog (right-click "Tier…" or the selection bar)
   const [tierPick, setTierPick] = useState<{ ids: string[]; current: string | null } | null>(null);
   const [tierBusy, setTierBusy] = useState(false);
   const openTier = (ids: string[]) => {
     if (!ids.length) return;
-    const tiers = new Set(ids.map((id) => items.find((it) => it.reward.id === id)?.reward.tier?.trim() || ""));
+    // only their own tiers: one from the month isn't theirs to remove
+    const own = (id: string) => {
+      const r = items.find((it) => it.reward.id === id)?.reward;
+      return r && !r.tierInherited ? r.tier?.trim() || "" : "";
+    };
+    const tiers = new Set(ids.map(own));
     setTierPick({ ids, current: tiers.size === 1 ? [...tiers][0] || null : null });
   };
   /** The creator the rewards belong to (for its tiers so far). */
@@ -807,7 +828,7 @@ export function RewardGrid({
         ...(srcs.length
           ? [
               {
-                label: t("Share…"),
+                label: t("Share"),
                 icon: <Share2 className="h-4 w-4" />,
                 onClick: () => setSharePick({ srcs, name: r.title, creator: creatorOf(r), image: soleImage(r) }),
               },
@@ -904,9 +925,18 @@ export function RewardGrid({
                     ]
                   : []),
                 {
-                  label: r.tier ? t("Change tier…") : t("Set tier…"),
+                  label: r.tier && !r.tierInherited ? t("Change tier…") : t("Set tier…"),
                   icon: <Layers className="h-4 w-4" />,
                   onClick: () => openTier(groupIds(r)),
+                },
+                // free / paid / leaked; one from the month shows unchecked (it isn't theirs)
+                {
+                  label: t("Free / paid / leaked"),
+                  icon: <CircleDollarSign className="h-4 w-4" />,
+                  hint: r.access ? accessLabel(r.access as Access, t) : undefined,
+                  children: accessMenu(r.accessInherited ? null : r.access, t, (a) =>
+                    void markAccess(groupIds(r), a),
+                  ),
                 },
                 {
                   label: r.notes ? t("Edit note…") : t("Add note…"),
@@ -955,7 +985,7 @@ export function RewardGrid({
       ...(srcs.length
         ? [
             {
-              label: t("Share…"),
+              label: t("Share"),
               icon: <Share2 className="h-4 w-4" />,
               onClick: () => setSharePick({ srcs, name: r.title, creator: creatorOf(r), image: soleImage(r) }),
             },

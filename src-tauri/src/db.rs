@@ -90,8 +90,15 @@ pub struct Reward {
     /// Only part of the release is in the folder (marked by the user, a badge on the tile).
     pub is_partial: bool,
     /// The creator's tier it came with ("2", "Gold" …), the user's mark. None = not set.
-    /// Like is_partial a rescan keeps it.
+    /// Like is_partial a rescan keeps it. Loaded as the month's tier when the reward has
+    /// none of its own (tier_inherited then says so).
     pub tier: Option<String>,
+    /// The tier shown is the month's (the reward has no own one).
+    pub tier_inherited: bool,
+    /// How the user got it: "free", "paid" or "leaked" (the user's mark). Loaded as the
+    /// month's when the reward has none of its own (access_inherited then says so).
+    pub access: Option<String>,
+    pub access_inherited: bool,
     /// The user's notes ("Tier 3, bonus PSD still missing"). A rescan keeps them.
     pub notes: Option<String>,
     /// Number of media files (from a column, so the dashboard doesn't need image rows).
@@ -171,6 +178,10 @@ pub struct Period {
     pub official_total: Option<i64>,
     /// Always open the reward overview on click (set at import, "Open as folder cards").
     pub open_as_cards: bool,
+    /// The month's tier: every reward in it without its own tier has this one.
+    pub tier: Option<String>,
+    /// The month's free / paid / leaked mark, for its rewards without their own.
+    pub access: Option<String>,
     /// A fake period that only holds borrowed collab rewards (negative id, no DB row).
     /// Never pass it to a command that takes a period_id.
     pub collab_only: bool,
@@ -740,6 +751,9 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let _ = conn.execute("ALTER TABLE periods ADD COLUMN skipped INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE periods ADD COLUMN verified INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE periods ADD COLUMN open_as_cards INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE periods ADD COLUMN tier TEXT", []);
+    let _ = conn.execute("ALTER TABLE periods ADD COLUMN access TEXT", []);
+    let _ = conn.execute("ALTER TABLE rewards ADD COLUMN access TEXT", []);
     let _ = conn.execute("ALTER TABLE artists ADD COLUMN updated_at TEXT", []);
     let _ = conn.execute("ALTER TABLE images ADD COLUMN phash INTEGER", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN is_root INTEGER NOT NULL DEFAULT 0", []);
@@ -1738,6 +1752,46 @@ pub fn set_period_skipped(conn: &Connection, period_id: i64, skipped: bool) -> r
     Ok(())
 }
 
+/// A month's tier (None or blank removes it): its rewards without their own tier get it.
+/// The tier joins the creator's list on the month's platform.
+pub fn set_period_tier(conn: &Connection, period_id: i64, tier: Option<&str>) -> rusqlite::Result<()> {
+    let tier = clean_tier(tier);
+    conn.execute("UPDATE periods SET tier = ?2 WHERE id = ?1", params![period_id, tier])?;
+    if let Some(t) = &tier {
+        let found: Option<(i64, Option<String>)> = conn
+            .query_row("SELECT artist_id, platform FROM periods WHERE id = ?1", params![period_id], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .optional()?;
+        if let Some((artist, platform)) = found {
+            remember_tier(conn, artist, platform, t)?;
+        }
+    }
+    Ok(())
+}
+
+/// "free", "paid" or "leaked" (any case), anything else = none.
+pub fn clean_access(access: Option<&str>) -> Option<String> {
+    let a = access?.trim().to_lowercase();
+    matches!(a.as_str(), "free" | "paid" | "leaked").then_some(a)
+}
+
+/// Mark rewards free / paid / leaked (None removes the mark). Returns how many changed.
+pub fn set_rewards_access(conn: &Connection, ids: &[i64], access: Option<&str>) -> rusqlite::Result<u32> {
+    let access = clean_access(access);
+    let mut n = 0u32;
+    for id in ids {
+        n += conn.execute("UPDATE rewards SET access = ?2 WHERE id = ?1", params![id, access])? as u32;
+    }
+    Ok(n)
+}
+
+/// A month's free / paid / leaked mark: its rewards without their own get it.
+pub fn set_period_access(conn: &Connection, period_id: i64, access: Option<&str>) -> rusqlite::Result<()> {
+    conn.execute("UPDATE periods SET access = ?2 WHERE id = ?1", params![period_id, clean_access(access)])?;
+    Ok(())
+}
+
 /// Set if clicking the month opens the reward overview (set at import).
 pub fn set_period_open_as_cards(
     conn: &Connection,
@@ -2044,9 +2098,9 @@ pub fn set_rewards_partial(conn: &Connection, ids: &[i64], partial: bool) -> rus
     Ok(n)
 }
 
-/// A tier as it's stored: trimmed, at most 40 characters, None when empty.
+/// A tier as it's stored: trimmed, at most 120 characters, None when empty.
 pub fn clean_tier(tier: Option<&str>) -> Option<String> {
-    let t: String = tier?.trim().chars().take(40).collect();
+    let t: String = tier?.trim().chars().take(120).collect();
     let t = t.trim().to_string();
     (!t.is_empty()).then_some(t)
 }
@@ -2164,6 +2218,11 @@ fn remember_reward_tier(conn: &Connection, reward_id: i64, tier: &str) -> rusqli
         )
         .optional()?;
     let Some((artist, platform)) = found else { return Ok(()) };
+    remember_tier(conn, artist, platform, tier)
+}
+
+/// Add a tier to a creator's list on a platform, unless it (or an any-platform one) is there.
+fn remember_tier(conn: &Connection, artist: i64, platform: Option<String>, tier: &str) -> rusqlite::Result<()> {
     let mut list = artist_tier_list(conn, artist)?;
     let here = platform_key(platform.as_deref());
     let known = list.iter().any(|t| {
@@ -2209,6 +2268,21 @@ pub fn remove_artist_tier(
         let hit = if platform.is_some() { on == target } else { !own.contains(&on) };
         if hit {
             n += conn.execute("UPDATE rewards SET tier = NULL WHERE id = ?1", params![id])? as u32;
+        }
+    }
+    // months with that tier lose it too (their rewards counted where they show it)
+    let months: Vec<(i64, Option<String>)> = {
+        let mut stmt = conn.prepare(
+            "SELECT id, platform FROM periods WHERE artist_id = ?1 AND lower(trim(tier)) = ?2",
+        )?;
+        let rows = stmt.query_map(params![artist_id, key], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    for (id, on) in months {
+        let on = platform_key(on.as_deref());
+        let hit = if platform.is_some() { on == target } else { !own.contains(&on) };
+        if hit {
+            conn.execute("UPDATE periods SET tier = NULL WHERE id = ?1", params![id])?;
         }
     }
     let list: Vec<TierEntry> = list
@@ -3205,7 +3279,9 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                     r.is_root, r.image_count, r.sd_marked, r.sd_volume,
                     p.id, p.platform, p.year, p.month, p.number, p.span, p.label, p.folder_path,
                     oa.id, oa.name, r.cover_custom, r.sd_backup, r.sd_backup_at, r.fresh, r.wished,
-                    r.is_extra, r.is_partial, r.tier, r.notes
+                    r.is_extra, r.is_partial, coalesce(nullif(trim(r.tier), ''), p.tier), r.notes,
+                    nullif(trim(r.tier), '') IS NULL AND p.tier IS NOT NULL,
+                    coalesce(r.access, p.access), r.access IS NULL AND p.access IS NOT NULL
              FROM reward_collabs c
              JOIN rewards r  ON r.id = c.reward_id
              JOIN periods p  ON p.id = r.period_id
@@ -3233,6 +3309,9 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                         is_extra: r.get::<_, i64>(26)? != 0,
                         is_partial: r.get::<_, i64>(27)? != 0,
                         tier: r.get(28)?,
+                        tier_inherited: r.get::<_, i64>(30)? != 0,
+                        access: r.get(31)?,
+                        access_inherited: r.get::<_, i64>(32)? != 0,
                         notes: r.get(29)?,
                         image_count: r.get(8)?,
                         sd_marked: r.get::<_, i64>(9)? == 1,
@@ -3346,6 +3425,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
         {
             let mut stmt = conn.prepare_cached(
                 "SELECT id, platform, year, month, span, label, folder_path, needs_review, preview_image, official_total, skipped, verified, open_as_cards, number,
+                        tier, access,
                         (SELECT c.name FROM custom_names c
                           WHERE c.artist_id = p.artist_id AND c.platform = COALESCE(p.platform, 'Unsorted')
                             AND c.year = p.year AND c.month = 0),
@@ -3365,9 +3445,9 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                     year: r.get(2)?,
                     month: r.get(3)?,
                     number: r.get(13)?,
-                    year_name: r.get(14)?,
-                    year_pos: r.get(15)?,
-                    month_pos: r.get(16)?,
+                    year_name: r.get(16)?,
+                    year_pos: r.get(17)?,
+                    month_pos: r.get(18)?,
                     span: r.get(4)?,
                     label: r.get(5)?,
                     folder_path: r.get(6)?,
@@ -3377,6 +3457,8 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                     skipped: r.get::<_, i64>(10)? != 0,
                     verified: r.get::<_, i64>(11)? != 0,
                     open_as_cards: r.get::<_, i64>(12)? != 0,
+                    tier: r.get(14)?,
+                    access: r.get(15)?,
                     collab_only: false,
                     rewards: Vec::new(),
                 })
@@ -3394,7 +3476,7 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                 let mut stmt = conn.prepare_cached(
                     "SELECT id, title, category, folder_path, cover_image, status, is_root, image_count,
                             sd_marked, sd_volume, cover_custom, sd_backup, sd_backup_at, fresh, wished,
-                            is_extra, is_partial, tier, notes
+                            is_extra, is_partial, tier, notes, access
                      FROM rewards WHERE period_id = ?1
                      ORDER BY category IS NULL DESC, title COLLATE NOCASE",
                 )?;
@@ -3411,6 +3493,9 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                         is_extra: r.get::<_, i64>(15)? != 0,
                         is_partial: r.get::<_, i64>(16)? != 0,
                         tier: r.get(17)?,
+                        tier_inherited: false,
+                        access: r.get(19)?,
+                        access_inherited: false,
                         notes: r.get(18)?,
                         image_count: r.get(7)?,
                         sd_marked: r.get::<_, i64>(8)? == 1,
@@ -3431,6 +3516,15 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
             }
             for rw in rewards.iter_mut() {
                 rw.collab_with = chips.get(&rw.id).cloned().unwrap_or_default();
+                // no own tier: the month's
+                if rw.tier.as_deref().is_none_or(|t| t.trim().is_empty()) && period.tier.is_some() {
+                    rw.tier = period.tier.clone();
+                    rw.tier_inherited = true;
+                }
+                if rw.access.is_none() && period.access.is_some() {
+                    rw.access = period.access.clone();
+                    rw.access_inherited = true;
+                }
             }
             period.rewards = rewards;
         }
@@ -3488,6 +3582,8 @@ pub fn get_library(conn: &Connection) -> rusqlite::Result<Vec<Artist>> {
                         official_total: None,
                         // never jump straight into the viewer from a ghost month
                         open_as_cards: true,
+                        tier: None,
+                        access: None,
                         collab_only: true,
                         rewards: vec![reward],
                     }),

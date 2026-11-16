@@ -1,10 +1,13 @@
 import { useMemo, useState } from "react";
-import { Layers, Plus, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { ChevronRight, Layers, Plus, X } from "lucide-react";
+import { CreatorAvatar } from "@/components/CommandPalette";
+import type { Artist } from "@/types";
 import { useData } from "@/store";
 import { usePlatformOptions, addPlatform, isMiscPlatform, removePlatform } from "@/lib/platformRegistry";
 import { PLATFORMS } from "@/lib/platforms";
 import { cn } from "@/lib/utils";
-import { useT, useTf } from "@/lib/i18n";
+import { useT, useTf, useTp } from "@/lib/i18n";
 
 /**
  * Settings section for the platform list: add or remove platforms.
@@ -13,8 +16,12 @@ import { useT, useTf } from "@/lib/i18n";
 export function PlatformSettings({ glass, irid }: { glass: string; irid: boolean }) {
   const t = useT();
   const tf = useTf();
+  const tp = useTp();
+  const navigate = useNavigate();
   const { artists } = useData();
   const [draft, setDraft] = useState("");
+  // the platform whose creators are listed below the chips
+  const [open, setOpen] = useState<string | null>(null);
 
   // same list and hook as the "+ Platform" menus, so both always match
   const options = usePlatformOptions(artists);
@@ -25,16 +32,35 @@ export function PlatformSettings({ glass, irid }: { glass: string; irid: boolean
     return PLATFORMS.filter((p) => !known.has(p.toLowerCase()));
   }, [options.join("")]);
 
-  // how many creators use each platform (removing doesn't delete anything)
-  const usage = useMemo(() => {
-    const m = new Map<string, number>();
+  // who uses each platform and with how many rewards (removing doesn't delete anything)
+  const users = useMemo(() => {
+    const m = new Map<string, { name: string; list: { artist: Artist; rewards: number }[] }>();
     for (const a of artists)
       for (const p of a.platforms) {
         const k = p.name.trim().toLowerCase();
-        m.set(k, (m.get(k) ?? 0) + 1);
+        if (!k) continue;
+        const rewards = p.months.reduce((n, mo) => n + mo.rewards.filter((r) => !r.collabFrom).length, 0);
+        const e = m.get(k) ?? { name: p.name.trim(), list: [] };
+        const had = e.list.find((x) => x.artist.id === a.id);
+        if (had) had.rewards += rewards;
+        else e.list.push({ artist: a, rewards });
+        m.set(k, e);
       }
+    for (const e of m.values()) e.list.sort((x, y) => x.artist.name.localeCompare(y.artist.name));
     return m;
   }, [artists]);
+  const usage = useMemo(() => new Map([...users].map(([k, e]) => [k, e.list.length])), [users]);
+  // in use but not offered: "Misc" from before it was locked, platforms taken off the list
+  const leftovers = useMemo(() => {
+    const offered = new Set(options.map((p) => p.trim().toLowerCase()));
+    return [...users.entries()]
+      .filter(([k]) => !offered.has(k) && k !== "unsorted")
+      .map(([, e]) => e.name)
+      .sort((a, b) => Number(isMiscPlatform(b)) - Number(isMiscPlatform(a)) || a.localeCompare(b));
+  }, [users, options.join("")]);
+  const openEntry = open ? users.get(open.trim().toLowerCase()) : undefined;
+  const toggle = (p: string) => setOpen((o) => (o?.toLowerCase() === p.toLowerCase() ? null : p));
+  const isOpen = (p: string) => open?.toLowerCase() === p.toLowerCase();
 
   const miscTyped = isMiscPlatform(draft);
   const add = () => {
@@ -72,17 +98,22 @@ export function PlatformSettings({ glass, irid }: { glass: string; irid: boolean
           return (
             <span
               key={p}
-              className={cn("inline-flex items-center gap-1.5 rounded-full border py-1 pl-3 pr-1.5 text-sm", chip)}
-            >
-              {p}
-              {used > 0 && (
-                <span
-                  className={cn("text-xs", irid ? "text-white/80" : "text-zinc-500")}
-                  title={tf("Used by {n} creators", { n: used })}
-                >
-                  {used}
-                </span>
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border py-1 pl-3 pr-1.5 text-sm",
+                chip,
+                isOpen(p) && "ring-2 ring-brand-400/60",
               )}
+            >
+              {/* click: the creators that use it */}
+              <button
+                onClick={() => toggle(p)}
+                disabled={used === 0}
+                title={used > 0 ? tf("Used by {n} creators", { n: used }) : undefined}
+                className="inline-flex items-center gap-1.5 disabled:cursor-default"
+              >
+                {p}
+                {used > 0 && <span className={cn("text-xs", irid ? "text-white/80" : "text-zinc-500")}>{used}</span>}
+              </button>
               <button
                 onClick={() => removePlatform(p)}
                 title={
@@ -101,6 +132,74 @@ export function PlatformSettings({ glass, irid }: { glass: string; irid: boolean
           );
         })}
       </div>
+
+      {/* in use but not on the list (Misc from before it was locked): count and creators,
+          so they can be cleaned up. No remove, there's nothing to take off */}
+      {leftovers.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-zinc-500">{t("Still in use:")}</span>
+          {leftovers.map((p) => {
+            const used = usage.get(p.toLowerCase()) ?? 0;
+            const misc = isMiscPlatform(p);
+            return (
+              <button
+                key={p}
+                onClick={() => toggle(p)}
+                title={
+                  misc
+                    ? t("“Misc” can’t be a platform any more — these creators still have it. Click to see them.")
+                    : tf("Used by {n} creators", { n: used })
+                }
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border border-dashed px-3 py-1 text-sm",
+                  misc ? "border-amber-400/50 bg-amber-500/10 text-amber-200" : chip,
+                  isOpen(p) && "ring-2 ring-brand-400/60",
+                )}
+              >
+                {p}
+                <span className={cn("text-xs", misc ? "text-amber-300/80" : "text-zinc-500")}>{used}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* the creators on the clicked platform; a click opens the creator */}
+      {open && openEntry && (
+        <div className={cn("mt-3 overflow-hidden rounded-xl border", irid ? "border-white/15 bg-white/5" : "border-zinc-800 bg-zinc-950/60")}>
+          <div className={cn("flex items-center justify-between border-b px-3 py-2", irid ? "border-white/10" : "border-zinc-800")}>
+            <span className="text-sm font-semibold text-zinc-100">
+              {openEntry.name}
+              <span className="ml-2 text-xs font-normal text-zinc-500">
+                {tp("{n} creators", openEntry.list.length)} ·{" "}
+                {tp("{n} rewards", openEntry.list.reduce((n, x) => n + x.rewards, 0))}
+              </span>
+            </span>
+            <button onClick={() => setOpen(null)} className="text-zinc-500 hover:text-zinc-300" title={t("Close")}>
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="max-h-72 overflow-y-auto p-1">
+            {openEntry.list.map(({ artist: a, rewards }) => (
+              <button
+                key={a.id}
+                onClick={() => navigate(`/artist/${a.id}`)}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors",
+                  irid ? "hover:bg-white/10" : "micoll-hover",
+                )}
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-zinc-800">
+                  <CreatorAvatar path={a.previewPath} alts={a.previewAlts} name={a.name} />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm text-zinc-100">{a.name}</span>
+                <span className="shrink-0 text-xs tabular-nums text-zinc-500">{tp("{n} rewards", rewards)}</span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500" />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* add a platform */}
       <div className="mt-4 flex items-center gap-2">

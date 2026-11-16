@@ -81,7 +81,7 @@ export function TierDialog({
         <input
           autoFocus
           value={value}
-          maxLength={40}
+          maxLength={120}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !busy) save();

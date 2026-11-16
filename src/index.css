@@ -1930,6 +1930,118 @@ html[data-holo-freq="2"] :is(.ruby-run i, .ruby-frame-glow, .ruby-frame-sheen, .
   border-radius: 2px;
 }
 
+/* Steel veil (IriSteelVeil): iridescent's default background, moving. A veil of light
+   and a faint pastel sheen drift across the leaning bands in opposite directions, the
+   corner haze breathes, a glint runs down each thin line now and then */
+.iri-veil-base {
+  position: absolute;
+  inset: 0;
+  background-size: 100% 100%;
+  transform-origin: 40% 50%;
+  animation: iri-veil-breathe 40s ease-in-out infinite alternate;
+}
+@keyframes iri-veil-breathe {
+  from { transform: scale(1); }
+  to { transform: scale(1.035); }
+}
+.iri-veil-lean {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3000px;
+  height: 3000px;
+  margin: -1500px 0 0 -1500px;
+}
+.iri-veil-light,
+.iri-veil-sheen {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  mix-blend-mode: screen;
+}
+.iri-veil-light {
+  width: 560px;
+  margin-left: -280px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(232, 238, 252, 0.12) 35%,
+    rgba(246, 248, 255, 0.2) 50%,
+    rgba(232, 238, 252, 0.12) 65%,
+    transparent
+  );
+  animation: iri-veil-drift 26s ease-in-out infinite alternate;
+}
+@keyframes iri-veil-drift {
+  from { transform: translateX(-950px); }
+  to { transform: translateX(750px); }
+}
+.iri-veil-sheen {
+  width: 760px;
+  margin-left: -380px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(196, 181, 253, 0.16) 25%,
+    rgba(245, 194, 255, 0.14) 45%,
+    rgba(167, 243, 208, 0.11) 65%,
+    rgba(186, 230, 253, 0.15) 80%,
+    transparent
+  );
+  animation: iri-veil-sheen 34s ease-in-out infinite alternate;
+}
+@keyframes iri-veil-sheen {
+  0% { transform: translateX(850px); opacity: 0.45; }
+  50% { opacity: 1; }
+  100% { transform: translateX(-850px); opacity: 0.55; }
+}
+.iri-veil-haze {
+  position: absolute;
+  right: -300px;
+  bottom: -350px;
+  width: 1300px;
+  height: 1100px;
+  background: radial-gradient(closest-side, rgba(190, 200, 222, 0.26), transparent);
+  animation: iri-veil-haze 14s ease-in-out infinite alternate;
+}
+@keyframes iri-veil-haze {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
+}
+.iri-veil-line {
+  position: absolute;
+  width: 6px;
+  margin-left: -3px;
+  overflow: hidden;
+}
+.iri-veil-line > i {
+  position: absolute;
+  left: 1px;
+  top: 0;
+  width: 4px;
+  height: 190px;
+  border-radius: 2px;
+  background: linear-gradient(transparent, rgba(255, 255, 255, 0.95) 50%, transparent);
+  opacity: 0;
+  animation: iri-veil-glint linear infinite;
+}
+@keyframes iri-veil-glint {
+  0% { transform: translateY(-200px); opacity: 0; }
+  4% { opacity: 1; }
+  32% { transform: translateY(var(--len)); opacity: 1; }
+  33%, 100% { transform: translateY(var(--len)); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .iri-veil-base,
+  .iri-veil-light,
+  .iri-veil-sheen,
+  .iri-veil-haze,
+  .iri-veil-line > i {
+    animation: none;
+  }
+}
+
 /* right-click menus: a dark plate in a chrome line with two corners cut. Plate and line
    are pseudo elements, a clip on the menu itself would cut its glow and its submenus */
 [data-accent="corruptruby"] .ctx-menu.ruby-panel {
@@ -3390,7 +3502,7 @@ img {
   content: "";
   position: absolute;
   z-index: -1;
-  border-radius: 1.25rem;
+  border-radius: 0;
   pointer-events: none;
   mix-blend-mode: screen;
   background: conic-gradient(
@@ -3453,7 +3565,8 @@ img {
 [data-accent="iridescent"] .iri-card {
   position: relative;
   z-index: 0;
-  border-radius: 1rem;
+  /* square corners */
+  border-radius: 0;
   /* flowing border: conic gradient on the border box with a rotating angle.
      The face is a violet -> indigo -> teal glass */
   border: 2px solid transparent;
@@ -6614,7 +6727,7 @@ html[data-fx-idle="1"] .app-content :is(.card-entering, .card-leaving) {
 [data-accent="iridescent"] .iri-card-quiet {
   position: relative;
   z-index: 0;
-  border-radius: 1rem;
+  border-radius: 0;
   border: 1px solid rgba(214, 222, 255, 0.2);
   /* the same violet -> indigo -> teal as .iri-card at about half the opacity */
   background: linear-gradient(
@@ -8618,6 +8731,86 @@ html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-acc
 [data-accent="iridescent"] [data-kbd-tile]:focus-visible {
   outline-color: #7c3aed;
   box-shadow: 0 0 18px rgba(167, 139, 250, 0.7);
+}
+
+/* A month's free / paid / leaked mark (MonthCard): a thin line along the card's bottom.
+   Paid green, free yellow, leaked red; each theme in its own tones. */
+.month-access {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 10;
+  height: 2px;
+}
+.month-access[data-access="paid"] {
+  background: #10b981;
+}
+.month-access[data-access="free"] {
+  background: #f59e0b;
+}
+.month-access[data-access="leaked"] {
+  background: #f43f5e;
+}
+/* iridescent: pearl tones that run into the next color, with a soft glow. A dark hairline
+   on top keeps it apart from the template card's light pearl border right under it */
+[data-accent="iridescent"] .month-access[data-access="paid"] {
+  background: linear-gradient(90deg, #34d399, #67e8f9 55%, #34d399);
+  box-shadow: 0 -1px 0 rgba(12, 10, 24, 0.75), 0 0 8px rgba(52, 211, 153, 0.7);
+}
+[data-accent="iridescent"] .month-access[data-access="free"] {
+  background: linear-gradient(90deg, #fbbf24, #fde68a 55%, #fbbf24);
+  box-shadow: 0 -1px 0 rgba(12, 10, 24, 0.75), 0 0 8px rgba(251, 191, 36, 0.7);
+}
+[data-accent="iridescent"] .month-access[data-access="leaked"] {
+  background: linear-gradient(90deg, #fb7185, #c084fc 55%, #fb7185);
+  box-shadow: 0 -1px 0 rgba(12, 10, 24, 0.75), 0 0 8px rgba(251, 113, 133, 0.7);
+}
+
+/* cyberpunk: neon segments like a loading bar, square, with a glow that flickers now and then */
+[data-accent="cyberpunk"] .month-access {
+  background: repeating-linear-gradient(90deg, var(--ma) 0 10px, transparent 10px 13px);
+  box-shadow: 0 0 6px var(--ma);
+  animation: micoll-ma-flicker 6s steps(1) infinite;
+}
+[data-accent="cyberpunk"] .month-access[data-access="paid"] { --ma: #00ff9c; }
+[data-accent="cyberpunk"] .month-access[data-access="free"] { --ma: #fcee0a; }
+[data-accent="cyberpunk"] .month-access[data-access="leaked"] { --ma: #ff2a6d; }
+@keyframes micoll-ma-flicker {
+  0%, 91%, 95%, 100% { opacity: 1; }
+  92%, 94% { opacity: 0.35; }
+}
+/* sakura: a soft petal stroke, shorter than the card with round ends that fade out */
+[data-accent="sakura"] .month-access {
+  inset: auto 12% 0 12%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--ma) 25%, var(--ma) 75%, transparent);
+  box-shadow: 0 0 8px var(--ma);
+}
+[data-accent="sakura"] .month-access[data-access="paid"] { --ma: #9be7c4; }
+[data-accent="sakura"] .month-access[data-access="free"] { --ma: #fcd9a0; }
+[data-accent="sakura"] .month-access[data-access="leaked"] { --ma: #ff4f5e; }
+/* Pyre: an ember line that glows from the middle and slowly smoulders along */
+[data-accent="corruptruby"] .month-access {
+  background: linear-gradient(90deg, transparent, var(--ma) 20%, var(--ma2) 50%, var(--ma) 80%, transparent);
+  background-size: 200% 100%;
+  box-shadow: 0 0 8px var(--ma), 0 -1px 6px var(--ma);
+  animation: micoll-ma-ember 5s ease-in-out infinite alternate;
+}
+[data-accent="corruptruby"] .month-access[data-access="paid"] { --ma: #22c55e; --ma2: #bef264; }
+[data-accent="corruptruby"] .month-access[data-access="free"] { --ma: #f59e0b; --ma2: #fde047; }
+/* leaked: a corrupted violet, red would drown in the theme's own red */
+[data-accent="corruptruby"] .month-access[data-access="leaked"] { --ma: #a21caf; --ma2: #f0abfc; }
+@keyframes micoll-ma-ember {
+  from { background-position: 0% 0; }
+  to { background-position: 100% 0; }
+}
+/* the moving ones rest with the other loops (holo frequency, reduced motion) */
+html[data-holo-freq="2"] .month-access {
+  animation-play-state: paused !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .month-access {
+    animation: none !important;
+  }
 }
 
 /* A reward's tier (RewardSlot): a small tag that hangs over the tile's right edge where

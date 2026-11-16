@@ -190,13 +190,37 @@ export function MovePicker({
   const isExcludedReward = (id: string) =>
     id === excludeRewardId || (excludeRewardIds?.includes(id) ?? false);
 
-  // rewards mode: a reward -> merge, a month -> move next to it (not the source month).
-  // images mode: must be a reward.
+  // the platform's "Misc" (no year, no month), if it has one
+  const miscMonth = months.find((m) => m.year == null && m.month == null && m.number == null);
+  // a platform picked but no month: the move goes into its Misc (made when missing)
+  const toMisc = mode === "rewards" && !mId && !rId && !newOpen && (!!platform || !!newPlat);
+  const miscIsSource = !!miscMonth && miscMonth.id === excludeMonthId;
+
+  // rewards mode: a reward -> merge, a month -> move next to it (not the source month),
+  // only a platform -> its Misc. images mode: must be a reward.
   const canMove =
-    mode === "rewards" ? !!rId || (!!mId && mId !== excludeMonthId) : !!rId;
+    mode === "rewards"
+      ? !!rId || (!!mId && mId !== excludeMonthId) || (toMisc && !miscIsSource)
+      : !!rId;
   const confirm = () => {
     if (rId) onPick({ rewardId: rId });
     else if (mode === "rewards" && mId && mId !== excludeMonthId) onPick({ periodId: mId });
+    else if (toMisc && !miscIsSource && aId) {
+      if (miscMonth) {
+        onPick({ periodId: miscMonth.id });
+        return;
+      }
+      if (newPlat) addPlatform(newPlat);
+      onPick({
+        newPeriod: {
+          artistId: aId,
+          platform: platform?.name ?? newPlat ?? null,
+          year: null,
+          month: null,
+          custom: custom ? { year: null, month: null } : undefined,
+        },
+      });
+    }
   };
 
   // create a new period and move into it. An empty year = the "Misc" bucket
@@ -437,7 +461,22 @@ export function MovePicker({
                       <Plus className={cn("h-3.5 w-3.5 shrink-0", dlg.accentText)} />
                       <span className={cn("truncate", dlg.accentText)}>{t("New year / month…")}</span>
                     </PickerRow>
-                  ) : (
+                  ) : null}
+                  {/* no Misc yet: one click picks it, the move makes the folder */}
+                  {!newOpen && !miscMonth && (
+                    <PickerRow
+                      active={toMisc}
+                      onClick={() => {
+                        setMId(null);
+                        setRId(null);
+                      }}
+                    >
+                      <Plus className={cn("h-3.5 w-3.5 shrink-0", dlg.accentText)} />
+                      <span className={cn("truncate", dlg.accentText)}>{t("Misc folder")}</span>
+                      <span className="shrink-0 text-[10px] text-zinc-500">{t("no date")}</span>
+                    </PickerRow>
+                  )}
+                  {!newOpen ? null : (
                     <div className="space-y-1.5 px-1.5 py-1.5">
                       {custom ? (
                         <>
@@ -541,7 +580,7 @@ export function MovePicker({
           <span className="truncate text-xs text-zinc-500">
             {artist?.name}
             {platform ? ` › ${platform.name}` : newPlat ? ` › ${newPlat}` : ""}
-            {month ? ` › ${month.label}` : ""}
+            {month ? ` › ${month.label}` : toMisc ? ` › ${miscMonth?.label ?? "Misc"}` : ""}
             {rId ? ` › ${month?.rewards.find((r) => r.id === rId)?.title ?? ""}` : ""}
           </span>
           <div className="flex gap-2">

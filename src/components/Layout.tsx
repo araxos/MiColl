@@ -172,7 +172,7 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
         {...(customChrome && tauri ? { "data-tauri-drag-region": true } : {})}
         className={cn(
           // z-30 so the header stays above the dashboard's Creators bar (z-20)
-          "app-header relative z-30 flex h-14 shrink-0 items-center gap-3 px-4",
+          "app-header relative z-30 flex h-[52px] shrink-0 items-center gap-3 px-4",
           irid
             ? // Iridescent: a translucent dark glass bar so the title/search stay
               // readable over the shader, translateZ(0) so the blur doesn't flicker
@@ -244,7 +244,7 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
               "transition-opacity group-hover/home:opacity-80",
               accent === "corruptruby"
                 ? "ruby-title"
-                : "text-[15px] font-semibold tracking-tight text-zinc-100",
+                : "text-base font-semibold text-zinc-100",
             )}
           >
             {onWallpapers ? t("Wallpaper Hub") : t("Dashboard")}
@@ -296,7 +296,7 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
                 }}
                 placeholder={search.placeholder ?? t("Search…")}
                 className={cn(
-                  "h-9 w-56 rounded-lg border border-brand-500/25 bg-brand-500/10 pl-8 pr-8 text-sm text-zinc-100 placeholder:text-zinc-400 outline-none transition-colors hover:border-brand-500/40 focus:border-brand-500/60 focus:bg-brand-500/15 focus:ring-2 focus:ring-brand-500/20",
+                  "h-8 w-56 rounded-lg border border-brand-500/25 bg-brand-500/10 pl-8 pr-8 text-sm text-zinc-100 placeholder:text-zinc-400 outline-none transition-colors hover:border-brand-500/40 focus:border-brand-500/60 focus:bg-brand-500/15 focus:ring-2 focus:ring-brand-500/20",
                   // frosted input on iridescent
                   irid &&
                     "border-white/20 bg-white/10 text-zinc-50 placeholder:text-zinc-200 hover:border-white/30 focus:border-white/40 focus:bg-white/15",

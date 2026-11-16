@@ -22,7 +22,7 @@ const AVATAR = 128;
  * Creator cover in the results, cropped to the TOP (heads are usually at the top).
  * loading="lazy" so we don't load every thumbnail at once.
  */
-function CreatorAvatar({ path, alts, name }: { path?: string; alts?: string[]; name: string }) {
+export function CreatorAvatar({ path, alts, name }: { path?: string; alts?: string[]; name: string }) {
   const src = useThumb(path, AVATAR);
   const altUrls = isTauri() ? (alts ?? []).filter(Boolean).map((p) => thumbUrl(p, AVATAR)) : [];
   return (

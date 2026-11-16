@@ -251,6 +251,9 @@ pub fn mark_value(conn: &Connection, kind: &str, id: i64, field: &str) -> rusqli
             "SELECT title, coalesce(cover_custom, 0) || '|' || coalesce(cover_image, '') FROM rewards WHERE id = ?1"
         }
         ("period", "cover") => "SELECT label, coalesce(preview_image, '') FROM periods WHERE id = ?1",
+        ("period", "tier") => "SELECT label, coalesce(tier, '') FROM periods WHERE id = ?1",
+        ("period", "access") => "SELECT label, coalesce(access, '') FROM periods WHERE id = ?1",
+        ("reward", "access") => "SELECT title, coalesce(access, '') FROM rewards WHERE id = ?1",
         ("artist", "cover") => "SELECT name, coalesce(preview_image, '') FROM artists WHERE id = ?1",
         _ => return Ok(None),
     };
@@ -262,6 +265,9 @@ pub fn set_mark_value(conn: &Connection, kind: &str, id: i64, field: &str, value
     let flag = || (value == "1") as i64;
     match (kind, field) {
         ("reward", "tier") => conn.execute("UPDATE rewards SET tier = nullif(?2, '') WHERE id = ?1", params![id, value]),
+        ("period", "tier") => conn.execute("UPDATE periods SET tier = nullif(?2, '') WHERE id = ?1", params![id, value]),
+        ("period", "access") => conn.execute("UPDATE periods SET access = nullif(?2, '') WHERE id = ?1", params![id, value]),
+        ("reward", "access") => conn.execute("UPDATE rewards SET access = nullif(?2, '') WHERE id = ?1", params![id, value]),
         ("reward", "extra") => conn.execute("UPDATE rewards SET is_extra = ?2 WHERE id = ?1", params![id, flag()]),
         ("reward", "partial") => conn.execute("UPDATE rewards SET is_partial = ?2 WHERE id = ?1", params![id, flag()]),
         ("reward", "status") => conn.execute("UPDATE rewards SET status = ?2 WHERE id = ?1", params![id, value]),

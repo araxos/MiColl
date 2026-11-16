@@ -1874,8 +1874,13 @@ fn all_extra(extras: &BTreeMap<String, bool>, folder: &str, deep: bool) -> bool 
 /// A text column of every reward that has it set, by path_key of its folder (`tier`,
 /// `notes`). Only ever called with those fixed names.
 fn reward_texts(conn: &rusqlite::Connection, column: &str, moved: &SdView) -> Result<HashMap<String, String>, String> {
+    // a reward without its own tier has its month's
+    let value = if column == "tier" { "coalesce(nullif(trim(r.tier), ''), p.tier)".to_string() } else { format!("r.{column}") };
     let mut stmt = conn
-        .prepare(&format!("SELECT folder_path, {column} FROM rewards WHERE {column} IS NOT NULL AND trim({column}) <> ''"))
+        .prepare(&format!(
+            "SELECT r.folder_path, {value} FROM rewards r LEFT JOIN periods p ON p.id = r.period_id
+             WHERE {value} IS NOT NULL AND trim({value}) <> ''"
+        ))
         .map_err(map_err)?;
     let rows = stmt
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
@@ -2823,8 +2828,8 @@ mod tests {
              CREATE TABLE artists (id INTEGER PRIMARY KEY, name TEXT, kind TEXT, tag TEXT, tags TEXT, links TEXT, notes TEXT,
                                    aliases TEXT, template_verified INTEGER, no_dates INTEGER, tier_list TEXT,
                                    preview_image TEXT, hidden INTEGER NOT NULL DEFAULT 0);
-             CREATE TABLE periods (folder_path TEXT, preview_image TEXT, number INTEGER);
-             CREATE TABLE rewards (folder_path TEXT, tier TEXT, cover_image TEXT, cover_custom INTEGER NOT NULL DEFAULT 0,
+             CREATE TABLE periods (id INTEGER PRIMARY KEY, folder_path TEXT, preview_image TEXT, number INTEGER, tier TEXT);
+             CREATE TABLE rewards (folder_path TEXT, period_id INTEGER, tier TEXT, cover_image TEXT, cover_custom INTEGER NOT NULL DEFAULT 0,
                                    notes TEXT, is_extra INTEGER NOT NULL DEFAULT 0, sd_volume TEXT, sd_origin TEXT);
              CREATE TABLE images (file_path TEXT);
              CREATE TABLE image_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, orig_path TEXT,

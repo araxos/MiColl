@@ -11019,6 +11019,35 @@ fn set_reward_notes(db: State<Db>, reward_id: i64, notes: Option<String>) -> Res
     logged_marks(&conn, "reward", "notes", &[reward_id], || db::set_reward_notes(&conn, reward_id, notes.as_deref()))
 }
 
+/// Mark rewards free / paid / leaked (None removes it).
+#[tauri::command]
+fn set_rewards_access(db: State<Db>, reward_ids: Vec<i64>, access: Option<String>) -> Result<u32, String> {
+    let conn = db.conn();
+    let n = logged_marks(&conn, "reward", "access", &reward_ids, || {
+        db::set_rewards_access(&conn, &reward_ids, access.as_deref())
+    })?;
+    db::checkpoint(&conn);
+    Ok(n)
+}
+
+/// A month's free / paid / leaked mark (None removes it).
+#[tauri::command]
+fn set_period_access(db: State<Db>, period_id: i64, access: Option<String>) -> Result<(), String> {
+    let conn = db.conn();
+    logged_marks(&conn, "period", "access", &[period_id], || db::set_period_access(&conn, period_id, access.as_deref()))?;
+    db::checkpoint(&conn);
+    Ok(())
+}
+
+/// Set or remove (None / empty) a month's tier: its rewards without their own get it.
+#[tauri::command]
+fn set_period_tier(db: State<Db>, period_id: i64, tier: Option<String>) -> Result<(), String> {
+    let conn = db.conn();
+    logged_marks(&conn, "period", "tier", &[period_id], || db::set_period_tier(&conn, period_id, tier.as_deref()))?;
+    db::checkpoint(&conn);
+    Ok(())
+}
+
 /// Set or remove (None / empty) the tier of rewards.
 #[tauri::command]
 fn set_rewards_tier(db: State<Db>, reward_ids: Vec<i64>, tier: Option<String>) -> Result<u32, String> {
@@ -11977,6 +12006,9 @@ pub fn run() {
             set_rewards_extra,
             set_rewards_partial,
             set_rewards_tier,
+            set_period_tier,
+            set_rewards_access,
+            set_period_access,
             set_reward_notes,
             set_artist_tiers,
             remove_artist_tier,

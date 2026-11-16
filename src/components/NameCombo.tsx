@@ -44,6 +44,7 @@ export function NameCombo({
   fieldId,
   onEnter,
   onEscape,
+  bubble,
 }: {
   value: string;
   onCommit: (v: string) => void;
@@ -68,6 +69,9 @@ export function NameCombo({
   onEnter?: () => void;
   /** Escape with the list closed. */
   onEscape?: () => void;
+  /** A narrow field: when the text doesn't fit, a dark bubble above it shows all of it
+   * (while hovered or typing in). */
+  bubble?: boolean;
 }) {
   const dlg = useDialogTheme();
   const ref = useRef<HTMLInputElement>(null);
@@ -80,6 +84,8 @@ export function NameCombo({
   const picked = useRef<string | null>(null);
   const tabbed = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const [hover, setHover] = useState(false);
+  const [tip, setTip] = useState<{ left: number; top: number } | null>(null);
 
   // outside changes while it isn't being edited
   useEffect(() => {
@@ -105,8 +111,10 @@ export function NameCombo({
   useEffect(() => {
     if (!open) return;
     const close = () => ref.current?.blur();
-    // scrolling the list itself is fine
+    // scrolling the list itself is fine, and so is the field's own text scrolling sideways
+    // (a long name in a narrow field): that blurred it, so typing stopped at the edge
     const onScroll = (e: Event) => {
+      if (e.target === ref.current) return;
       if (!listRef.current?.contains(e.target as Node)) close();
     };
     window.addEventListener("resize", close);
@@ -116,6 +124,17 @@ export function NameCombo({
       window.removeEventListener("scroll", onScroll, true);
     };
   }, [open]);
+
+  // the bubble: only when the text is cut off
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!bubble || !el || !(open || hover) || !draft.trim() || el.scrollWidth <= el.clientWidth + 1) {
+      setTip(null);
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    setTip({ left: r.left + r.width / 2, top: r.top - 7 });
+  }, [bubble, open, hover, draft]);
 
   const commit = (v: string) => {
     const next = v.trim().slice(0, maxLength);
@@ -140,7 +159,10 @@ export function NameCombo({
         // Enter saves the name, it doesn't start the import (the review's Enter skips it)
         data-enter-local
         placeholder={placeholder}
-        title={title}
+        // the bubble says it already
+        title={tip ? undefined : title}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
         onChange={(e) => {
           setDraft(e.target.value);
           setTyped(true);
@@ -194,6 +216,17 @@ export function NameCombo({
         }}
         className={className}
       />
+      {tip &&
+        createPortal(
+          <div
+            className="pointer-events-none fixed z-[111] max-w-[20rem] -translate-x-1/2 -translate-y-full rounded-md bg-black px-2 py-1 text-xs text-white shadow-lg [overflow-wrap:anywhere]"
+            style={{ left: tip.left, top: tip.top }}
+          >
+            {draft}
+            <span className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-black" />
+          </div>,
+          document.body,
+        )}
       {open &&
         box &&
         shown.length > 0 &&

@@ -42,6 +42,9 @@ interface BReward {
   isExtra: boolean;
   isPartial: boolean;
   tier: string | null;
+  tierInherited?: boolean;
+  access?: string | null;
+  accessInherited?: boolean;
   notes: string | null;
   imageCount: number;
   sdMarked: boolean;
@@ -82,6 +85,8 @@ interface BPeriod {
   previewImage: string | null;
   officialTotal: number | null;
   openAsCards: boolean;
+  tier?: string | null;
+  access?: string | null;
   collabOnly: boolean;
   rewards: BReward[];
 }
@@ -261,6 +266,9 @@ function mapReward(r: BReward): Reward {
     isExtra: !!r.isExtra,
     isPartial: !!r.isPartial,
     tier: r.tier ?? null,
+    tierInherited: !!r.tierInherited,
+    access: r.access ?? null,
+    accessInherited: !!r.accessInherited,
     notes: r.notes ?? null,
     sdMarked: !!r.sdMarked,
     sdVolume: r.sdVolume ?? null,
@@ -323,6 +331,8 @@ function mapPeriodToMonth(p: BPeriod): Month {
     collabOnly: !!p.collabOnly,
     rewards,
     platform: p.platform,
+    tier: p.tier ?? null,
+    access: p.access ?? null,
     needsReview: p.needsReview,
   };
 }
@@ -581,6 +591,11 @@ export async function setPeriodSpan(periodId: string, span: number): Promise<voi
 }
 
 /** Mark/unmark a month as an artist break (writes/removes the on-disk marker). */
+/** A month's tier (null removes it): its rewards without their own tier get it. */
+export async function setPeriodTier(periodId: string, tier: string | null): Promise<void> {
+  await invoke("set_period_tier", { periodId: Number(periodId), tier });
+}
+
 export async function setPeriodSkipped(periodId: string, skipped: boolean): Promise<void> {
   await invoke("set_period_skipped", { periodId: Number(periodId), skipped });
 }
@@ -1865,6 +1880,16 @@ export async function setRewardsExtra(rewardIds: string[], extra: boolean): Prom
 /** Mark rewards as partial (only part of the release is there) or complete. */
 export async function setRewardsPartial(rewardIds: string[], partial: boolean): Promise<number> {
   return invoke<number>("set_rewards_partial", { rewardIds: rewardIds.map(Number), partial });
+}
+
+/** Mark rewards free / paid / leaked, null removes the mark. Returns how many changed. */
+export async function setRewardsAccess(rewardIds: string[], access: string | null): Promise<number> {
+  return invoke<number>("set_rewards_access", { rewardIds: rewardIds.map(Number), access });
+}
+
+/** A month's free / paid / leaked mark (null removes it): its rewards without their own get it. */
+export async function setPeriodAccess(periodId: string, access: string | null): Promise<void> {
+  await invoke("set_period_access", { periodId: Number(periodId), access });
 }
 
 /** Set a reward's notes, null or blank clears them. */
