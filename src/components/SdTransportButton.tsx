@@ -3,12 +3,12 @@ import { createPortal } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import { Truck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { SdTransportDialog } from "@/components/SdTransportDialog";
 import { ProgressModal } from "@/components/ProgressModal";
-import { SdQueuedCreators } from "@/components/SdQueuedCreators";
 import { useActions } from "@/actions";
 import { useData } from "@/store";
 import { useT, useTf, useTp } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 import * as api from "@/api/library";
 
 type SdProgress = { phase: "transport" | "return" | "backup"; done: number; total: number; item: string };
@@ -25,7 +25,6 @@ export function SdTransportButton() {
   const { showToast } = useActions();
   const { artists, backed, refresh } = useData();
   const [status, setStatus] = useState<api.SdStatus | null>(null);
-  const [who, setWho] = useState<api.SdQueuedCreator[]>([]);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [prog, setProg] = useState<SdProgress | null>(null);
@@ -41,16 +40,12 @@ export function SdTransportButton() {
   const reload = useCallback(async () => {
     if (!backed) {
       setStatus(null);
-      setWho([]);
       return;
     }
     try {
-      const [s, w] = await Promise.all([api.sdStatus(), api.sdQueuedCreators()]);
-      setStatus(s);
-      setWho(w);
+      setStatus(await api.sdStatus());
     } catch {
       setStatus(null);
-      setWho([]);
     }
   }, [backed]);
 
@@ -149,8 +144,8 @@ export function SdTransportButton() {
         : tf("{rewards} to back up", { rewards: tp("{n} rewards", backups) });
 
   const tipText = ready
-    ? tf("MiSD: {counts} — run it now", { counts })
-    : tf("MiSD: {counts} — connect “{disk}” to run it", { counts, disk });
+    ? tf("MiSD: {counts} — click to see and run it", { counts })
+    : tf("MiSD: {counts} — “{disk}” isn’t connected, click to see what waits", { counts, disk });
 
   return (
     <>
@@ -163,12 +158,22 @@ export function SdTransportButton() {
         <Button
           variant="ghost"
           size="icon"
-          disabled={!ready || busy}
+          disabled={busy}
           onClick={() => setConfirm(true)}
           aria-label={tipText}
-          className="text-brand-300 hover:bg-brand-500/15 hover:text-brand-200"
+          // greyed (not off) while the disk isn't there: the window still opens
+          className={cn(
+            "relative hover:bg-brand-500/15",
+            ready ? "text-brand-300 hover:text-brand-200" : "text-zinc-500 hover:text-zinc-300",
+          )}
         >
           <Truck className="h-4 w-4" />
+          {/* the disk is plugged in: the same dot as the gear's for MiColl Mobile */}
+          {status.available && (
+            <span aria-hidden className="conn-dot-hit">
+              <span className="conn-dot" />
+            </span>
+          )}
         </Button>
       </span>
       {tip &&
@@ -183,35 +188,7 @@ export function SdTransportButton() {
         )}
 
       {confirm && (
-        <ConfirmDialog
-          title={tf("Run the MiSD transport ({counts})?", { counts })}
-          confirmLabel={t("Run")}
-          busy={busy}
-          // full sentences for the translations (not stitched from pieces)
-          body={
-            <>
-              {moves > 0 && (
-                <p>
-                  {tf(
-                    "{rewards} are moved to “{disk}” — copied, SHA-256-verified, and only then removed from the main disk.",
-                    { rewards: tp("{n} rewards", moves), disk },
-                  )}
-                </p>
-              )}
-              {backups > 0 && (
-                <p className={moves > 0 ? "mt-2" : undefined}>
-                  {tf("{rewards} are copied to “{disk}” and stay here as well.", {
-                    rewards: tp("{n} rewards", backups),
-                    disk,
-                  })}
-                </p>
-              )}
-              <SdQueuedCreators names={who.map((c) => c.name)} />
-            </>
-          }
-          onConfirm={run}
-          onCancel={() => setConfirm(false)}
-        />
+        <SdTransportDialog disk={disk} ready={ready} busy={busy} onRun={run} onClose={() => setConfirm(false)} />
       )}
 
       {prog && (

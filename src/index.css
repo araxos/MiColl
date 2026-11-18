@@ -2042,6 +2042,55 @@ html[data-holo-freq="2"] :is(.ruby-run i, .ruby-frame-glow, .ruby-frame-sheen, .
   }
 }
 
+/* Iridescent pinned card: the top edge lights up and a soft veil of light falls from it,
+   the sparkle trio (CardPin) sits on the corner. With the frame both start after the cut
+   top-left corner (45/340 across, 45/480 down in the frame's viewBox). */
+[data-accent="iridescent"] .iri-pin-veil {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 30%;
+  z-index: 16;
+  pointer-events: none;
+  background: linear-gradient(rgba(245, 232, 255, 0.42), transparent);
+}
+[data-accent="iridescent"] .iri-pin-veil--cut {
+  clip-path: polygon(13.2% 0, 100% 0, 100% 100%, 0 100%, 0 9.4%);
+}
+[data-accent="iridescent"] .iri-pin-edge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 21;
+  pointer-events: none;
+  background: #fff;
+  box-shadow:
+    0 0 6px rgba(255, 235, 255, 1),
+    0 -3px 12px rgba(245, 194, 255, 0.95);
+}
+[data-accent="iridescent"] .iri-pin-edge--cut {
+  left: 13.2%;
+}
+
+/* iridescent alternate logo (KdaMark) in the top bar: glows in the theme's colours, which
+   run through it in a loop (same keyframes as the viewer's ink), each stop a quarter
+   behind the one before. Same as MiColl Mobile's "Alt. icon". */
+.kda-glow {
+  filter: drop-shadow(0 0 8px rgba(245, 194, 255, 0.55)) drop-shadow(0 0 3px rgba(167, 243, 208, 0.5));
+}
+.kda-stop {
+  animation: micoll-iri-ink 6s linear infinite;
+}
+[data-animations="off"] .kda-stop {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .kda-stop {
+    animation: none;
+  }
+}
+
 /* right-click menus: a dark plate in a chrome line with two corners cut. Plate and line
    are pseudo elements, a clip on the menu itself would cut its glow and its submenus */
 [data-accent="corruptruby"] .ctx-menu.ruby-panel {
@@ -4615,8 +4664,7 @@ img {
 }
 /* pyre: the logo's four-point star, a chrome blade with a green heart. The pink glow
    breathes. Two pseudo elements, a clip would cut the glow on the dot itself. */
-[data-accent="corruptruby"] .sfw-dot,
-[data-accent="corruptruby"] .phone-dot {
+[data-accent="corruptruby"] .sfw-dot {
   border-radius: 0;
   background: none;
   box-shadow: none;
@@ -4629,20 +4677,16 @@ img {
   height: 15px;
 }
 [data-accent="corruptruby"] .sfw-dot::before,
-[data-accent="corruptruby"] .sfw-dot::after,
-[data-accent="corruptruby"] .phone-dot::before,
-[data-accent="corruptruby"] .phone-dot::after {
+[data-accent="corruptruby"] .sfw-dot::after {
   content: "";
   position: absolute;
   clip-path: var(--ruby-star);
 }
-[data-accent="corruptruby"] .sfw-dot::before,
-[data-accent="corruptruby"] .phone-dot::before {
+[data-accent="corruptruby"] .sfw-dot::before {
   inset: 0;
   background: linear-gradient(135deg, #ffffff 0%, #c9c3d1 45%, #ffffff 60%, #8a92a3 100%);
 }
-[data-accent="corruptruby"] .sfw-dot::after,
-[data-accent="corruptruby"] .phone-dot::after {
+[data-accent="corruptruby"] .sfw-dot::after {
   inset: 14%;
   background: radial-gradient(circle, #a7f3d0 0%, #10d98a 40%, #059669 100%);
 }
@@ -8533,115 +8577,78 @@ html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-acc
   animation: none !important;
 }
 
-/* ---- MiColl Mobile on: the dot on the settings gear (Layout TopBar) ---- */
-.phone-dot-hit {
+/* ---- "Connected" dot on a top bar button (Layout, SdTransportButton) ----
+   the gear while MiColl Mobile is running, the MiSD button while its disk is plugged in.
+   The same small glowing dot as MiColl Mobile's "From PC" button, its colour drifts
+   slowly between the theme's two colours (the spectrum on iridescent). */
+.conn-dot-hit {
   position: absolute;
-  /* glows (z-index -1) sit behind the dot, not behind the button */
-  isolation: isolate;
-  top: -1px;
-  right: -1px;
+  top: 1px;
+  right: 1px;
   display: flex;
-  height: 13px;
-  width: 13px;
+  height: 12px;
+  width: 12px;
   align-items: center;
   justify-content: center;
 }
-.phone-dot {
-  position: relative;
+.conn-dot {
   display: block;
-  height: 7px;
-  width: 7px;
+  height: 6px;
+  width: 6px;
   border-radius: 9999px;
-  background: #22c55e;
-  /* a ring in the bar's color, so it sits clear of the gear */
-  box-shadow:
-    0 0 0 1.5px rgba(9, 9, 11, 0.9),
-    0 0 6px rgba(34, 197, 94, 0.55);
+  background: var(--color-brand-300);
+  box-shadow: 0 0 6px 1px color-mix(in srgb, var(--color-brand-400) 80%, transparent);
+  animation: micoll-conn-dot 4s ease-in-out infinite;
 }
-
-/* cyberpunk: a neon status LED, square with a cut corner, flickering now and then */
-[data-accent="cyberpunk"] .phone-dot {
-  border-radius: 0;
-  background: #39ff14;
-  clip-path: polygon(0 0, 100% 0, 100% 62%, 62% 100%, 0 100%);
-  box-shadow: none;
-  filter: drop-shadow(0 0 3px rgba(57, 255, 20, 0.9)) drop-shadow(0 0 1px #000);
-  animation: micoll-phone-led 3.2s steps(1) infinite;
-}
-@keyframes micoll-phone-led {
-  0%,
-  86%,
-  92%,
-  100% {
-    opacity: 1;
-  }
-  88%,
-  94% {
-    opacity: 0.25;
-  }
-}
-
-/* pyre: the same star as its SFW mark, see .sfw-dot */
-[data-accent="corruptruby"] .phone-dot {
-  height: 13px;
-  width: 13px;
-}
-
-/* sakura: a soft petal-pink halo that breathes around it */
-[data-accent="sakura"] .phone-dot {
-  background: radial-gradient(circle at 35% 35%, #bbf7d0, #22c55e 70%);
-  /* a petal-pink rim, then the bar's color */
-  box-shadow:
-    0 0 0 1.5px #f9a8d4,
-    0 0 0 2.5px rgba(40, 14, 28, 0.85),
-    0 0 8px rgba(244, 114, 182, 0.6);
-}
-[data-accent="sakura"] .phone-dot::after {
-  content: "";
-  position: absolute;
-  inset: -4px;
-  z-index: -1;
-  border-radius: 9999px;
-  background: radial-gradient(circle, rgba(249, 168, 212, 0.75), rgba(249, 168, 212, 0) 70%);
-  animation: micoll-phone-breathe 2.8s ease-in-out infinite;
-  pointer-events: none;
-}
-@keyframes micoll-phone-breathe {
+@keyframes micoll-conn-dot {
   0%,
   100% {
-    transform: scale(0.7);
-    opacity: 0.35;
+    background: var(--color-brand-300);
+    box-shadow: 0 0 6px 1px color-mix(in srgb, var(--color-brand-400) 80%, transparent);
   }
   50% {
-    transform: scale(1.15);
-    opacity: 0.9;
+    background: color-mix(in srgb, var(--color-accent2-400) 70%, #ffffff);
+    box-shadow: 0 0 7px 1.5px color-mix(in srgb, var(--color-accent2-500) 75%, transparent);
+  }
+}
+[data-accent="iridescent"] .conn-dot {
+  animation-name: micoll-conn-dot-iri;
+  animation-duration: 6s;
+  animation-timing-function: linear;
+}
+@keyframes micoll-conn-dot-iri {
+  0%,
+  100% {
+    background: #f5c2ff;
+    box-shadow: 0 0 6px 1px rgba(245, 194, 255, 0.8);
+  }
+  25% {
+    background: #c4b5fd;
+    box-shadow: 0 0 6px 1px rgba(196, 181, 253, 0.8);
+  }
+  50% {
+    background: #a7f3d0;
+    box-shadow: 0 0 6px 1px rgba(167, 243, 208, 0.8);
+  }
+  75% {
+    background: #bae6fd;
+    box-shadow: 0 0 6px 1px rgba(186, 230, 253, 0.8);
   }
 }
 
-/* iridescent: a thin spectrum ring turning slowly around the dot */
-[data-accent="iridescent"] .phone-dot {
-  background: radial-gradient(circle at 35% 35%, #d1fae5, #34d399 75%);
-  box-shadow: 0 0 6px rgba(52, 211, 153, 0.55);
+/* Iridescent: the top bar's icons (lucide and our own, like the globe search) in the
+   theme's ink (pink, lavender, mint) with a soft pink glow, like MiColl Mobile. The
+   gradient is in Layout (#iri-ink). */
+[data-accent="iridescent"] header button :is(svg.lucide, svg.h-4) {
+  stroke: url(#iri-ink);
+  filter: drop-shadow(0 0 3px rgba(250, 220, 255, 0.28));
 }
-[data-accent="iridescent"] .phone-dot::before {
-  content: "";
-  position: absolute;
-  inset: -2.5px;
-  border-radius: 9999px;
-  padding: 1.5px;
-  background: conic-gradient(#c4b5fd, #f5c2ff, #a7f3d0, #bae6fd, #c4b5fd);
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  animation: micoll-phone-ring 6s linear infinite;
-  pointer-events: none;
+/* the top bar's icon buttons: square, on hover a dark glass behind the icon */
+[data-accent="iridescent"] header button.h-9.w-9 {
+  border-radius: 0;
 }
-@keyframes micoll-phone-ring {
-  to {
-    transform: rotate(360deg);
-  }
+[data-accent="iridescent"] header button.h-9.w-9:not([data-lit]):hover {
+  background-color: rgba(0, 0, 0, 0.3);
 }
 
 /* how many downloads wait in the inbox: a small count on the top bar's inbox button */
@@ -8691,15 +8698,11 @@ html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-acc
     0 0 6px rgba(196, 181, 253, 0.5);
 }
 
-[data-animations="off"] .phone-dot,
-[data-animations="off"] .phone-dot::before,
-[data-animations="off"] .phone-dot::after {
+[data-animations="off"] .conn-dot {
   animation: none !important;
 }
 @media (prefers-reduced-motion: reduce) {
-  .phone-dot,
-  .phone-dot::before,
-  .phone-dot::after {
+  .conn-dot {
     animation: none !important;
   }
 }

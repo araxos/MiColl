@@ -279,6 +279,87 @@ pub fn queued_creators(conn: &Connection) -> Result<Vec<QueuedCreator>, String> 
     rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())
 }
 
+/// One reward waiting in a MiSD queue, for the transport window: where it is, how it
+/// goes (move or copy) and how big it is.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedReward {
+    pub id: i64,
+    /// Where it lives in MiColl (the window's link to it).
+    pub artist_id: i64,
+    pub period_id: i64,
+    pub title: String,
+    pub artist: String,
+    pub platform: Option<String>,
+    pub period: String,
+    /// "move" (transport) or "copy" (backup)
+    pub mode: &'static str,
+    pub bytes: u64,
+    pub files: u32,
+    /// Inside another queued reward's folder: it goes along with that one, its size is
+    /// already in there.
+    pub nested: bool,
+    #[serde(skip)]
+    pub folder: String,
+}
+
+/// The rewards the next transport and backup take (the same ones those jobs pick),
+/// sizes still 0: queued_sizes fills them off the lock.
+pub fn queued_rewards(conn: &Connection) -> Result<Vec<QueuedReward>, String> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT r.id, r.title, a.name, p.platform, p.label, r.sd_marked, r.folder_path, a.id, p.id
+               FROM rewards r
+               JOIN periods p ON p.id = r.period_id
+               JOIN artists a ON a.id = p.artist_id
+              WHERE r.sd_marked IN (1, 2) AND r.sd_volume IS NULL AND {TRANSPORTABLE_R}
+              ORDER BY a.name COLLATE NOCASE, p.platform, p.year, p.month, p.number, r.title COLLATE NOCASE"
+        ))
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(QueuedReward {
+                id: r.get(0)?,
+                artist_id: r.get(7)?,
+                period_id: r.get(8)?,
+                title: r.get(1)?,
+                artist: r.get(2)?,
+                platform: r.get(3)?,
+                period: r.get(4)?,
+                mode: if r.get::<_, i64>(5)? == 1 { "move" } else { "copy" },
+                bytes: 0,
+                files: 0,
+                nested: false,
+                folder: r.get(6)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())
+}
+
+/// Size and file count of each queued reward's folder (what the job copies), and which
+/// ones sit inside another queued folder. Reads the disk, so no DB lock here.
+pub fn queued_sizes(rows: &mut [QueuedReward]) {
+    fn walk(dir: &Path, bytes: &mut u64, files: &mut u32) {
+        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        for e in rd.flatten() {
+            let Ok(ft) = e.file_type() else { continue };
+            if ft.is_dir() {
+                walk(&e.path(), bytes, files);
+            } else if ft.is_file() {
+                *bytes += e.metadata().map(|m| m.len()).unwrap_or(0);
+                *files += 1;
+            }
+        }
+    }
+    let folders: Vec<PathBuf> = rows.iter().map(|r| PathBuf::from(&r.folder)).collect();
+    for (i, r) in rows.iter_mut().enumerate() {
+        let me = &folders[i];
+        r.nested = folders.iter().enumerate().any(|(j, f)| j != i && me != f && me.starts_with(f));
+        walk(me, &mut r.bytes, &mut r.files);
+    }
+}
+
 /// Current MiSD state. If the disk isn't at its saved path, other drive letters
 /// are checked for the marker and all paths are fixed.
 pub fn status(conn: &Connection) -> Result<SdStatus, String> {

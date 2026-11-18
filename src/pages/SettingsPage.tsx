@@ -114,6 +114,7 @@ import { getCyberFrame, setCyberFrame } from "@/lib/cyberFrame";
 import { getSakuraFrame, setSakuraFrame } from "@/lib/sakuraFrame";
 import { getRubyFrame, setRubyFrame } from "@/lib/rubyFrame";
 import { getRubyAltLogo, setRubyAltLogo, useRubyAltLogo } from "@/lib/rubyLogo";
+import { getIriAltIcon, setIriAltIcon, useIriAltIcon } from "@/lib/iriAltIcon";
 import { getIriFrame, setIriFrame } from "@/lib/iriFrame";
 import { gpuInfo } from "@/lib/gpuInfo";
 import { getOptimizeLargeImages, setOptimizeLargeImages } from "@/lib/optimizeLarge";
@@ -340,6 +341,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
   const [sakuraFrame, setSakuraFrameOn] = useState(getSakuraFrame());
   const [rubyFrame, setRubyFrameOn] = useState(getRubyFrame());
   const rubyAltLogo = useRubyAltLogo();
+  const iriAltIcon = useIriAltIcon();
   const [iriFrame, setIriFrameOn] = useState(getIriFrame());
   // template display font, read as hook, the click reads the live value (menu stays open)
   const templateFont = useTemplateFont();
@@ -421,6 +423,8 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     const fontOff = { label: t("Template font on card names"), icon: <Type className="h-4 w-4" /> };
     const logoOn = { label: t("Turn off the alternate logo"), icon: <Flame className="h-4 w-4" /> };
     const logoOff = { label: t("Alternate MiColl logo"), icon: <Flame className="h-4 w-4" /> };
+    const iriLogoOn = { label: t("Turn off the alternate logo"), icon: <Sparkles className="h-4 w-4" /> };
+    const iriLogoOff = { label: t("Alternate MiColl logo"), icon: <Sparkles className="h-4 w-4" /> };
     openMenu(e, [
       {
         ...(frame.is ? on : off),
@@ -439,6 +443,20 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
               onClick: () => setRubyAltLogo(!getRubyAltLogo()),
             },
             { label: t("Swaps the MiColl logo for a silver flame M."), info: true as const },
+          ]
+        : []),
+      ...(key === "iridescent"
+        ? [
+            {
+              ...(iriAltIcon ? iriLogoOn : iriLogoOff),
+              keepOpen: true,
+              toggled: iriAltIcon ? iriLogoOff : iriLogoOn,
+              onClick: () => setIriAltIcon(!getIriAltIcon()),
+            },
+            {
+              label: t("Swaps the MiColl logo top left for the holo outline M, its colours running through it."),
+              info: true as const,
+            },
           ]
         : []),
       ...(hasFace

@@ -10943,6 +10943,22 @@ fn sd_year_rules(db: State<Db>, artist_id: i64) -> Result<Vec<sd::YearRule>, Str
     sd::year_rules(&conn, artist_id)
 }
 
+/// Every reward the next transport/backup takes, with how and how big (the transport
+/// window). Sizes are read off the disk after the lock is let go.
+#[tauri::command]
+async fn sd_queued_rewards(db: State<'_, Db>) -> Result<Vec<sd::QueuedReward>, String> {
+    let mut rows = {
+        let conn = db.conn();
+        sd::queued_rewards(&conn)?
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        sd::queued_sizes(&mut rows);
+        rows
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// Creators the next job would touch (for the confirmation).
 #[tauri::command]
 fn sd_queued_creators(db: State<Db>) -> Result<Vec<sd::QueuedCreator>, String> {
@@ -11994,6 +12010,7 @@ pub fn run() {
             sd_available,
             sd_mark,
             sd_queued_creators,
+            sd_queued_rewards,
             sd_mark_year,
             sd_year_rule,
             sd_year_rules,
@@ -12950,6 +12967,37 @@ mod tests {
             .collect();
         assert!(extras.contains(&"Lumi - Starfall"), "got {:?}", extras);
 
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod sd_queue_size_tests {
+    #[test]
+    fn sizes_count_subfolders_and_nested_rewards_are_flagged() {
+        let base = std::env::temp_dir().join(format!("micoll-sdq-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("Set").join("Bonus")).unwrap();
+        std::fs::write(base.join("Set").join("a.jpg"), [0u8; 10]).unwrap();
+        std::fs::write(base.join("Set").join("Bonus").join("b.jpg"), [0u8; 5]).unwrap();
+        let row = |folder: std::path::PathBuf| crate::sd::QueuedReward {
+            id: 0,
+            artist_id: 0,
+            period_id: 0,
+            title: String::new(),
+            artist: String::new(),
+            platform: None,
+            period: String::new(),
+            mode: "move",
+            bytes: 0,
+            files: 0,
+            nested: false,
+            folder: folder.to_string_lossy().into_owned(),
+        };
+        let mut rows = vec![row(base.join("Set")), row(base.join("Set").join("Bonus"))];
+        crate::sd::queued_sizes(&mut rows);
+        assert_eq!((rows[0].bytes, rows[0].files, rows[0].nested), (15, 2, false));
+        assert_eq!((rows[1].bytes, rows[1].files, rows[1].nested), (5, 1, true));
         let _ = std::fs::remove_dir_all(&base);
     }
 }

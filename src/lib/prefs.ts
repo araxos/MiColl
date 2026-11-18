@@ -61,6 +61,7 @@ const SYNCED = [
   "micoll.sakuraFrame",
   "micoll.rubyFrame",
   "micoll.rubyAltLogo",
+  "micoll.iriAltIcon",
   "micoll.cyberFrame",
   "micoll.iriFrame",
   "micoll.templateFont",

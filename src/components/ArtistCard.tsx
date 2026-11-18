@@ -486,38 +486,42 @@ function RubyCrownPin() {
 
 /**
  * The "pinned" marker on the card corner. Pushpin for basic accents, kanzashi hairpin
- * for sakura, glitching neon pin for cyberpunk, crystal for iridescent, tiara for
+ * for sakura, glitching neon pin for cyberpunk, sparkle trio for iridescent, tiara for
  * corruptruby.
  */
 function CardPin({ accent }: { accent: string }) {
   if (accent === "sakura") return <KanzashiPin />;
   if (accent === "corruptruby") return <RubyCrownPin />;
   if (accent === "iridescent") {
-    // thin sharp crystal leaning to the right
+    // three sparkles in a little cluster, the big one with a pastel glow. Goes with the
+    // lit top edge on the card (.iri-pin-edge / .iri-pin-veil)
+    const spark = (x: number, y: number, r: number) =>
+      `M${x} ${y - r} L${x + r * 0.12} ${y - r * 0.12} L${x + r} ${y} L${x + r * 0.12} ${y + r * 0.12} ` +
+      `L${x} ${y + r} L${x - r * 0.12} ${y + r * 0.12} L${x - r} ${y} L${x - r * 0.12} ${y - r * 0.12}Z`;
     return (
       <svg
-        viewBox="0 0 32 32"
-        className="h-8 w-8 rotate-[24deg] drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]"
+        viewBox="0 0 44 44"
+        overflow="visible"
+        className="h-11 w-11"
         style={{ animation: "micoll-iri-mark 6s ease-in-out infinite" }}
       >
         <defs>
-          <linearGradient id="micoll-pin-irid" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#c4b5fd" />
-            <stop offset="35%" stopColor="#f5c2ff" />
-            <stop offset="65%" stopColor="#a7f3d0" />
-            <stop offset="100%" stopColor="#bae6fd" />
+          <linearGradient id="micoll-pin-trio" x1="0" y1="1" x2="1" y2="0">
+            <stop offset="0" stopColor="#bae6fd" />
+            <stop offset="0.35" stopColor="#a7f3d0" />
+            <stop offset="0.7" stopColor="#f5c2ff" />
+            <stop offset="1" stopColor="#c4b5fd" />
           </linearGradient>
+          <filter id="micoll-pin-trio-soft" x="-80%" y="-80%" width="260%" height="260%">
+            <feGaussianBlur stdDeviation="2.2" />
+          </filter>
         </defs>
-        <path d="M16 1.5 L21.4 11 L16 30.5 L10.6 11 Z" fill="url(#micoll-pin-irid)" />
-        <path
-          d="M10.6 11 H21.4 M16 1.5 L13.5 11 L16 30.5 M16 1.5 L18.5 11 L16 30.5"
-          fill="none"
-          stroke="white"
-          strokeWidth="0.6"
-          strokeOpacity="0.6"
-        />
-        {/* one shine line on the left facet */}
-        <path d="M16 3.4 L14.6 10.8 L16 25" fill="none" stroke="white" strokeWidth="0.9" strokeOpacity="0.75" />
+        <circle cx="24" cy="18" r="9" fill="url(#micoll-pin-trio)" opacity="0.35" filter="url(#micoll-pin-trio-soft)" />
+        <circle cx="24" cy="18" r="5" fill="white" opacity="0.65" filter="url(#micoll-pin-trio-soft)" />
+        <path d={spark(24, 18, 11)} fill="white" />
+        <circle cx="10" cy="30" r="2.5" fill="white" opacity="0.65" filter="url(#micoll-pin-trio-soft)" />
+        <path d={spark(10, 30, 5.5)} fill="white" />
+        <path d={spark(35, 33, 3.6)} fill="white" />
       </svg>
     );
   }
@@ -1189,6 +1193,10 @@ function ArtistCardBase({
       {iriFrame && holoFx && <IriCardScreen tone={hasTemplate ? "prism" : "pearl"} />}
       {/* always there: the grain stays, embers only with the fx */}
       {rubyFrame && <RubyCardScreen tone={hasTemplate ? "neon" : "chrome"} />}
+      {/* iridescent pinned: a soft veil of light from the lit top edge (index.css) */}
+      {pinned && irid && (
+        <span aria-hidden className={cn("iri-pin-veil", iriFrame && "iri-pin-veil--cut")} />
+      )}
 
       {holoFx &&
         !framed &&
@@ -1453,13 +1461,22 @@ function ArtistCardBase({
         </>
       )}
       {/* premium themes: their own pin outside the clip, top right (Pyre: top centre) */}
+      {/* iridescent pinned: the top edge lights up (with the frame it starts after the
+          cut corner) */}
+      {pinned && irid && (
+        <span aria-hidden className={cn("iri-pin-edge", iriFrame && "iri-pin-edge--cut")} />
+      )}
       {pinned && isPremium(accent) && (
         <div
           aria-label={t("Pinned")}
           // fx-pin: the "Pin, NEW badge and corners" animation switch (index.css)
           className={cn(
             "fx-pin pointer-events-none absolute z-30",
-            accent === "corruptruby" ? "left-1/2 top-[-24px] -translate-x-1/2" : "-right-2 -top-3",
+            accent === "corruptruby"
+              ? "left-1/2 top-[-24px] -translate-x-1/2"
+              : irid
+                ? "-right-3.5 -top-4"
+                : "-right-2 -top-3",
           )}
         >
           <CardPin accent={accent} />

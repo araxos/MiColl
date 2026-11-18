@@ -13,6 +13,8 @@ import { UpdateButton } from "@/components/UpdateButton";
 import { HistoryDrawer } from "@/components/HistoryDrawer";
 import { AnimatePresence } from "framer-motion";
 import { SakuraMark } from "@/components/SakuraMark";
+import { KdaMark } from "@/components/KdaMark";
+import { useIriAltIcon } from "@/lib/iriAltIcon";
 import { useNavigate, useLocation } from "react-router-dom";
 import { isTauri } from "@/lib/tauri";
 import { useAccent } from "@/lib/theme";
@@ -120,6 +122,8 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
   const sakura = accent === "sakura";
   const cyber = accent === "cyberpunk";
   const irid = accent === "iridescent";
+  // iridescent alternate logo (right-click the swatch): the holo outline M
+  const iriAlt = useIriAltIcon();
   // no OS title bar (decorations off), the header is the drag region
   const customChrome = true;
   const tauri = isTauri();
@@ -212,6 +216,18 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
                 <span
                   title={t("SFW mode is on")}
                   className="sfw-dot absolute -right-0.5 -top-0.5"
+                />
+              )}
+            </span>
+          ) : irid && iriAlt ? (
+            // iridescent alternate logo: the holo outline M with its colours running
+            // through it, glowing (same as MiColl Mobile's "Alt. icon")
+            <span className="kda-glow relative -my-1 inline-flex">
+              <KdaMark className="h-10 w-10" />
+              {sfw && (
+                <span
+                  title={t("SFW mode is on")}
+                  className="sfw-dot absolute right-0.5 top-0.5"
                 />
               )}
             </span>
@@ -324,6 +340,18 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
           )}
           {/* the chrome the Pyre header icons are stroked with (index.css). In icon units,
               a box gradient would drop the straight lines of an icon */}
+          {/* iridescent: the ink the top bar icons are drawn with (index.css) */}
+          {irid && (
+            <svg aria-hidden className="absolute h-0 w-0">
+              <defs>
+                <linearGradient id="iri-ink" gradientUnits="userSpaceOnUse" x1="3" y1="3" x2="21" y2="21">
+                  <stop offset="0" stopColor="#fadcff" />
+                  <stop offset="0.45" stopColor="#e0d8fe" />
+                  <stop offset="1" stopColor="#d0f8e5" />
+                </linearGradient>
+              </defs>
+            </svg>
+          )}
           {accent === "corruptruby" && (
             <svg aria-hidden className="absolute h-0 w-0">
               <defs>
@@ -458,8 +486,6 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
               <Lock className="h-4 w-4" />
             </Button>
           )}
-          {/* only while MiSD has something queued (see SdTransportButton) */}
-          {!safe && <SdTransportButton />}
           {/* only while a new version is ready, can't be hidden */}
           {!safe && <UpdateButton />}
           {/* opens Settings → History (hidden in safe mode) */}
@@ -503,6 +529,9 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
               <span className="inbox-count">{inboxCount > 99 ? "99+" : inboxCount}</span>
             </Button>
           )}
+          {/* only while MiSD has something queued (see SdTransportButton), right next to
+              the gear */}
+          {!safe && <SdTransportButton />}
           {/* safe mode: no settings gear (the route is guarded too) */}
           {!safe && (
             <Button
@@ -586,8 +615,8 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
               {/* MiColl Mobile is on: the dot has its own tooltip (a bit of room around it
                   so it can be hovered) */}
               {phoneOn && (
-                <span title={t("MiColl Mobile is running")} className="phone-dot-hit">
-                  <span className="phone-dot" />
+                <span title={t("MiColl Mobile is running")} className="conn-dot-hit">
+                  <span className="conn-dot" />
                 </span>
               )}
             </Button>

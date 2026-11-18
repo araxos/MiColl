@@ -2517,6 +2517,28 @@ export async function sdQueuedCreators(): Promise<SdQueuedCreator[]> {
   return invoke<SdQueuedCreator[]>("sd_queued_creators");
 }
 
+/** A reward waiting in a MiSD queue (the transport window). */
+export interface SdQueuedReward {
+  id: number;
+  artistId: number;
+  periodId: number;
+  title: string;
+  artist: string;
+  platform: string | null;
+  period: string;
+  /** move = transport (removed here after the check), copy = backup (stays here too) */
+  mode: "move" | "copy";
+  bytes: number;
+  files: number;
+  /** Inside another queued reward's folder: it goes along, its size is counted there. */
+  nested: boolean;
+}
+
+/** What the next transport/backup takes, with how and how big. */
+export async function sdQueuedRewards(): Promise<SdQueuedReward[]> {
+  return invoke<SdQueuedReward[]>("sd_queued_rewards");
+}
+
 /** Cheap connectivity probe (used before opening an SD reward). */
 export async function sdAvailable(): Promise<boolean> {
   return invoke<boolean>("sd_available");
