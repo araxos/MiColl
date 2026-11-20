@@ -9431,3 +9431,217 @@ html[data-holo-freq="2"] :is(.sak-aura.sak-max, .sak-aura::before) {
   text-shadow: none;
   filter: drop-shadow(0 0 5px rgba(255, 20, 100, 0.45));
 }
+
+/* ---- video player (VideoPlayer.tsx, the viewer and the picture-in-picture window, the
+   same look as the phone's): seek and volume bars (.vid-track / .vid-fill), knob
+   (.vid-knob, [data-drag] while the mouse holds it), time (.vid-time) and the big play
+   button (.vid-play). Every accent: the played part glows in its colour, the knob wears a ring
+   of it. The premium themes dress all of it. */
+.vid-ctrl .vid-fill {
+  box-shadow: 0 0 8px color-mix(in srgb, var(--color-brand-400) 60%, transparent);
+}
+.vid-ctrl .vid-knob {
+  box-shadow:
+    0 0 0 2px var(--color-brand-400),
+    0 0 10px color-mix(in srgb, var(--color-brand-400) 55%, transparent),
+    0 1px 4px rgba(0, 0, 0, 0.6);
+}
+.vid-play {
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--color-brand-400) 55%, transparent);
+}
+.vid-play svg {
+  color: var(--color-brand-200);
+}
+
+/* iridescent: the played part is flowing pearl foil, the knob a pearl in a turning holo
+   ring, the play button keeps its cut corner with a turning holo edge */
+[data-accent="iridescent"] .vid-ctrl .vid-track {
+  background: rgba(255, 255, 255, 0.16);
+}
+[data-accent="iridescent"] .vid-ctrl .vid-fill {
+  background: linear-gradient(90deg, #c4b5fd, #f5c2ff, #a7f3d0, #bae6fd, #fbcfe8, #c4b5fd) 0 0 / 12rem 100% repeat-x;
+  box-shadow:
+    0 0 9px rgba(245, 194, 255, 0.7),
+    0 0 2px rgba(255, 255, 255, 0.9);
+  animation: vid-iri-flow 2.6s linear infinite;
+}
+@keyframes vid-iri-flow {
+  to {
+    background-position: -12rem 0;
+  }
+}
+[data-accent="iridescent"] .vid-ctrl .vid-knob {
+  background: radial-gradient(circle at 35% 30%, #ffffff 0%, #f5e8ff 32%, #c4b5fd 72%, #a7f3d0 100%);
+  box-shadow:
+    0 0 12px rgba(245, 194, 255, 0.9),
+    0 1px 3px rgba(0, 0, 0, 0.6);
+}
+[data-accent="iridescent"] .vid-ctrl .vid-knob::before {
+  content: "";
+  position: absolute;
+  inset: -3.5px;
+  border-radius: 9999px;
+  background: conic-gradient(from 0deg, #c4b5fd, #f5c2ff, #a7f3d0, #bae6fd, #c4b5fd);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+  animation: sfw-iri-spin 3.5s linear infinite;
+}
+/* only the icon, no key around it: filled with the frame's moving foil (the viewer's
+   #micoll-iri-ink gradient), a pastel glow plus a dark one so it reads on bright video */
+[data-accent="iridescent"] .micoll-viewer .viewer-btn.vid-play {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  clip-path: none;
+}
+[data-accent="iridescent"] .micoll-viewer .viewer-btn.vid-play svg {
+  width: 2.5rem;
+  height: 2.5rem;
+  fill: url(#micoll-iri-ink);
+  stroke: url(#micoll-iri-ink);
+  filter: drop-shadow(0 0 7px rgba(245, 194, 255, 0.75)) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.7));
+}
+
+/* sakura: a pink petal stream, the knob a turning blossom, a soft pink glass button */
+[data-accent="sakura"] .vid-ctrl .vid-track {
+  background: rgba(255, 228, 240, 0.2);
+}
+[data-accent="sakura"] .vid-ctrl .vid-fill {
+  background: linear-gradient(90deg, #fbcfe8, #f9a8d4 60%, #f472b6);
+  box-shadow: 0 0 9px rgba(249, 168, 212, 0.75);
+}
+[data-accent="sakura"] .vid-ctrl .vid-knob {
+  width: 1.375rem;
+  height: 1.375rem;
+  border-radius: 0;
+  box-shadow: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-10 -10 20 20'%3E%3Cdefs%3E%3Cpath id='p' d='M0 0C-3.6-2.6-3.6-7.6-1.3-9.6L0-8.2 1.3-9.6C3.6-7.6 3.6-2.6 0 0Z'/%3E%3C/defs%3E%3Cg fill='%23fbcfe8' stroke='%23ec4899' stroke-width='.7' stroke-linejoin='round'%3E%3Cuse href='%23p'/%3E%3Cuse href='%23p' transform='rotate(72)'/%3E%3Cuse href='%23p' transform='rotate(144)'/%3E%3Cuse href='%23p' transform='rotate(216)'/%3E%3Cuse href='%23p' transform='rotate(288)'/%3E%3C/g%3E%3Ccircle r='2' fill='%23fff7c2' stroke='%23f472b6' stroke-width='.6'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  filter: drop-shadow(0 0 5px rgba(249, 168, 212, 0.9)) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+  animation: vid-sak-turn 9s linear infinite;
+}
+[data-accent="sakura"] .vid-ctrl .vid-knob[data-drag] {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+@keyframes vid-sak-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+[data-accent="sakura"] .vid-play {
+  background: rgba(80, 20, 50, 0.4);
+  box-shadow:
+    0 0 0 1.5px rgba(249, 168, 212, 0.8),
+    0 0 18px rgba(249, 168, 212, 0.45);
+}
+[data-accent="sakura"] .vid-play svg {
+  color: #fce7f3;
+  filter: drop-shadow(0 0 5px rgba(244, 114, 182, 0.8));
+}
+
+/* cyberpunk: hard yellow line with a cyan echo, a glitchy bar as knob, a cut-corner key */
+[data-accent="cyberpunk"] .vid-ctrl .vid-track {
+  border-radius: 0;
+  background: rgba(252, 238, 10, 0.16);
+}
+[data-accent="cyberpunk"] .vid-ctrl .vid-fill {
+  border-radius: 0;
+  background: #fcee0a;
+  box-shadow:
+    0 0 8px rgba(252, 238, 10, 0.7),
+    0 2px 0 #00e5ff;
+}
+[data-accent="cyberpunk"] .vid-ctrl .vid-knob {
+  width: 0.4rem;
+  height: 1.05rem;
+  border-radius: 0;
+  background: #fcee0a;
+  transform: skewX(-14deg);
+  box-shadow:
+    -2px 0 0 #ff2bd6,
+    2px 0 0 #00e5ff,
+    0 0 9px rgba(252, 238, 10, 0.8);
+}
+[data-accent="cyberpunk"] .vid-ctrl .vid-knob[data-drag] {
+  width: 0.5rem;
+  height: 1.4rem;
+}
+[data-accent="cyberpunk"] .vid-ctrl .vid-time {
+  font-family: "Orbitron", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #fcee0a;
+  text-shadow: 1px 1px 0 rgba(0, 229, 255, 0.7);
+}
+[data-accent="cyberpunk"] .vid-ctrl .vid-time span {
+  color: rgba(252, 238, 10, 0.55);
+}
+[data-accent="cyberpunk"] .vid-play {
+  border-radius: 0;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%);
+  background: rgba(0, 0, 0, 0.6);
+  box-shadow: inset 0 0 0 1.5px #fcee0a;
+}
+[data-accent="cyberpunk"] .vid-play svg {
+  color: #fcee0a;
+  filter: drop-shadow(2px 2px 0 rgba(0, 229, 255, 0.75));
+}
+
+/* pyre: an ember line from dark red to hot pink, a chrome diamond as knob, a dark key
+   with a chrome ring (like the header buttons) */
+[data-accent="corruptruby"] .vid-ctrl .vid-track {
+  background: rgba(230, 233, 239, 0.18);
+}
+[data-accent="corruptruby"] .vid-ctrl .vid-fill {
+  background: linear-gradient(90deg, #7a0f2e, #ff1464 70%, #ff4d86);
+  box-shadow: 0 0 10px rgba(255, 20, 100, 0.7);
+}
+[data-accent="corruptruby"] .vid-ctrl .vid-knob {
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 2px;
+  transform: rotate(45deg);
+  background: linear-gradient(135deg, #ffffff, #c9ced8 40%, #6b7180 55%, #e6e9ef);
+  box-shadow:
+    0 0 0 1px #ff1464,
+    0 0 10px rgba(255, 20, 100, 0.85);
+}
+[data-accent="corruptruby"] .vid-ctrl .vid-knob[data-drag] {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+[data-accent="corruptruby"] .vid-play {
+  background: rgba(10, 4, 8, 0.6);
+  box-shadow:
+    inset 0 0 0 1.5px #c9ced8,
+    0 0 0 1px rgba(255, 20, 100, 0.6),
+    0 0 18px rgba(255, 20, 100, 0.45);
+}
+[data-accent="corruptruby"] .vid-play svg {
+  color: #e6e9ef;
+  filter: drop-shadow(0.7px 0.7px 0 #ff1464);
+}
+
+/* pseudo elements can't go inside :is(), so the knob's ring gets its own line */
+[data-animations="off"] :is(.vid-ctrl .vid-fill, .vid-ctrl .vid-knob, .vid-play),
+[data-animations="off"] .vid-ctrl .vid-knob::before,
+html[data-holo-freq="2"] :is(.vid-ctrl .vid-fill, .vid-ctrl .vid-knob),
+html[data-holo-freq="2"] .vid-ctrl .vid-knob::before {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.vid-ctrl .vid-fill, .vid-ctrl .vid-knob, .vid-play),
+  .vid-ctrl .vid-knob::before {
+    animation: none !important;
+  }
+}
+
+/* iridescent: the video's buttons without the dark glass behind them, only the foil
+   icons (a dark shadow keeps them readable on bright video) */
+[data-accent="iridescent"] .micoll-viewer .vid-ctrl .viewer-icon-btn:not([data-active]) {
+  background: none;
+}
+[data-accent="iridescent"] .micoll-viewer .vid-ctrl .viewer-icon-btn:not([data-active]) svg {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.75));
+}

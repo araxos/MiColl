@@ -640,6 +640,11 @@ export async function addSkippedPeriod(
   await invoke("add_skipped_period", { artistId: Number(artistId), platform, year, month });
 }
 
+/** The creator's last 3 replaced covers (still on disk), newest first. */
+export async function artistCoverHistory(artistId: string): Promise<string[]> {
+  return invoke<string[]>("artist_cover_history", { artistId: Number(artistId) });
+}
+
 /** Set (or clear, with "") an artist's card preview image (raw absolute path). */
 export async function setArtistPreview(artistId: string, image: string): Promise<void> {
   await invoke("set_artist_preview", { artistId: Number(artistId), image });
@@ -674,6 +679,26 @@ export interface DuplicateImage {
   bytes: number;
   width: number;
   height: number;
+  /** For grouping by reward. */
+  rewardId: string;
+  period: string;
+  platform: string | null;
+  /** How many images the reward has in all. */
+  rewardImages: number;
+}
+
+/** A running duplicate scan's progress ("dup-progress" event). */
+export interface DuplicateProgress {
+  scan: number;
+  /** look = reading each picture, compare = matching them up, hash = identical files */
+  phase: "look" | "compare" | "hash";
+  done: number;
+  total: number;
+}
+
+/** Stop the duplicate scan with this id (the finder closed). */
+export async function cancelDuplicateScan(scanId: number): Promise<void> {
+  await invoke("cancel_duplicate_scan", { scanId });
 }
 
 /** Find groups of byte-identical images, optionally scoped to an artist/platform/period. */
@@ -689,6 +714,8 @@ export async function findDuplicates(
     rewardId?: number;
   },
   similar?: boolean,
+  /** An id for this run: its progress events carry it, cancelDuplicateScan stops it. */
+  scanId?: number,
 ): Promise<DuplicateImage[][]> {
   return invoke<DuplicateImage[][]>("find_duplicates", {
     artistId: scope?.artistId ?? null,
@@ -696,6 +723,7 @@ export async function findDuplicates(
     periodId: scope?.periodId ?? null,
     rewardId: scope?.rewardId ?? null,
     similar: similar ?? false,
+    scanId: scanId ?? null,
   });
 }
 

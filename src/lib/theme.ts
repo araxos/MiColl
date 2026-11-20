@@ -60,10 +60,11 @@ export const ACCENTS: AccentDef[] = [
     tier: "premium",
     from: "#fcee0a",
     to: "#00e5ff",
-    // yellow, a thin cyan band, black. Hard stops, a soft yellow->cyan blend would turn
-    // green in the middle (the round swatch only shows ~15-85% of the line)
+    // yellow, a thin band half the theme's magenta half cyan, black. Hard stops, a soft
+    // yellow->cyan blend would turn green in the middle (the round swatch only shows
+    // ~15-85% of the line)
     swatch:
-      "linear-gradient(135deg,#fcee0a 0%,#fcee0a 44%,#00e5ff 44%,#00b8d4 56%,#0a0a0a 56%,#0a0a0a 100%)",
+      "linear-gradient(135deg,#fcee0a 0%,#fcee0a 44%,#ff2bd6 44%,#ff2bd6 50%,#00e5ff 50%,#00e5ff 56%,#0a0a0a 56%,#0a0a0a 100%)",
   },
   {
     key: "corruptruby",

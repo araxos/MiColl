@@ -595,6 +595,12 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             sort       INTEGER NOT NULL DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS artist_cover_history (
+            artist_id INTEGER NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+            image     TEXT NOT NULL,
+            at        INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (artist_id, image)
+        );
         CREATE TABLE IF NOT EXISTS wall_set_items (
             set_id    INTEGER NOT NULL,
             file_path TEXT NOT NULL,
@@ -937,11 +943,44 @@ pub fn set_period_platform(conn: &Connection, period_id: i64, platform: &str) ->
 pub fn set_artist_preview(conn: &Connection, artist_id: i64, image: &str) -> rusqlite::Result<()> {
     // "" clears the override (back to the first reward cover)
     let val: Option<&str> = if image.is_empty() { None } else { Some(image) };
+    // the picked cover it replaces goes into the history (the last 3, Creator details)
+    let old: Option<String> = conn
+        .query_row("SELECT preview_image FROM artists WHERE id = ?1", params![artist_id], |r| r.get(0))
+        .optional()?
+        .flatten()
+        .filter(|o: &String| !o.is_empty());
     conn.execute(
         "UPDATE artists SET preview_image = ?2 WHERE id = ?1",
         params![artist_id, val],
     )?;
+    if let Some(old) = old.filter(|o| Some(o.as_str()) != val) {
+        conn.execute(
+            "INSERT OR REPLACE INTO artist_cover_history (artist_id, image, at)
+             VALUES (?1, ?2, (SELECT COALESCE(MAX(at), 0) + 1 FROM artist_cover_history))",
+            params![artist_id, old],
+        )?;
+    }
+    // the cover in use isn't an earlier one, and only the newest 3 stay
+    if let Some(v) = val {
+        conn.execute(
+            "DELETE FROM artist_cover_history WHERE artist_id = ?1 AND image = ?2",
+            params![artist_id, v],
+        )?;
+    }
+    conn.execute(
+        "DELETE FROM artist_cover_history WHERE artist_id = ?1 AND image NOT IN
+           (SELECT image FROM artist_cover_history WHERE artist_id = ?1 ORDER BY at DESC LIMIT 3)",
+        params![artist_id],
+    )?;
     Ok(())
+}
+
+/// A creator's earlier picked covers, newest first (at most 3), the ones still on disk.
+pub fn artist_cover_history(conn: &Connection, artist_id: i64) -> rusqlite::Result<Vec<String>> {
+    let mut stmt =
+        conn.prepare("SELECT image FROM artist_cover_history WHERE artist_id = ?1 ORDER BY at DESC LIMIT 3")?;
+    let rows = stmt.query_map(params![artist_id], |r| r.get::<_, String>(0))?;
+    Ok(rows.flatten().filter(|p| std::path::Path::new(p).exists()).collect())
 }
 
 /// Set (or clear with "") a reward's cover.
@@ -2683,6 +2722,7 @@ pub fn remap_preview_prefix(conn: &Connection, old_folder: &str, new_folder: &st
         "UPDATE artists SET preview_image = ?2 || substr(preview_image, length(?1)+1) WHERE substr(preview_image,1,length(?1)) = ?1",
         "UPDATE periods SET preview_image = ?2 || substr(preview_image, length(?1)+1) WHERE substr(preview_image,1,length(?1)) = ?1",
         "UPDATE rewards SET cover_image = ?2 || substr(cover_image, length(?1)+1) WHERE substr(cover_image,1,length(?1)) = ?1",
+        "UPDATE OR REPLACE artist_cover_history SET image = ?2 || substr(image, length(?1)+1) WHERE substr(image,1,length(?1)) = ?1",
     ] {
         conn.execute(sql, params![old_folder, new_folder])?;
     }
@@ -2695,6 +2735,7 @@ pub fn remap_preview_exact(conn: &Connection, old_path: &str, new_path: &str) ->
         "UPDATE artists SET preview_image = ?2 WHERE preview_image = ?1",
         "UPDATE periods SET preview_image = ?2 WHERE preview_image = ?1",
         "UPDATE rewards SET cover_image = ?2 WHERE cover_image = ?1",
+        "UPDATE OR REPLACE artist_cover_history SET image = ?2 WHERE image = ?1",
     ] {
         conn.execute(sql, params![old_path, new_path])?;
     }
@@ -2717,6 +2758,7 @@ pub fn relink_prefix(conn: &Connection, old_prefix: &str, new_prefix: &str) -> r
         "UPDATE rewards SET sd_backup_path = ?2 || substr(sd_backup_path, length(?1)+1) WHERE substr(sd_backup_path,1,length(?1)) = ?1",
         "UPDATE periods SET preview_image = ?2 || substr(preview_image, length(?1)+1) WHERE substr(preview_image,1,length(?1)) = ?1",
         "UPDATE artists SET preview_image = ?2 || substr(preview_image, length(?1)+1) WHERE substr(preview_image,1,length(?1)) = ?1",
+        "UPDATE OR REPLACE artist_cover_history SET image = ?2 || substr(image, length(?1)+1) WHERE substr(image,1,length(?1)) = ?1",
         "UPDATE OR REPLACE wallpaper_favs SET file_path = ?2 || substr(file_path, length(?1)+1) WHERE substr(file_path,1,length(?1)) = ?1",
         "UPDATE OR REPLACE favorites SET file_path = ?2 || substr(file_path, length(?1)+1) WHERE substr(file_path,1,length(?1)) = ?1",
         "UPDATE OR REPLACE collection_items SET file_path = ?2 || substr(file_path, length(?1)+1) WHERE substr(file_path,1,length(?1)) = ?1",
@@ -3001,12 +3043,14 @@ pub struct DupRow {
     pub period_id: i64,
     pub reward_id: i64,
     pub platform: Option<String>,
+    /// The month's label ("2024 · 03"), for grouping by reward.
+    pub period: String,
 }
 
 /// All images with reward + artist.
 pub fn images_for_dup(conn: &Connection) -> rusqlite::Result<Vec<DupRow>> {
     let mut stmt = conn.prepare(
-        "SELECT i.id, i.file_path, r.title, a.name, a.id, p.id, r.id, p.platform
+        "SELECT i.id, i.file_path, r.title, a.name, a.id, p.id, r.id, p.platform, p.label
          FROM images i
          JOIN rewards r ON i.reward_id = r.id
          JOIN periods p ON r.period_id = p.id
@@ -3023,6 +3067,7 @@ pub fn images_for_dup(conn: &Connection) -> rusqlite::Result<Vec<DupRow>> {
                 period_id: r.get(5)?,
                 reward_id: r.get(6)?,
                 platform: r.get(7)?,
+                period: r.get(8)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -3944,6 +3989,34 @@ pub fn remap_versions_prefix(conn: &Connection, old_prefix: &str, new_prefix: &s
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Replaced picked covers are remembered, the newest 3, without the one in use.
+    #[test]
+    fn the_last_three_picked_covers_are_kept() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        conn.execute("INSERT INTO artists(name) VALUES('A')", []).unwrap();
+        let id = conn.last_insert_rowid();
+        let base = std::env::temp_dir().join(format!("micoll-coverhist-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let pic = |n: u32| {
+            let p = base.join(format!("{n}.jpg"));
+            std::fs::write(&p, b"x").unwrap();
+            p.to_string_lossy().into_owned()
+        };
+        for n in 1..=5 {
+            set_artist_preview(&conn, id, &pic(n)).unwrap();
+        }
+        // 5 is in use; 4, 3, 2 are the earlier ones, newest first
+        assert_eq!(artist_cover_history(&conn, id).unwrap(), vec![pic(4), pic(3), pic(2)]);
+        // going back to 3: it leaves the history, 5 goes in
+        set_artist_preview(&conn, id, &pic(3)).unwrap();
+        assert_eq!(artist_cover_history(&conn, id).unwrap(), vec![pic(5), pic(4), pic(2)]);
+        // back to automatic: the picked one is remembered too
+        set_artist_preview(&conn, id, "").unwrap();
+        assert_eq!(artist_cover_history(&conn, id).unwrap(), vec![pic(3), pic(5), pic(4)]);
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     /// Old tier lists (plain names) get the platforms their rewards are on, once.
     #[test]

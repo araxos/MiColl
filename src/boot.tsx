@@ -6,6 +6,7 @@ import App from "./App";
 import { DataProvider } from "@/store";
 import { ActionsProvider } from "@/actions";
 import { PopoutViewer } from "@/components/PopoutViewer";
+import { VideoPip } from "@/components/VideoPip";
 import "./index.css";
 // fonts for the premium themes (Orbitron = cyberpunk, Zen Maru Gothic = sakura,
 // Exo 2 = base font). Only latin subsets to keep the bundle small.
@@ -49,11 +50,15 @@ applyDocumentLang();
 
 // pop-out window (?popout=<id>) only shows the viewer, no app chrome and no lock logic
 const popoutId = new URLSearchParams(window.location.search).get("popout");
+// picture in picture (?pip=<id>): only a video and its controls
+const pipId = new URLSearchParams(window.location.search).get("pip");
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <BrowserRouter>
-      {popoutId ? (
+      {pipId ? (
+        <VideoPip id={pipId} />
+      ) : popoutId ? (
         <DataProvider>
           <ActionsProvider>
             <PopoutViewer id={popoutId} />

@@ -489,6 +489,24 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
     return () => off?.();
   }, [backed]);
 
+  // a screenshot from a video in its own window (VideoPip): that window rescanned the
+  // reward, this one shows the new picture
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  useEffect(() => {
+    if (!backed) return;
+    let off: (() => void) | undefined;
+    let alive = true;
+    void listen("micoll://video-shot", () => void refreshRef.current()).then((fn) => {
+      if (alive) off = fn;
+      else fn();
+    });
+    return () => {
+      alive = false;
+      off?.();
+    };
+  }, [backed]);
+
   // bring back = transport in reverse, so it blocks the window with the same overlay
   const [returning, setReturning] = useState<{ done: number; total: number; item: string } | null>(
     null,

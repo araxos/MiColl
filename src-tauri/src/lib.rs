@@ -1233,6 +1233,12 @@ fn reset_missing_covers(db: State<Db>) -> Result<usize, String> {
     Ok(clear_missing_covers(&conn))
 }
 
+/// A creator's last 3 replaced covers, newest first (Creator details).
+#[tauri::command]
+fn artist_cover_history(db: State<Db>, artist_id: i64) -> Result<Vec<String>, String> {
+    db::artist_cover_history(&db.conn(), artist_id).map_err(map_err)
+}
+
 #[tauri::command]
 fn set_artist_preview(db: State<Db>, artist_id: i64, image: String) -> Result<(), String> {
     let conn = db.conn();
@@ -8003,6 +8009,88 @@ async fn open_popout(app: AppHandle, id: String, title: String) -> Result<(), St
     Ok(())
 }
 
+/// A video in its own small window (picture in picture): only the video and its controls,
+/// on top of other windows, MiColl stays usable. Its data waits in localStorage like the
+/// pop-out's (pip.ts). w/h: the window's inside, from the video's shape.
+#[tauri::command]
+async fn open_video_pip(app: AppHandle, id: String, title: String, w: f64, h: f64) -> Result<(), String> {
+    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err("bad pip id".into());
+    }
+    let url = tauri::WebviewUrl::App(format!("index.html?pip={id}").into());
+    own_webview(tauri::WebviewWindowBuilder::new(&app, format!("popout-pip-{id}"), url))
+        .title(title)
+        .inner_size(w.clamp(240.0, 1600.0), h.clamp(160.0, 1200.0))
+        .min_inner_size(240.0, 160.0)
+        .always_on_top(true)
+        .decorations(true)
+        .build()
+        .map_err(map_err)?;
+    Ok(())
+}
+
+/// The frame of a video as a picture next to it: "<name> - 2m07s.jpg" (" (2)" if that's
+/// taken), encrypted when encryption is on. Returns the new file's path and the video's
+/// reward (to rescan it, so the picture shows up).
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoShot {
+    path: String,
+    reward_id: Option<i64>,
+}
+
+#[tauri::command]
+async fn save_video_screenshot(
+    db: State<'_, Db>,
+    dek: State<'_, DekState>,
+    video_path: String,
+    at: f64,
+    image_b64: String,
+) -> Result<VideoShot, String> {
+    let key = session_key(&dek);
+    let reward_id: Option<i64> = {
+        let conn = db.conn();
+        conn.query_row(
+            "SELECT reward_id FROM images WHERE file_path = ?1",
+            rusqlite::params![video_path],
+            |r| r.get(0),
+        )
+        .ok()
+    };
+    let path = tauri::async_runtime::spawn_blocking(move || {
+        let img = edit::decode_rgba(&image_b64)?;
+        let src = std::path::Path::new(&video_path);
+        let dir = src.parent().ok_or("no folder")?;
+        let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
+        let n = at.max(0.0).floor() as u64;
+        let when = if n >= 3600 {
+            format!("{}h{:02}m{:02}s", n / 3600, (n % 3600) / 60, n % 60)
+        } else {
+            format!("{}m{:02}s", n / 60, n % 60)
+        };
+        let base = format!("{stem} - {when}");
+        let mut dest = dir.join(format!("{base}.jpg"));
+        let mut k = 2;
+        while dest.exists() {
+            dest = dir.join(format!("{base} ({k}).jpg"));
+            k += 1;
+        }
+        let mut bytes = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 92)
+            .encode_image(&image::DynamicImage::ImageRgba8(img).to_rgb8())
+            .map_err(|e| format!("encode screenshot: {e}"))?;
+        let to_write = match key {
+            Some(k) => crypto::Dek::from_bytes(k).encrypt_bytes(&bytes),
+            None => bytes,
+        };
+        crypto::atomic_write(&dest, &to_write)?;
+        Ok::<_, String>(dest.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(VideoShot { path, reward_id })
+}
+
 /* The tray menu: Open, Add rewards, Lock, the recently opened creators, Quit. The
    window sends the labels in its language and whether the creators may show (not while
    locked, in safe mode or SFW mode: the menu is outside the lock), see TraySync.tsx.
@@ -8728,10 +8816,16 @@ fn unlock_recovery(db: State<Db>, dek_state: State<DekState>, code: String) -> R
     }
 }
 
-/// Wipe the DEK from memory (on lock).
+/// Wipe the DEK from memory (on lock). A video in its own window (picture in picture)
+/// closes too, it's outside the lock screen.
 #[tauri::command]
-fn lock(dek_state: State<DekState>) -> Result<(), String> {
+fn lock(app: AppHandle, dek_state: State<DekState>) -> Result<(), String> {
     *dek_state.lock().map_err(map_err)? = None;
+    for (label, w) in app.webview_windows() {
+        if label.starts_with("popout-pip-") {
+            let _ = w.close();
+        }
+    }
     Ok(())
 }
 
@@ -11331,12 +11425,57 @@ struct DupImage {
     bytes: u64,
     width: u32,
     height: u32,
+    /// For grouping by reward: which reward, where it sits and how many images it has.
+    reward_id: String,
+    period: String,
+    platform: Option<String>,
+    reward_images: u32,
+}
+
+/// The duplicate scan that's running (the id the window gave it); 0 = none. A new scan or
+/// a cancel replaces it, the old one stops at its next file.
+static DUP_SCAN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// "dup-progress" events for the finder's bar (at most every 150 ms) and the stop check.
+struct DupProgress {
+    app: tauri::AppHandle,
+    scan: u64,
+    last: std::time::Instant,
+}
+
+impl DupProgress {
+    fn live(&self) -> bool {
+        self.scan == 0 || DUP_SCAN.load(std::sync::atomic::Ordering::SeqCst) == self.scan
+    }
+    fn tick(&mut self, phase: &str, done: u64, total: u64) {
+        if done < total && done > 0 && self.last.elapsed() < std::time::Duration::from_millis(150) {
+            return;
+        }
+        self.last = std::time::Instant::now();
+        use tauri::Emitter;
+        let _ = self.app.emit(
+            "dup-progress",
+            serde_json::json!({ "scan": self.scan, "phase": phase, "done": done, "total": total }),
+        );
+    }
+}
+
+/// Stop the duplicate scan with this id (the finder was closed). A newer scan stays.
+#[tauri::command]
+fn cancel_duplicate_scan(scan_id: u64) {
+    let _ = DUP_SCAN.compare_exchange(
+        scan_id,
+        0,
+        std::sync::atomic::Ordering::SeqCst,
+        std::sync::atomic::Ordering::SeqCst,
+    );
 }
 
 /// Find groups of duplicate images, optionally for one artist / platform / period.
 /// Biggest groups first.
 /// Without similar: identical bytes (only same-size files are hashed, fast).
 /// With similar: by appearance (finds resized copies, slower, can be wrong).
+/// scan_id: the window's id for this run, for the progress events and to stop it.
 #[tauri::command]
 async fn find_duplicates(
     app: tauri::AppHandle,
@@ -11347,13 +11486,26 @@ async fn find_duplicates(
     period_id: Option<i64>,
     reward_id: Option<i64>,
     similar: Option<bool>,
+    scan_id: Option<u64>,
 ) -> Result<Vec<Vec<DupImage>>, String> {
     use std::collections::HashMap;
     let key = session_key(&dek);
+    let scan = scan_id.unwrap_or(0);
+    if scan != 0 {
+        DUP_SCAN.store(scan, std::sync::atomic::Ordering::SeqCst);
+    }
+    let cancelled = || "cancelled".to_string();
     let rows = {
         let conn = db.conn();
         db::images_for_dup(&conn).map_err(map_err)?
     };
+    // every image a reward has (also outside the scope): "12 of 14 have copies"
+    let mut per_reward: HashMap<i64, u32> = HashMap::new();
+    for r in &rows {
+        if dup::is_image(&r.file_path) {
+            *per_reward.entry(r.reward_id).or_default() += 1;
+        }
+    }
     // images in the scope (by id)
     let candidates: Vec<db::DupRow> = rows
         .into_iter()
@@ -11383,6 +11535,25 @@ async fn find_duplicates(
             true
         })
         .collect();
+    let item = |r: &db::DupRow, bytes: u64, width: u32, height: u32| DupImage {
+        id: r.id.to_string(),
+        path: r.file_path.clone(),
+        name: std::path::Path::new(&r.file_path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string(),
+        reward: r.reward.clone(),
+        artist: r.artist.clone(),
+        bytes,
+        width,
+        height,
+        reward_id: r.reward_id.to_string(),
+        period: r.period.clone(),
+        platform: r.platform.clone(),
+        reward_images: per_reward.get(&r.reward_id).copied().unwrap_or(0),
+    };
+    let mut prog = DupProgress { app: app.clone(), scan, last: std::time::Instant::now() };
 
     // ---- similar mode: grouped by how they look ----
     if similar.unwrap_or(false) {
@@ -11390,9 +11561,14 @@ async fn find_duplicates(
         let work: Vec<(i64, String)> =
             candidates.iter().map(|r| (r.id, r.file_path.clone())).collect();
         type SimMeta = (dup::Fingerprint, u64, u32, u32); // fingerprint, bytes, w, h
-        let measured: Vec<(i64, SimMeta)> = tauri::async_runtime::spawn_blocking(move || {
+        let measured = tauri::async_runtime::spawn_blocking(move || {
+            let total = work.len() as u64;
             let mut out: Vec<(i64, SimMeta)> = Vec::new();
-            for (id, p) in work {
+            for (i, (id, p)) in work.into_iter().enumerate() {
+                if !prog.live() {
+                    return None;
+                }
+                prog.tick("look", i as u64, total);
                 // unreadable files are skipped (an unplugged MiSD file would be hashed from
                 // its small preview and marked for deletion)
                 let Ok(md) = std::fs::metadata(&p) else { continue };
@@ -11410,53 +11586,48 @@ async fn find_duplicates(
                 let (w, h) = thumbs::dimensions(&p, key).unwrap_or((0, 0));
                 out.push((id, (print, md.len(), w, h)));
             }
-            out
-        })
-        .await
-        .map_err(|e| e.to_string())?;
+            prog.tick("look", total, total);
 
-        // union-find so a chain of near copies (A=B, B=C) becomes one group
-        fn root(parent: &mut [usize], mut x: usize) -> usize {
-            while parent[x] != x {
-                parent[x] = parent[parent[x]];
-                x = parent[x];
+            // union-find so a chain of near copies (A=B, B=C) becomes one group
+            fn root(parent: &mut [usize], mut x: usize) -> usize {
+                while parent[x] != x {
+                    parent[x] = parent[parent[x]];
+                    x = parent[x];
+                }
+                x
             }
-            x
-        }
-        let n = measured.len();
-        let mut parent: Vec<usize> = (0..n).collect();
-        for i in 0..n {
-            for j in (i + 1)..n {
-                if dup::same_picture(&measured[i].1 .0, &measured[j].1 .0) {
-                    let (a, b) = (root(&mut parent, i), root(&mut parent, j));
-                    if a != b {
-                        parent[a] = b;
+            let n = out.len();
+            let pairs = (n as u64 * n.saturating_sub(1) as u64 / 2).max(1);
+            let mut parent: Vec<usize> = (0..n).collect();
+            for i in 0..n {
+                if !prog.live() {
+                    return None;
+                }
+                // pairs already compared before row i
+                let done = i as u64 * (2 * n as u64 - i as u64 - 1) / 2;
+                prog.tick("compare", done, pairs);
+                for j in (i + 1)..n {
+                    if dup::same_picture(&out[i].1 .0, &out[j].1 .0) {
+                        let (a, b) = (root(&mut parent, i), root(&mut parent, j));
+                        if a != b {
+                            parent[a] = b;
+                        }
                     }
                 }
             }
-        }
+            prog.tick("compare", pairs, pairs);
+            let roots: Vec<usize> = (0..n).map(|i| root(&mut parent, i)).collect();
+            Some((out, roots))
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        let Some((measured, roots)) = measured else { return Err(cancelled()) };
 
         let by_id: HashMap<i64, &db::DupRow> = candidates.iter().map(|r| (r.id, r)).collect();
         let mut clusters: HashMap<usize, Vec<DupImage>> = HashMap::new();
-        for i in 0..n {
-            let (id, (_, bytes, w, h)) = measured[i];
-            let Some(r) = by_id.get(&id) else { continue };
-            let name = std::path::Path::new(&r.file_path)
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string();
-            let key_of = root(&mut parent, i);
-            clusters.entry(key_of).or_default().push(DupImage {
-                id: r.id.to_string(),
-                path: r.file_path.clone(),
-                name,
-                reward: r.reward.clone(),
-                artist: r.artist.clone(),
-                bytes,
-                width: w,
-                height: h,
-            });
+        for (i, (id, (_, bytes, w, h))) in measured.iter().enumerate() {
+            let Some(r) = by_id.get(id) else { continue };
+            clusters.entry(roots[i]).or_default().push(item(r, *bytes, *w, *h));
         }
         let mut out: Vec<Vec<DupImage>> = clusters.into_values().filter(|g| g.len() > 1).collect();
         // biggest image first in a group (the one to keep)
@@ -11474,48 +11645,42 @@ async fn find_duplicates(
     // off the main thread: group by size, then hash only the collisions
     let work: Vec<(i64, String)> = candidates.iter().map(|r| (r.id, r.file_path.clone())).collect();
     type Meta = (String, u64, u32, u32); // hash, bytes, w, h
-    let measured: Vec<(i64, Meta)> = tauri::async_runtime::spawn_blocking(move || {
+    let measured = tauri::async_runtime::spawn_blocking(move || {
         let mut by_size: HashMap<u64, Vec<(i64, String)>> = HashMap::new();
         for (id, p) in work {
             if let Ok(md) = std::fs::metadata(&p) {
                 by_size.entry(md.len()).or_default().push((id, p));
             }
         }
+        // unique size → cannot be a duplicate, skip
+        by_size.retain(|_, items| items.len() > 1);
+        let total: u64 = by_size.values().map(|v| v.len() as u64).sum();
+        let mut done = 0u64;
         let mut out: Vec<(i64, Meta)> = Vec::new();
         for (size, items) in by_size {
-            if items.len() < 2 {
-                continue; // unique size → cannot be a duplicate, skip
-            }
             for (id, p) in items {
+                if !prog.live() {
+                    return None;
+                }
+                prog.tick("hash", done, total);
+                done += 1;
                 if let Some((h, (w, h2))) = dup::content_hash_keyed(std::path::Path::new(&p), key) {
                     out.push((id, (h, size, w, h2)));
                 }
             }
         }
-        out
+        prog.tick("hash", total, total);
+        Some(out)
     })
     .await
     .map_err(|e| e.to_string())?;
+    let Some(measured) = measured else { return Err(cancelled()) };
 
     let meta: HashMap<i64, Meta> = measured.into_iter().collect();
     let mut groups: HashMap<String, Vec<DupImage>> = HashMap::new();
     for r in &candidates {
         if let Some((h, bytes, w, ht)) = meta.get(&r.id) {
-            let name = std::path::Path::new(&r.file_path)
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string();
-            groups.entry(h.clone()).or_default().push(DupImage {
-                id: r.id.to_string(),
-                path: r.file_path.clone(),
-                name,
-                reward: r.reward.clone(),
-                artist: r.artist.clone(),
-                bytes: *bytes,
-                width: *w,
-                height: *ht,
-            });
+            groups.entry(h.clone()).or_default().push(item(r, *bytes, *w, *ht));
         }
     }
     let mut out: Vec<Vec<DupImage>> = groups.into_values().filter(|g| g.len() > 1).collect();
@@ -11911,6 +12076,7 @@ pub fn run() {
             relink_library,
             prune_missing,
             find_duplicates,
+            cancel_duplicate_scan,
             storage_breakdown,
             set_artist_preview,
             reset_missing_covers,
@@ -12011,6 +12177,7 @@ pub fn run() {
             sd_mark,
             sd_queued_creators,
             sd_queued_rewards,
+            artist_cover_history,
             sd_mark_year,
             sd_year_rule,
             sd_year_rules,
@@ -12120,6 +12287,8 @@ pub fn run() {
             set_autostart,
             take_launch_action,
             open_popout,
+            open_video_pip,
+            save_video_screenshot,
             is_portable,
             portable_update,
         ]))

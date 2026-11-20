@@ -17,7 +17,6 @@ import {
   Pencil,
   CheckSquare,
   Maximize2,
-  Repeat,
   PlayCircle,
   Wand2,
   Lock,
@@ -96,7 +95,10 @@ import {
   type MetaSummary,
   claimAudioName,
   copyImageToClipboard,
+  rescanReward,
 } from "@/api/library";
+import { VideoPlayer } from "@/components/VideoPlayer";
+import { useVideoFull } from "@/lib/videoPrefs";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { SharePhoneModal } from "@/components/SharePhoneModal";
 import { ShareSheet, type ShareRequest } from "@/components/ShareSheet";
@@ -886,6 +888,22 @@ export function ImageViewer({
   // comfy doesn't apply in the overview
   const comfy = comfyPref && !gridOn;
   const [chromeVisible, setChromeVisible] = useState(true);
+  // the video's controls went (it plays, the mouse is still): the bars go too
+  const [vidHidden, setVidHidden] = useState(false);
+  // the mouse is on the top bar or the strip: nothing hides under it
+  const [onBars, setOnBars] = useState(false);
+  // full view (the video's button): no strip under videos
+  const videoFull = useVideoFull();
+  // the strip's height: in comfy mode it lies over the stage, a video ends right on it
+  const [stripH, setStripH] = useState(0);
+  useEffect(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setStripH(el.offsetHeight));
+    ro.observe(el);
+    setStripH(el.offsetHeight);
+    return () => ro.disconnect();
+  }, [gridOn]);
 
   // entering the overview stops the slideshow and resets the zoom
   useEffect(() => {
@@ -906,24 +924,6 @@ export function ImageViewer({
       alive = false;
     };
   }, []);
-
-  // video loop (saved, on by default)
-  const [loop, setLoop] = useState(() => {
-    try {
-      return localStorage.getItem("micoll.loop") !== "0";
-    } catch {
-      return true;
-    }
-  });
-  const setLoopPersist = (v: boolean) => {
-    setLoop(v);
-    try {
-      localStorage.setItem("micoll.loop", v ? "1" : "0");
-    } catch {
-      /* ignore */
-    }
-    queuePrefsSync();
-  };
 
   // in comfy mode a click on the image toggles the bars
   const bump = useCallback(() => {
@@ -1638,14 +1638,25 @@ export function ImageViewer({
     onClick: () => setAnimPersist(a),
   }));
 
+  // a playing video with a still mouse: everything goes with its controls (VideoPlayer),
+  // the bars just fade (they keep their space, so the video doesn't jump)
+  const uiGone = isVideo && vidHidden;
   // fade the bars when comfy hides them (clicks pass through)
-  const chromeFade = comfy
-    ? `transition-opacity duration-500 ${chromeVisible ? "opacity-100" : "pointer-events-none opacity-0"}`
-    : "";
+  const chromeFade = uiGone
+    ? "transition-opacity duration-500 pointer-events-none opacity-0"
+    : comfy
+      ? `transition-opacity duration-500 ${chromeVisible ? "opacity-100" : "pointer-events-none opacity-0"}`
+      : isVideo
+        ? "transition-opacity duration-300"
+        : "";
   // arrows fade too but stay clickable (reveals the bars and navigates)
-  const arrowFade = comfy
-    ? `transition-opacity duration-500 ${chromeVisible ? "opacity-100" : "opacity-0"}`
-    : "";
+  const arrowFade = uiGone
+    ? "transition-opacity duration-500 opacity-0"
+    : comfy
+      ? `transition-opacity duration-500 ${chromeVisible ? "opacity-100" : "opacity-0"}`
+      : isVideo
+        ? "transition-opacity duration-300"
+        : "";
 
   // crop ratios (width / height). ratioHW is height / width, hence 1/x.
   // reward = page shape, creator = 4:6, month = square
@@ -1984,6 +1995,8 @@ export function ImageViewer({
       className={cn(
         // micoll-viewer scopes the iridescent overrides (index.css)
         "micoll-viewer fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-sm",
+        // the mouse goes with the rest
+        isVideo && vidHidden && "cursor-none",
       )}
     >
       {/* gradient for the iridescent button icons (used by id in index.css).
@@ -2042,9 +2055,14 @@ export function ImageViewer({
       {/* top controls, empty space drags the window */}
       <div
         data-tauri-drag-region
+        onMouseEnter={() => setOnBars(true)}
+        onMouseLeave={() => setOnBars(false)}
         className={cn(
           "flex items-center justify-between px-5 py-3 text-zinc-300",
-          comfy && "absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/80 via-black/40 to-transparent",
+          comfy && "absolute inset-x-0 top-0 z-20",
+          // the dark fade lay over a video's top like a black bar: videos only get a
+          // shadow on the text (the buttons have their own background)
+          comfy && (isVideo ? "[text-shadow:0_1px_3px_#000]" : "bg-gradient-to-b from-black/80 via-black/40 to-transparent"),
           chromeFade,
         )}
       >
@@ -2068,15 +2086,8 @@ export function ImageViewer({
           {items.length > 1 && (
             <SortControl field={sortField} dir={sortDir} onPick={pickSort} />
           )}
-          {isVideo ? (
-            <ViewerBtn
-              onClick={() => setLoopPersist(!loop)}
-              title={loop ? "Repeat: on" : "Repeat: off"}
-              active={loop}
-            >
-              <Repeat className="h-5 w-5" />
-            </ViewerBtn>
-          ) : gridOn || comfy || isArchive ? null : (
+          {/* a video has its loop, speed … in its own controls (VideoPlayer) */}
+          {isVideo || gridOn || comfy || isArchive ? null : (
             <>
               <ViewerBtn onClick={() => zoomCenter(1 / 1.25)} title={t("Zoom out (−)")}>
                 <ZoomOut className="h-5 w-5" />
@@ -2376,11 +2387,10 @@ export function ImageViewer({
       <div
         ref={stageRef}
         className={cn(
-          "items-center justify-center overflow-hidden px-16",
+          "items-center justify-center overflow-hidden",
+          // a video in comfy / full view goes out to the sides too, the arrows lie over it
+          isVideo && (comfy || videoFull) ? "px-0" : "px-16",
           comfy ? "absolute inset-0 flex" : "relative flex flex-1",
-          // in comfy the filmstrip covers the bottom, so videos move up to keep their
-          // controls
-          comfy && isVideo && "pb-24",
         )}
       >
         <ViewerBtn
@@ -2426,24 +2436,35 @@ export function ImageViewer({
             )}
             {isVideo ? (
               current.src || (encEnabled && current.path) ? (
-                <video
+                <VideoPlayer
                   key={current.id}
-                  // start quieter
-                  ref={(el) => {
-                    if (el) el.volume = 0.3;
-                  }}
-                  src={encEnabled && current.path ? mediaUrl(current.path) : current.src}
-                  controls
-                  autoPlay
-                  loop={loop}
-                  onLoadedMetadata={(e) =>
-                    setDims({ w: e.currentTarget.videoWidth, h: e.currentTarget.videoHeight })
-                  }
+                  // our protocol for every video: it streams (also encrypted ones) and lets
+                  // the screenshot read a frame
+                  src={current.path && isTauri() ? mediaUrl(current.path) : current.src}
+                  path={current.path}
+                  title={current.title}
+                  keys={!gridOn && !showHelp && !editing}
+                  // nothing hides under the mouse or an open menu / panel
+                  hold={onBars || showHelp || details || versOpen || !!ssMenu}
+                  onHiddenChange={setVidHidden}
+                  // comfy: the strip lies over the bottom, the video ends right on it
+                  insetBottom={comfy && !videoFull ? stripH : 0}
+                  canFull
+                  // comfy / full view: as big as it fits (also bigger than the video)
+                  grow={comfy || videoFull}
+                  canPip
+                  onDims={(w, h) => setDims({ w, h })}
                   // rename the audio session for the volume mixer (it only exists once
                   // something plays)
                   onPlay={() => void claimAudioName().catch(() => {})}
                   onContextMenu={mediaMenu}
-                  className="max-h-full max-w-full rounded-lg bg-black shadow-2xl"
+                  // the new picture shows up in its reward
+                  onShot={(_, rewardId) => {
+                    if (rewardId == null) return;
+                    void rescanReward(String(rewardId))
+                      .then(() => refresh())
+                      .catch(() => {});
+                  }}
                 />
               ) : (
                 <div
@@ -2546,8 +2567,12 @@ export function ImageViewer({
       {/* filmstrip, wheel scrolls it sideways */}
       <div
         ref={stripRef}
+        onMouseEnter={() => setOnBars(true)}
+        onMouseLeave={() => setOnBars(false)}
         className={cn(
           "flex items-center gap-2 overflow-x-auto px-5 py-3",
+          // full view of a video: no strip, the video goes down to the bottom
+          isVideo && videoFull && "hidden",
           comfy && "absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/80 via-black/40 to-transparent",
           chromeFade,
         )}
@@ -3209,10 +3234,14 @@ function ShortcutHelp({ isVideo, onClose }: { isVideo: boolean; onClose: () => v
   const rows: [string, string][] = [
     ["← / →", t("Previous / next")],
     [t("Home / End"), t("First / last file")],
-    [
-      t("Space"),
-      isVideo ? t("Slideshow (videos play inline)") : t("Start / pause slideshow"),
-    ],
+    [t("Space"), isVideo ? t("Play / pause the video") : t("Start / pause slideshow")],
+    ...(isVideo
+      ? ([
+          [t("J / L  ·  Shift + ← / →"), t("Skip back / forward")],
+          [t("Double click"), t("Skip back (left half) / forward (right half)")],
+          ["M", t("Sound off / on")],
+        ] as [string, string][])
+      : []),
     [t("Mouse wheel"), t("Previous / next")],
     [t("Ctrl + wheel"), t("Zoom to cursor")],
     ["+ / −", t("Zoom in / out")],

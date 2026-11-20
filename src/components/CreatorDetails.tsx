@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
-import { ClipboardList, Loader2, PanelRight, X } from "lucide-react";
-import { artistSize, type ArtistSize } from "@/api/library";
+import { ClipboardList, History, Loader2, PanelRight, X } from "lucide-react";
+import { artistCoverHistory, artistSize, setArtistPreview, type ArtistSize } from "@/api/library";
+import { useActions } from "@/actions";
+import { useLibraryActions } from "@/store";
 import { Cover } from "@/components/Cover";
 import { PlatformCheck, ThemeCheck } from "@/components/ThemeCheck";
 import { isTauri } from "@/lib/tauri";
@@ -51,6 +53,30 @@ export function CreatorDetails({
   const accent = useAccent();
   const [size, setSize] = useState<ArtistSize | null>(null);
   const [busy, setBusy] = useState(false);
+  // click on the cover: the last 3 covers it had, one click takes one back
+  const { refresh } = useLibraryActions();
+  const { showToast } = useActions();
+  const [history, setHistory] = useState<string[] | null>(null);
+  const [histOpen, setHistOpen] = useState(false);
+  const loadHistory = () =>
+    artistCoverHistory(artist.id)
+      .then(setHistory)
+      .catch(() => setHistory([]));
+  const toggleHistory = () => {
+    if (!isTauri()) return;
+    if (!histOpen) void loadHistory();
+    setHistOpen((o) => !o);
+  };
+  const takeBack = async (path: string) => {
+    try {
+      await setArtistPreview(artist.id, path);
+      await refresh();
+      void loadHistory();
+      showToast({ tone: "success", title: t("Cover changed") });
+    } catch (e) {
+      showToast({ tone: "error", title: t("Couldn’t set the cover"), detail: `${e}` });
+    }
+  };
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -274,10 +300,14 @@ export function CreatorDetails({
           </button>
 
           <div className="relative flex items-end gap-4 px-5 pb-5 pt-6">
-            {/* cover in 4:5 like everywhere else */}
-            <div
+            {/* cover in 4:5 like everywhere else; a click shows its earlier covers */}
+            <button
+              type="button"
+              onClick={toggleHistory}
+              title={t("Earlier covers")}
               className={cn(
-                "aspect-[4/5] w-[6.25rem] shrink-0 overflow-hidden shadow-xl shadow-black/50 ring-1 ring-white/15",
+                "group/cov relative aspect-[4/5] w-[6.25rem] shrink-0 overflow-hidden shadow-xl shadow-black/50 ring-1 ring-white/15 transition-shadow hover:ring-white/40",
+                histOpen && "ring-2 ring-white/50",
                 accent === "cyberpunk" ? "rounded-none" : "rounded-xl",
               )}
             >
@@ -288,7 +318,10 @@ export function CreatorDetails({
                 seed={artist.name}
                 rounded="rounded-none"
               />
-            </div>
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center bg-black/55 py-0.5 opacity-0 transition-opacity group-hover/cov:opacity-100">
+                <History className="h-3.5 w-3.5 text-white/85" />
+              </span>
+            </button>
 
             <div className="min-w-0 flex-1 pb-0.5">
               <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-white/45">
@@ -369,6 +402,40 @@ export function CreatorDetails({
             </div>
           </div>
         </div>
+
+        {/* the last 3 covers it had (newest first), one click takes it back */}
+        {histOpen && (
+          <div className={cn("shrink-0 border-b px-5 py-3", dlg.divider)}>
+            <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+              <History className="h-3.5 w-3.5" />
+              {t("Earlier covers")}
+            </p>
+            {history === null ? (
+              <Loader2 className={cn("mt-2 h-4 w-4 animate-spin", dlg.accentText)} />
+            ) : history.length === 0 ? (
+              <p className="mt-1.5 text-xs text-zinc-500">
+                {t("None yet — when you change the cover, the old one shows up here.")}
+              </p>
+            ) : (
+              <div className="mt-2 flex gap-2.5">
+                {history.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => void takeBack(p)}
+                    title={`${t("Use this cover again")}\n${p}`}
+                    className={cn(
+                      "aspect-[4/5] w-16 overflow-hidden ring-1 ring-white/15 transition hover:ring-2 hover:ring-white/50",
+                      accent === "cyberpunk" ? "rounded-none" : "rounded-lg",
+                    )}
+                  >
+                    <Cover path={p} seed={artist.name} rounded="rounded-none" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {/* the next few reward covers as portrait tiles (5 columns),
