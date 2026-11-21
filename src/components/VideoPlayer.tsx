@@ -441,7 +441,8 @@ export function VideoPlayer({
       c.width = v.videoWidth;
       c.height = v.videoHeight;
       c.getContext("2d")!.drawImage(v, 0, 0);
-      const data = c.toDataURL("image/png");
+      // a JPEG right away (that's what is saved): a PNG of a 4K frame is 10-20 MB of text
+      const data = c.toDataURL("image/jpeg", 0.92);
       const r = await invoke<{ path: string; rewardId: number | null }>("save_video_screenshot", {
         videoPath: path,
         at,

@@ -85,6 +85,7 @@ const SYNCED = [
   "micoll.expandPeople",
   "micoll.expandSize",
   "micoll.brushSize",
+  "micoll.cropPreset",
   "micoll.classFilter",
   "micoll.typeFilter",
 ] as const;

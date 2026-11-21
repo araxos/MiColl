@@ -56,6 +56,17 @@ pub fn is_encrypted(b: &[u8]) -> bool {
     b.len() >= MAGIC.len() && &b[..MAGIC.len()] == MAGIC
 }
 
+/// A file's size before encryption (its own size if it isn't encrypted): header, nonce
+/// and tag come off. None if it can't be read.
+pub fn plain_len(path: &Path) -> Option<u64> {
+    let len = std::fs::metadata(path).ok()?.len();
+    if file_is_encrypted(path) {
+        Some(len.saturating_sub((MAGIC.len() + NONCE_LEN + TAG_LEN) as u64))
+    } else {
+        Some(len)
+    }
+}
+
 /// Check if a file is encrypted by only reading its first bytes.
 pub fn file_is_encrypted(path: &Path) -> bool {
     use std::io::Read;

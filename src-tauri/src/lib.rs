@@ -4920,6 +4920,176 @@ struct ImportClash {
     location: String,
 }
 
+/// An incoming reward whose files are already in the library, under whatever name: the
+/// same package imported again with another folder name.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportKnown {
+    /// Source folder of the incoming row.
+    folder: String,
+    /// Its name in the review.
+    title: String,
+    /// The reward that already has these files.
+    reward_id: i64,
+    existing_title: String,
+    /// Shelf like "Nora · Patreon · 2026-03".
+    location: String,
+    /// How many of its files are already there, of how many.
+    matched: u32,
+    files: u32,
+}
+
+/// Files the import check skips (Windows' own).
+fn import_noise(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n == "thumbs.db" || n == "desktop.ini" || n == ".ds_store" || n.starts_with("._")
+}
+
+/// Check an import BEFORE writing: which incoming rewards are already in the library by
+/// their files (same file name and same size, also for encrypted files), wherever they
+/// sit and whatever the folder is called. Most of a reward's files (all of a small one)
+/// must be in one existing reward.
+#[tauri::command]
+async fn import_known(
+    db: State<'_, Db>,
+    rewards: Vec<indexer::ResolvedReward>,
+) -> Result<Vec<ImportKnown>, String> {
+    use std::collections::HashMap;
+    // the library's files by name (lowercase), and where each reward sits
+    let (by_name, info) = {
+        let conn = db.conn();
+        let mut by_name: HashMap<String, Vec<(i64, String)>> = HashMap::new();
+        let mut stmt = conn
+            .prepare("SELECT reward_id, file_path FROM images")
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+            .map_err(map_err)?;
+        for row in rows.flatten() {
+            let name = std::path::Path::new(&row.1)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            if !name.is_empty() {
+                by_name.entry(name).or_default().push(row);
+            }
+        }
+        let mut info: HashMap<i64, (String, String)> = HashMap::new();
+        let mut stmt = conn
+            .prepare(
+                "SELECT r.id, r.title, a.name, p.platform, p.label
+                   FROM rewards r
+                   JOIN periods p ON p.id = r.period_id
+                   JOIN artists a ON a.id = p.artist_id
+                  WHERE r.status <> 'missing'",
+            )
+            .map_err(map_err)?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, String>(4)?,
+                ))
+            })
+            .map_err(map_err)?;
+        for (id, title, artist, platform, label) in rows.flatten() {
+            let loc = [Some(artist), platform, Some(label)]
+                .into_iter()
+                .flatten()
+                .filter(|s| !s.trim().is_empty())
+                .collect::<Vec<_>>()
+                .join(" · ");
+            info.insert(id, (title, loc));
+        }
+        (by_name, info)
+    };
+
+    tauri::async_runtime::spawn_blocking(move || known_imports(&rewards, &by_name, &info))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// The library's files by name (lowercase): (reward id, path).
+type FilesByName = std::collections::HashMap<String, Vec<(i64, String)>>;
+
+/// import_known's work, off the DB lock: info = reward id -> (title, shelf).
+fn known_imports(
+    rewards: &[indexer::ResolvedReward],
+    by_name: &FilesByName,
+    info: &std::collections::HashMap<i64, (String, String)>,
+) -> Vec<ImportKnown> {
+    use std::collections::{HashMap, HashSet};
+    fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        for e in rd.flatten() {
+            let Ok(ft) = e.file_type() else { continue };
+            let p = e.path();
+            if ft.is_dir() {
+                walk(&p, out);
+            } else if ft.is_file() && !import_noise(&e.file_name().to_string_lossy()) {
+                out.push(p);
+            }
+        }
+    }
+    // sizes of library files, read once each
+    let mut sizes: HashMap<String, Option<u64>> = HashMap::new();
+    let mut out = Vec::new();
+    for r in rewards {
+        // root rows have no own folder
+        if r.root {
+            continue;
+        }
+        let src = std::path::Path::new(&r.folder);
+        let mut files = Vec::new();
+        walk(src, &mut files);
+        if files.is_empty() {
+            continue;
+        }
+        let mut counts: HashMap<i64, u32> = HashMap::new();
+        for f in &files {
+            let Some(name) = f.file_name().map(|n| n.to_string_lossy().to_lowercase()) else { continue };
+            let Some(cands) = by_name.get(&name) else { continue };
+            let Some(size) = crypto::plain_len(f) else { continue };
+            let mut hit: HashSet<i64> = HashSet::new();
+            for (rid, path) in cands {
+                // the same folder again (a rescan, or importing in place) isn't a copy
+                if std::path::Path::new(path).starts_with(src) {
+                    continue;
+                }
+                let s = *sizes.entry(path.clone()).or_insert_with(|| crypto::plain_len(std::path::Path::new(path)));
+                if s == Some(size) {
+                    hit.insert(*rid);
+                }
+            }
+            for rid in hit {
+                *counts.entry(rid).or_default() += 1;
+            }
+        }
+        let n = files.len() as u32;
+        // a small reward: every file; a bigger one: 4 of 5
+        let need = if n <= 3 { n } else { (n * 4).div_ceil(5) };
+        let best = counts.into_iter().filter(|(rid, _)| info.contains_key(rid)).max_by_key(|(_, c)| *c);
+        if let Some((rid, c)) = best {
+            if c >= need {
+                let (existing_title, location) = info.get(&rid).cloned().unwrap_or_default();
+                out.push(ImportKnown {
+                    folder: r.folder.clone(),
+                    title: r.title.clone(),
+                    reward_id: rid,
+                    existing_title,
+                    location,
+                    matched: c,
+                    files: n,
+                });
+            }
+        }
+    }
+    out
+}
+
 /// Name for the clash check (case-insensitive, trimmed).
 fn clash_key(s: &str) -> String {
     s.trim().to_lowercase()
@@ -8058,7 +8228,7 @@ async fn save_video_screenshot(
         .ok()
     };
     let path = tauri::async_runtime::spawn_blocking(move || {
-        let img = edit::decode_rgba(&image_b64)?;
+        let raw = edit::decode_data_url(&image_b64)?;
         let src = std::path::Path::new(&video_path);
         let dir = src.parent().ok_or("no folder")?;
         let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
@@ -8075,10 +8245,17 @@ async fn save_video_screenshot(
             dest = dir.join(format!("{base} ({k}).jpg"));
             k += 1;
         }
-        let mut bytes = Vec::new();
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 92)
-            .encode_image(&image::DynamicImage::ImageRgba8(img).to_rgb8())
-            .map_err(|e| format!("encode screenshot: {e}"))?;
+        // the player sends a JPEG already, written as it is; anything else becomes one
+        let bytes = if raw.starts_with(&[0xFF, 0xD8, 0xFF]) {
+            raw
+        } else {
+            let img = image::load_from_memory(&raw).map_err(|e| format!("decode screenshot: {e}"))?;
+            let mut out = Vec::new();
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 92)
+                .encode_image(&img.to_rgb8())
+                .map_err(|e| format!("encode screenshot: {e}"))?;
+            out
+        };
         let to_write = match key {
             Some(k) => crypto::Dek::from_bytes(k).encrypt_bytes(&bytes),
             None => bytes,
@@ -12132,6 +12309,7 @@ pub fn run() {
             stage_files_for_import,
             analyze_import,
             import_clashes,
+            import_known,
             commit_import,
             organize_collection,
             clear_import_source,
@@ -13136,6 +13314,60 @@ mod tests {
             .collect();
         assert!(extras.contains(&"Lumi - Starfall"), "got {:?}", extras);
 
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod import_known_tests {
+    use super::*;
+
+    /// The same package under another folder name is found; other files aren't.
+    #[test]
+    fn a_package_under_another_folder_name_is_known() {
+        let base = std::env::temp_dir().join(format!("micoll-known-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let lib = base.join("lib").join("Set A");
+        let inc = base.join("in").join("Set A (copy)");
+        let other = base.join("in").join("Other");
+        for d in [&lib, &inc, &other] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        for (n, size) in [("01.jpg", 10usize), ("02.jpg", 20), ("03.jpg", 30), ("04.jpg", 40), ("05.jpg", 50)] {
+            std::fs::write(lib.join(n), vec![0u8; size]).unwrap();
+            std::fs::write(inc.join(n), vec![1u8; size]).unwrap();
+        }
+        // same names, other sizes: a different set
+        std::fs::write(other.join("01.jpg"), vec![0u8; 11]).unwrap();
+        std::fs::write(other.join("02.jpg"), vec![0u8; 21]).unwrap();
+        let mut by_name: FilesByName = std::collections::HashMap::new();
+        for e in std::fs::read_dir(&lib).unwrap().flatten() {
+            by_name
+                .entry(e.file_name().to_string_lossy().to_lowercase())
+                .or_default()
+                .push((7, e.path().to_string_lossy().into_owned()));
+        }
+        let mut info = std::collections::HashMap::new();
+        info.insert(7i64, ("Set A".to_string(), "Nora · Patreon · 2026-03".to_string()));
+        let row = |folder: &std::path::Path, title: &str| indexer::ResolvedReward {
+            artist: "Nora".into(),
+            platform: None,
+            year: None,
+            month: None,
+            number: None,
+            category: None,
+            title: title.into(),
+            folder: folder.to_string_lossy().into_owned(),
+            root: false,
+            extra: false,
+            tier: None,
+            custom_year: None,
+            custom_month: None,
+        };
+        let found = known_imports(&[row(&inc, "Set A (copy)"), row(&other, "Other"), row(&lib, "Set A")], &by_name, &info);
+        // only the copy: the other set differs, the library's own folder is a rescan
+        assert_eq!(found.len(), 1);
+        assert_eq!((found[0].reward_id, found[0].matched, found[0].files), (7, 5, 5));
         let _ = std::fs::remove_dir_all(&base);
     }
 }

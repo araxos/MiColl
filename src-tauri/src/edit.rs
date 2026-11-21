@@ -24,7 +24,7 @@ const EPS: f32 = 1.0e-6;
 /* ---- base64 / decode / encode helpers -------------------------------- */
 
 /// Remove an optional "data:<mime>;base64," prefix and decode.
-fn decode_data_url(s: &str) -> Result<Vec<u8>, String> {
+pub fn decode_data_url(s: &str) -> Result<Vec<u8>, String> {
     let payload = match s.find(";base64,") {
         Some(i) => &s[i + 8..],
         None => s,

@@ -823,6 +823,7 @@ export function ImageEditor({
     } catch {
       /* not remembered */
     }
+    queuePrefsSync();
     const ratio = CROP_PRESETS.find((c) => c.id === id)?.ratio;
     if (!ratio || !dims) return;
     const whole = { x: 0, y: 0, w: dims.w, h: dims.h };

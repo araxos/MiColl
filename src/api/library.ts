@@ -2352,6 +2352,26 @@ export interface ImportClash {
   location: string;
 }
 
+/** An incoming reward whose files are already in the library (another folder name). */
+export interface ImportKnown {
+  /** Source folder of the incoming row. */
+  folder: string;
+  title: string;
+  /** The reward that already has these files. */
+  rewardId: number;
+  existingTitle: string;
+  /** Human-readable shelf, e.g. "Nora · Patreon · 2026-03". */
+  location: string;
+  /** How many of its files are already there, of how many. */
+  matched: number;
+  files: number;
+}
+
+/** Which incoming rewards are already in the library by their files (same names and sizes). */
+export async function importKnown(rewards: ResolvedReward[]): Promise<ImportKnown[]> {
+  return invoke<ImportKnown[]>("import_known", { rewards });
+}
+
 /** Check a reviewed import against the library before anything is written. */
 export async function importClashes(rewards: ResolvedReward[]): Promise<ImportClash[]> {
   return invoke<ImportClash[]>("import_clashes", { rewards });

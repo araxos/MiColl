@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { ThemedSelect } from "@/components/ThemedSelect";
 import { ImportClashDialog } from "@/components/ImportClashDialog";
+import { ImportKnownDialog } from "@/components/ImportKnownDialog";
 import { ImportStatsLine } from "@/components/ImportStatsLine";
 import * as api from "@/api/library";
 import type { ImportPlan, ResolvedReward, StyleChoice } from "@/api/library";
@@ -977,9 +978,74 @@ export function ImportReviewTree({
   // the import waiting for the answer
   const pending = useRef<{ rewards: ResolvedReward[]; styles: StyleChoice[] } | null>(null);
 
-  /** Check for clashes first, then import. */
+  /* ---- already in the library (by its files) ------------------------------ */
+
+  // the same package under another folder name: its files are there already (see
+  // ImportKnownDialog). Asked before the name check
+  const [known, setKnown] = useState<api.ImportKnown[] | null>(null);
+  const [checking, setChecking] = useState(false);
+  const pendingKnown = useRef<{ rewards: ResolvedReward[]; styles: StyleChoice[] } | null>(null);
+
+  /** Look for rewards that are already there, then for name clashes, then import. */
   const submit = async (rewards: ResolvedReward[], styleList: StyleChoice[]) => {
     rememberPlatforms(rewards);
+    let found: api.ImportKnown[] = [];
+    setChecking(true);
+    try {
+      found = await api.importKnown(rewards);
+    } catch (e) {
+      // if the check fails, go on without it
+      console.error("known check failed", e);
+    } finally {
+      setChecking(false);
+    }
+    if (found.length > 0) {
+      pendingKnown.current = { rewards, styles: styleList };
+      setKnown(found);
+      return;
+    }
+    await checkClashes(rewards, styleList);
+  };
+
+  /** "Skip them": the rest goes on, nothing left = nothing to import. */
+  const skipKnown = () => {
+    const pend = pendingKnown.current;
+    const list = known;
+    setKnown(null);
+    pendingKnown.current = null;
+    if (!pend || !list) return;
+    const drop = new Set(list.map((k) => k.folder));
+    const rest = pend.rewards.filter((r) => !drop.has(r.folder));
+    if (rest.length === 0) {
+      onCancel();
+      showToast({
+        tone: "success",
+        title: t("Already in your library"),
+        detail: t("Nothing was imported — it’s all there already."),
+      });
+      return;
+    }
+    void checkClashes(rest, pend.styles);
+  };
+
+  /** "Import them anyway": everything, a second copy. */
+  const importKnownAnyway = () => {
+    const pend = pendingKnown.current;
+    setKnown(null);
+    pendingKnown.current = null;
+    if (pend) void checkClashes(pend.rewards, pend.styles);
+  };
+
+  /** "Cancel the import" from that question. */
+  const cancelForKnown = () => {
+    setKnown(null);
+    pendingKnown.current = null;
+    onCancel();
+    showToast({ tone: "warn", title: t("Import cancelled"), detail: t("Nothing was imported.") });
+  };
+
+  /** Check for clashes first, then import. */
+  const checkClashes = async (rewards: ResolvedReward[], styleList: StyleChoice[]) => {
     let found: api.ImportClash[] = [];
     try {
       found = await api.importClashes(rewards);
@@ -1983,6 +2049,17 @@ export function ImportReviewTree({
             </div>
           </motion.div>
         </div>
+      )}
+
+      {/* rewards whose files are already in the library (another folder name) */}
+      {known && (
+        <ImportKnownDialog
+          known={known}
+          busy={busy || checking}
+          onSkip={skipKnown}
+          onImportAnyway={importKnownAnyway}
+          onCancelAll={cancelForKnown}
+        />
       )}
 
       {/* a name that already exists where this import lands */}
