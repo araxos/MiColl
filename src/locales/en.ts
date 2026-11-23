@@ -22,6 +22,8 @@ export const dict: Dict = {
   "{n} more#other": "{n} more",
   "{n} files#one": "{n} file",
   "{n} files#other": "{n} files",
+  "{n} versions#one": "{n} version",
+  "{n} versions#other": "{n} versions",
   "{n} files from your phone#one": "{n} file from your phone",
   "{n} files from your phone#other": "{n} files from your phone",
   "{n} edited versions from your phone#one": "{n} edited version from your phone",

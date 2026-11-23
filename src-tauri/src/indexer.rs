@@ -844,12 +844,22 @@ fn replace_images(
     reward_id: i64,
     images: &[(String, String)],
 ) -> rusqlite::Result<()> {
+    // the sizes known already stay (a rescan needn't ask the disk again)
+    let known: std::collections::HashMap<String, i64> = {
+        let mut stmt = conn.prepare("SELECT file_path, size FROM images WHERE reward_id = ?1 AND size IS NOT NULL")?;
+        let rows = stmt.query_map(params![reward_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        rows.flatten().collect()
+    };
     conn.execute("DELETE FROM images WHERE reward_id = ?1", params![reward_id])?;
     let mut stmt = conn.prepare(
-        "INSERT INTO images(reward_id, file_path, rel_name, sort) VALUES(?1, ?2, ?3, ?4)",
+        "INSERT INTO images(reward_id, file_path, rel_name, sort, size) VALUES(?1, ?2, ?3, ?4, ?5)",
     )?;
     for (i, (abs, rel)) in images.iter().enumerate() {
-        stmt.execute(params![reward_id, abs, rel, i as i64])?;
+        let size = known
+            .get(abs)
+            .copied()
+            .or_else(|| std::fs::metadata(abs).ok().map(|m| m.len() as i64));
+        stmt.execute(params![reward_id, abs, rel, i as i64, size])?;
     }
     Ok(())
 }

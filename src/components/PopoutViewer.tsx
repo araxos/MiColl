@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ImageViewer } from "@/components/ImageViewer";
+import { WatermarkHost } from "@/components/WatermarkDialog";
 import { takePopoutPayload } from "@/lib/popout";
 import { useT } from "@/lib/i18n";
 
@@ -23,11 +24,15 @@ export function PopoutViewer({ id }: { id: string }) {
   }
 
   return (
-    <ImageViewer
-      items={payload.items}
-      startIndex={payload.index}
-      coverTargets={payload.coverTargets}
-      onClose={close}
-    />
+    <>
+      <ImageViewer
+        items={payload.items}
+        startIndex={payload.index}
+        coverTargets={payload.coverTargets}
+        onClose={close}
+      />
+      {/* the editor's watermark button works here too */}
+      <WatermarkHost />
+    </>
   );
 }

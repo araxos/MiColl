@@ -4,6 +4,9 @@ import { useNavigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { CheckSquare, Pencil, Trash2, X, FolderOpen, RotateCcw, RefreshCw, CopyCheck, MousePointerSquareDashed, Share2, FolderInput, FolderPlus, MonitorPlay, FileQuestion, HardDrive, DatabaseBackup, Users, Unlink, ExternalLink, Info, Layers, StickyNote, Tag, Sparkles, Puzzle, ImagePlus } from "lucide-react";
 import { openDuplicates } from "@/lib/duplicates";
+import { openWatermark } from "@/lib/watermark";
+import { Stamp, ImageMinus, Wrench } from "lucide-react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { RewardSlot } from "@/components/RewardSlot";
 import { ImageViewer, type CoverTargets, type ViewerItem } from "@/components/ImageViewer";
 import { RenameDialog, type RenameTarget } from "@/components/RenameDialog";
@@ -18,7 +21,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useData } from "@/store";
 import { useActions } from "@/actions";
 import { useSlideshowMenu } from "@/components/AddToSlideshow";
-import { KEEP_FOLDERS_KEY, folderPathOf, setRewardCover, exportFiles, createReward, createMissingReward, importWishCover, ensurePeriod, ensureCustomPeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, setRewardsTier, setRewardsAccess, setRewardNotes, type SdMode } from "@/api/library";
+import { KEEP_FOLDERS_KEY, folderPathOf, setRewardCover, exportFiles, createReward, createMissingReward, importWishCover, ensurePeriod, ensureCustomPeriod, moveRewards, mergeRewards, setWallpaperSlideshow, getSetting, setSetting, sdAvailable, sdMark, sdBackupDrop, setRewardCollabs, setRewardsExtra, setRewardsPartial, setRewardsTier, setRewardsAccess, setRewardNotes, rewardVersionCount, deleteRewardVersions, type SdMode } from "@/api/library";
 import { isTauri } from "@/lib/tauri";
 import { useCardSize } from "@/lib/useCardSize";
 import { useDragOut } from "@/lib/dragOut";
@@ -139,7 +142,7 @@ export function RewardGrid({
   const slideshowMenu = useSlideshowMenu();
   const navigate = useNavigate();
   // small buttons use the theme's control style (not grey zinc)
-  const { control } = useDialogTheme();
+  const { control, controlOn } = useDialogTheme();
   const irid = useAccent() === "iridescent";
 
   const [viewer, setViewer] = useState<{
@@ -151,6 +154,15 @@ export function RewardGrid({
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [rename, setRename] = useState<RenameTarget[] | null>(null);
+  // "Delete all versions": the reward asked about and how many it has
+  const [versionWipe, setVersionWipe] = useState<{
+    id: number;
+    title: string;
+    all: number;
+    watermark: number;
+    onlyWatermark: boolean;
+  } | null>(null);
+  const [wiping, setWiping] = useState(false);
   // reward whose Details panel is open
   const [details, setDetails] = useState<Reward | null>(null);
   // Details opened from "Add note…": the cursor starts in the notes
@@ -977,10 +989,33 @@ export function RewardGrid({
               : []),
           ]
         : []),
+      // "Tools": what works on all of the reward's pictures, in one submenu
       {
-        label: t("Find duplicates"),
-        icon: <CopyCheck className="h-4 w-4" />,
-        onClick: () => openDuplicates({ label: r.title, rewardId: Number(r.id) }),
+        label: t("Tools"),
+        icon: <Wrench className="h-4 w-4" />,
+        children: [
+          {
+            label: t("Find duplicates"),
+            icon: <CopyCheck className="h-4 w-4" />,
+            onClick: () => openDuplicates({ label: r.title, rewardId: Number(r.id) }),
+          },
+          ...(backed && r.status !== "missing" && isTauri()
+            ? [
+                // a line of text in a corner of every picture, removed in one go (WatermarkDialog)
+                {
+                  label: t("Remove watermark"),
+                  icon: <Stamp className="h-4 w-4" />,
+                  onClick: () => openWatermark({ rewardId: Number(r.id), label: r.title }),
+                },
+                // every edited version of the reward's pictures at once (the originals stay)
+                {
+                  label: t("Delete all versions"),
+                  icon: <ImageMinus className="h-4 w-4" />,
+                  onClick: () => void askWipeVersions(Number(r.id), r.title),
+                },
+              ]
+            : []),
+        ],
       },
       ...(srcs.length
         ? [
@@ -1070,6 +1105,32 @@ export function RewardGrid({
           ]
         : []),
     ]);
+  };
+
+  // "Delete all versions": ask with the count first (none: just say so)
+  const askWipeVersions = async (id: number, title: string) => {
+    try {
+      const { all, watermark } = await rewardVersionCount(id);
+      if (all === 0) showToast({ tone: "warn", title: t("This reward has no versions") });
+      // only watermark versions there: nothing to choose
+      else setVersionWipe({ id, title, all, watermark, onlyWatermark: watermark > 0 && watermark < all });
+    } catch (e) {
+      showToast({ tone: "error", title: t("Couldn’t delete the versions"), problem: `${e}` });
+    }
+  };
+  const wipeVersions = async () => {
+    if (!versionWipe) return;
+    setWiping(true);
+    try {
+      const n = await deleteRewardVersions(versionWipe.id, versionWipe.onlyWatermark);
+      setVersionWipe(null);
+      await refresh();
+      showToast({ tone: "success", title: tf("Deleted {what}", { what: tp("{n} versions", n) }) });
+    } catch (e) {
+      showToast({ tone: "error", title: t("Couldn’t delete the versions"), problem: `${e}` });
+    } finally {
+      setWiping(false);
+    }
   };
 
   // outline pill like "Details": icon only, label slides in on hover. No title: the
@@ -1418,6 +1479,45 @@ export function RewardGrid({
           />
         )}
       </AnimatePresence>
+
+      {versionWipe && (
+        <ConfirmDialog
+          title={t("Delete all versions?")}
+          body={
+            <>
+              {tf("To the recycle bin: {what} of “{title}”. The original pictures stay as they are.", {
+                what: tp("{n} versions", versionWipe.onlyWatermark ? versionWipe.watermark : versionWipe.all),
+                title: versionWipe.title,
+              })}
+              {/* own edits next to watermark versions: which ones go */}
+              {versionWipe.watermark > 0 && versionWipe.watermark < versionWipe.all && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {[
+                    { only: true, label: tf("Only “Watermark removed” ({n})", { n: versionWipe.watermark }) },
+                    { only: false, label: tf("All versions ({n})", { n: versionWipe.all }) },
+                  ].map((o) => (
+                    <button
+                      key={String(o.only)}
+                      type="button"
+                      onClick={() => setVersionWipe((v) => (v ? { ...v, onlyWatermark: o.only } : v))}
+                      className={cn("px-2.5 py-1 text-xs", versionWipe.onlyWatermark === o.only ? controlOn : control)}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {versionWipe.watermark > 0 && versionWipe.watermark < versionWipe.all && versionWipe.onlyWatermark && (
+                <div className="mt-2 text-xs text-zinc-500">{t("Your own edits stay.")}</div>
+              )}
+            </>
+          }
+          confirmLabel={t("Delete versions")}
+          busy={wiping}
+          onConfirm={() => void wipeVersions()}
+          onCancel={() => setVersionWipe(null)}
+        />
+      )}
 
       {sdNotice && (
         <SdNoticeDialog

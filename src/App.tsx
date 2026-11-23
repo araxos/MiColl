@@ -15,6 +15,7 @@ import { AppWallpaper } from "@/components/AppWallpaper";
 import { DropZone } from "@/components/DropZone";
 import { CommandPalette } from "@/components/CommandPalette";
 import { DuplicatesPanel } from "@/components/DuplicatesPanel";
+import { WatermarkHost } from "@/components/WatermarkDialog";
 import { DUPLICATES_EVENT, type DuplicateScope } from "@/lib/duplicates";
 import { StartPage } from "@/pages/StartPage";
 import { WishlistPage } from "@/pages/WishlistPage";
@@ -361,6 +362,8 @@ export default function App() {
             {dupScope && (
               <DuplicatesPanel scope={dupScope} onClose={() => setDupScope(null)} />
             )}
+            {/* the watermark remover, opened with an event (reward menu, editor) */}
+            <WatermarkHost />
             <AnimatePresence>
               {locked && (
                 <LockScreen

@@ -34,6 +34,8 @@ import {
   SplitSquareHorizontal,
   PersonStanding,
 } from "lucide-react";
+import { Stamp } from "lucide-react";
+import { openWatermark } from "@/lib/watermark";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { cn } from "@/lib/utils";
 import { useT, useTf } from "@/lib/i18n";
@@ -1971,6 +1973,16 @@ export function ImageEditor({
         <div className="ml-auto flex h-9 items-center gap-1.5">
           {tool === "erase" ? (
             <>
+              {/* the same watermark in every picture of the reward, in one go */}
+              <ActionBtn
+                onClick={() => openWatermark({ imagePath: versionKey })}
+                disabled={busy}
+                tone="ghost"
+                title={t("Remove a watermark (a line of text in a corner) from every picture of this reward")}
+              >
+                <Stamp className="h-4 w-4" />
+                {t("Whole reward")}
+              </ActionBtn>
               <ActionBtn onClick={doDetect} disabled={!hasMask || busy} tone="ghost">
                 <Sparkles className="h-4 w-4" />
                 {t("Detect")}

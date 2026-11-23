@@ -524,10 +524,14 @@ pub fn restore_rows(conn: &Connection, snap: &Snapshot) -> Result<(), String> {
         let taken = exists(conn, "SELECT 1 FROM image_versions WHERE id = ?1", &[&id]).map_err(e)?;
         versions.insert(id, insert(conn, "image_versions", row, taken, false).map_err(e)?);
     }
-    // the rest is keyed by natural keys: put back what isn't there
+    // the rest is keyed by natural keys: put back what isn't there. The shown version
+    // is put back over what's shown now (the action may have picked another one)
     for row in snap.rows_of("image_active_version") {
         let mut r = row.clone();
         r.insert("version_id".into(), map(&versions, int(row, "version_id").unwrap_or_default()).into());
+        if let Some(orig) = text(row, "orig_path") {
+            conn.execute("DELETE FROM image_active_version WHERE orig_path = ?1", params![orig]).map_err(e)?;
+        }
         insert(conn, "image_active_version", &r, false, true).map_err(e)?;
     }
     for row in snap.rows_of("reward_collabs") {

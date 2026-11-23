@@ -19,6 +19,7 @@ import {
   Tag,
   Eye,
   Pencil,
+  Loader2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
@@ -1970,13 +1971,13 @@ export function ImportReviewTree({
           </div>
 
           <div className={cn("flex justify-end gap-2 border-t px-5 py-3", dlg.divider)}>
-            <Button variant="ghost" onClick={onCancel} disabled={busy}>
+            <Button variant="ghost" onClick={onCancel} disabled={busy || checking}>
               {t("Cancel")}
             </Button>
             {root && (
               <Button
                 variant="ghost"
-                disabled={busy || rows.length === 0}
+                disabled={busy || checking || rows.length === 0}
                 onClick={onQuickImport}
                 title={tf("Combine everything into one reward under “{platform}”, ignoring periods", {
                   platform: quickPlatformLabel,
@@ -1991,11 +1992,16 @@ export function ImportReviewTree({
             <Button
               variant={sakura ? "outline" : "primary"}
               className={sakura ? "sak-chip sak-chip--lead sak-petal-cut" : pyre ? "ir-go" : undefined}
-              disabled={busy || rows.length === 0}
+              disabled={busy || checking || rows.length === 0}
               onClick={confirm}
             >
-              <FolderInput className="h-4 w-4" />
-              {busy ? t("Importing…") : tf("Import {n}", { n: outCount })}
+              {/* the "already there?" check before the import can take a moment */}
+              {checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderInput className="h-4 w-4" />}
+              {checking
+                ? t("Checking if it’s already there…")
+                : busy
+                  ? t("Importing…")
+                  : tf("Import {n}", { n: outCount })}
             </Button>
           </div>
           {/* while importing the panel grows a loading bar at the bottom */}

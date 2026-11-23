@@ -20,6 +20,7 @@ mod thumbs;
 mod transfer;
 mod unlock;
 mod wallsets;
+mod watermark;
 mod history;
 mod inbox;
 mod siteicon;
@@ -4958,12 +4959,14 @@ async fn import_known(
     // the library's files by name (lowercase), and where each reward sits
     let (by_name, info) = {
         let conn = db.conn();
-        let mut by_name: HashMap<String, Vec<(i64, String)>> = HashMap::new();
+        let mut by_name: FilesByName = HashMap::new();
         let mut stmt = conn
-            .prepare("SELECT reward_id, file_path FROM images")
+            .prepare("SELECT reward_id, file_path, size FROM images")
             .map_err(map_err)?;
         let rows = stmt
-            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+            .query_map([], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<i64>>(2)?.map(|v| v as u64)))
+            })
             .map_err(map_err)?;
         for row in rows.flatten() {
             let name = std::path::Path::new(&row.1)
@@ -5007,20 +5010,38 @@ async fn import_known(
         (by_name, info)
     };
 
-    tauri::async_runtime::spawn_blocking(move || known_imports(&rewards, &by_name, &info))
+    let (found, learned) = tauri::async_runtime::spawn_blocking(move || known_imports(&rewards, &by_name, &info))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    // sizes that had to be asked from the disk: kept for next time
+    if !learned.is_empty() {
+        let conn = db.conn();
+        let tx = conn.unchecked_transaction();
+        if let Ok(tx) = tx {
+            for (path, size) in &learned {
+                let _ = tx.execute(
+                    "UPDATE images SET size = ?2 WHERE file_path = ?1",
+                    rusqlite::params![path, *size as i64],
+                );
+            }
+            let _ = tx.commit();
+        }
+    }
+    Ok(found)
 }
 
-/// The library's files by name (lowercase): (reward id, path).
-type FilesByName = std::collections::HashMap<String, Vec<(i64, String)>>;
+/// The library's files by name (lowercase): (reward id, path, size on disk if known).
+type FilesByName = std::collections::HashMap<String, Vec<(i64, String, Option<u64>)>>;
 
-/// import_known's work, off the DB lock: info = reward id -> (title, shelf).
+/// import_known's work, off the DB lock: info = reward id -> (title, shelf). Library
+/// files are compared by the size stored for them (a stored size is what's on disk: an
+/// encrypted copy is OVERHEAD bigger than the incoming plain file); only those without
+/// one are looked up, and returned to be stored (path, size).
 fn known_imports(
     rewards: &[indexer::ResolvedReward],
     by_name: &FilesByName,
     info: &std::collections::HashMap<i64, (String, String)>,
-) -> Vec<ImportKnown> {
+) -> (Vec<ImportKnown>, Vec<(String, u64)>) {
     use std::collections::{HashMap, HashSet};
     fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
         let Ok(rd) = std::fs::read_dir(dir) else { return };
@@ -5034,7 +5055,7 @@ fn known_imports(
             }
         }
     }
-    // sizes of library files, read once each
+    // library files without a stored size: looked up once each
     let mut sizes: HashMap<String, Option<u64>> = HashMap::new();
     let mut out = Vec::new();
     for r in rewards {
@@ -5054,13 +5075,17 @@ fn known_imports(
             let Some(cands) = by_name.get(&name) else { continue };
             let Some(size) = crypto::plain_len(f) else { continue };
             let mut hit: HashSet<i64> = HashSet::new();
-            for (rid, path) in cands {
+            for (rid, path, stored) in cands {
                 // the same folder again (a rescan, or importing in place) isn't a copy
                 if std::path::Path::new(path).starts_with(src) {
                     continue;
                 }
-                let s = *sizes.entry(path.clone()).or_insert_with(|| crypto::plain_len(std::path::Path::new(path)));
-                if s == Some(size) {
+                let on_disk = stored.or_else(|| {
+                    *sizes
+                        .entry(path.clone())
+                        .or_insert_with(|| std::fs::metadata(path).ok().map(|m| m.len()))
+                });
+                if on_disk == Some(size) || on_disk == Some(size + crypto::OVERHEAD) {
                     hit.insert(*rid);
                 }
             }
@@ -5087,7 +5112,8 @@ fn known_imports(
             }
         }
     }
-    out
+    let learned = sizes.into_iter().filter_map(|(p, s)| s.map(|s| (p, s))).collect();
+    (out, learned)
 }
 
 /// Name for the clash check (case-insensitive, trimmed).
@@ -7987,6 +8013,113 @@ fn delete_image_version(db: State<Db>, version_id: i64) -> Result<(), String> {
     Ok(())
 }
 
+/// The label of the versions "Remove watermark" makes (tells them from own edits).
+const WM_VERSION_LABEL: &str = "Watermark removed";
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RewardVersions {
+    all: u32,
+    /// Of those, made by "Remove watermark".
+    watermark: u32,
+}
+
+/// The versions of a reward's pictures: (id, original, file), all or only the watermark ones.
+fn reward_versions_of(
+    conn: &rusqlite::Connection,
+    reward_id: i64,
+    only_watermark: bool,
+) -> Result<Vec<(i64, String, String)>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, orig_path, file_path FROM image_versions
+             WHERE orig_path IN (SELECT file_path FROM images WHERE reward_id = ?1)
+               AND (?2 = 0 OR label = ?3)
+             ORDER BY id",
+        )
+        .map_err(map_err)?;
+    let rows = stmt
+        .query_map(rusqlite::params![reward_id, only_watermark as i64, WM_VERSION_LABEL], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
+        .map_err(map_err)?;
+    Ok(rows.flatten().collect())
+}
+
+/// How many versions the pictures of a reward have, and how many of them are
+/// "Watermark removed".
+#[tauri::command]
+fn reward_version_count(db: State<Db>, reward_id: i64) -> Result<RewardVersions, String> {
+    let conn = db.conn();
+    let all = reward_versions_of(&conn, reward_id, false)?.len() as u32;
+    let watermark = reward_versions_of(&conn, reward_id, true)?.len() as u32;
+    Ok(RewardVersions { all, watermark })
+}
+
+/// Delete the versions of a reward's pictures in one go (rows + files to the recycle
+/// bin): all of them, or only those "Remove watermark" made (own edits stay). A picture
+/// whose shown version goes shows its newest version left (an own edit), or the
+/// original when there's none. One history entry, undone from there. Returns how many
+/// went.
+#[tauri::command]
+fn delete_reward_versions(db: State<Db>, reward_id: i64, only_watermark: bool) -> Result<u32, String> {
+    let conn = db.conn();
+    let list = reward_versions_of(&conn, reward_id, only_watermark)?;
+    if list.is_empty() {
+        return Ok(0);
+    }
+    let ids = list.iter().map(|v| v.0.to_string()).collect::<Vec<_>>().join(",");
+    let mut snap = history::Snapshot::default();
+    snap.add(&conn, "image_versions", &format!("id IN ({ids})"), &[]);
+    snap.add(&conn, "image_active_version", &format!("version_id IN ({ids})"), &[]);
+    // the pictures that showed one of them
+    let lost: Vec<String> = {
+        let mut stmt = conn
+            .prepare(&format!("SELECT orig_path FROM image_active_version WHERE version_id IN ({ids})"))
+            .map_err(map_err)?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(map_err)?;
+        rows.flatten().collect()
+    };
+    conn.execute(&format!("DELETE FROM image_active_version WHERE version_id IN ({ids})"), [])
+        .map_err(map_err)?;
+    conn.execute(&format!("DELETE FROM image_versions WHERE id IN ({ids})"), []).map_err(map_err)?;
+    // they show the newest version they still have
+    for orig in &lost {
+        let next: Option<i64> = conn
+            .query_row(
+                "SELECT MAX(id) FROM image_versions WHERE orig_path = ?1",
+                rusqlite::params![orig],
+                |r| r.get(0),
+            )
+            .map_err(map_err)?;
+        if next.is_some() {
+            db::set_active_version(&conn, orig, next).map_err(map_err)?;
+        }
+    }
+    let journal = TrashJournal::start();
+    for (_, _, fp) in &list {
+        let p = std::path::PathBuf::from(fp);
+        if p.exists() {
+            let _ = recycle(&p);
+        }
+    }
+    snap.trashed = journal.take();
+    let (artist, place) = reward_place(&conn, reward_id);
+    history::log_with_snapshot(
+        &conn,
+        history::Entry {
+            action: "delete",
+            kind: "version",
+            artist,
+            place,
+            files: history::Files::Trash,
+            items: list.iter().map(|(_, orig, fp)| history::Item::at(file_name_of(orig), fp.clone())).collect(),
+        },
+        Some(snap),
+    );
+    Ok(list.len() as u32)
+}
+
 /* ---- "keep running in the tray" ------------------------------------- */
 /* With this on, closing the window hides it and the app keeps running in the tray.
    Off by default, the tray icon only exists while it's on.
@@ -8266,6 +8399,512 @@ async fn save_video_screenshot(
     .await
     .map_err(|e| e.to_string())??;
     Ok(VideoShot { path, reward_id })
+}
+
+/* ---- watermark remover (WatermarkDialog.tsx, watermark.rs) ----------------- */
+
+/// One picture of a watermark job and what comes off it.
+struct WmImage {
+    id: i64,
+    /// What the viewer shows (its active version, else the original): what gets cleaned.
+    shown: String,
+    /// The original, the versions hang on it.
+    orig: String,
+    /// What comes off it, corner by corner: the template laid on, or its own find.
+    own: Vec<watermark::Hit>,
+    /// Found only through the template (nothing found on it by itself).
+    guessed: bool,
+    /// Its active version before, and the version this job made (for undo).
+    before: Option<i64>,
+    made: Option<i64>,
+}
+
+struct WmJob {
+    images: Vec<WmImage>,
+}
+
+fn wm_jobs() -> &'static std::sync::Mutex<std::collections::HashMap<u64, WmJob>> {
+    static JOBS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u64, WmJob>>> = std::sync::OnceLock::new();
+    JOBS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// "Stop" in the watermark window (scan and removal ask it between pictures and pieces).
+static WM_STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn wm_stopped() -> bool {
+    WM_STOP.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn wm_progress(app: &AppHandle, job: u64, phase: &str, done: usize, total: usize) {
+    let _ = app.emit(
+        "wm-progress",
+        serde_json::json!({ "job": job, "phase": phase, "done": done, "total": total }),
+    );
+}
+
+/// A picture decoded upright (EXIF turn applied, like the viewer shows it), and whether
+/// it's a JPEG (its version stays one).
+fn wm_load(path: &str, key: Option<[u8; 32]>) -> Result<(image::RgbaImage, bool), String> {
+    use image::ImageDecoder;
+    let raw = std::fs::read(path).map_err(|e| format!("read {path}: {e}"))?;
+    let bytes = if crypto::is_encrypted(&raw) {
+        crypto::Dek::from_bytes(key.ok_or("locked: cannot decrypt this file")?).decrypt_bytes(&raw)?
+    } else {
+        raw
+    };
+    let jpeg = matches!(image::guess_format(&bytes), Ok(image::ImageFormat::Jpeg));
+    let mut dec = image::ImageReader::new(std::io::Cursor::new(&bytes))
+        .with_guessed_format()
+        .map_err(|e| format!("{path}: {e}"))?
+        .into_decoder()
+        .map_err(|e| format!("{path}: {e}"))?;
+    let turn = dec.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
+    let mut img = image::DynamicImage::from_decoder(dec).map_err(|e| format!("{path}: {e}"))?;
+    img.apply_orientation(turn);
+    Ok((img.to_rgba8(), jpeg))
+}
+
+/// Everything that comes off one picture, full size.
+fn wm_mask(im: &WmImage, w: u32, h: u32) -> image::GrayImage {
+    let mut out = image::GrayImage::new(w, h);
+    for hit in &im.own {
+        for (x, y, p) in hit.mask.enumerate_pixels() {
+            let (gx, gy) = (hit.region.x + x, hit.region.y + y);
+            if p[0] > 0 && gx < w && gy < h {
+                out.put_pixel(gx, gy, image::Luma([255]));
+            }
+        }
+    }
+    out
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WmItem {
+    id: String,
+    /// The file shown (for the thumbnail).
+    path: String,
+    /// Found only through the other pictures.
+    guessed: bool,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WmScan {
+    /// The pictures something comes off.
+    items: Vec<WmItem>,
+    /// Pictures looked at, and the rest of the reward (videos, GIFs, other files).
+    pictures: u32,
+    skipped: u32,
+    /// A template was used: the watermark from the clearest picture laid onto the rest.
+    shared: bool,
+    /// The file name of that picture.
+    template_from: Option<String>,
+}
+
+/// Mode A: look for a line of text in the chosen corners of every picture of a reward,
+/// compare the finds, and remember what comes off each (as job). Nothing is changed yet.
+/// corners: "tl" "tr" "bl" "br" "bc". Progress: "wm-progress" (phase "scan").
+#[tauri::command]
+async fn wm_scan(
+    app: AppHandle,
+    db: State<'_, Db>,
+    dek: State<'_, DekState>,
+    reward_id: i64,
+    corners: Vec<String>,
+    job: u64,
+) -> Result<WmScan, String> {
+    let key = session_key(&dek);
+    let corners: Vec<watermark::Corner> = corners.iter().filter_map(|c| watermark::Corner::from_id(c)).collect();
+    if corners.is_empty() {
+        return Err("Pick a corner to search.".into());
+    }
+    // the reward's files, and what each shows now
+    let (pics, skipped) = {
+        let conn = db.conn();
+        let mut stmt = conn
+            .prepare("SELECT id, file_path FROM images WHERE reward_id = ?1 ORDER BY sort, id")
+            .map_err(map_err)?;
+        let rows: Vec<(i64, String)> = stmt
+            .query_map(rusqlite::params![reward_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(map_err)?
+            .flatten()
+            .collect();
+        let mut pics = Vec::new();
+        let mut skipped = 0u32;
+        for (id, path) in rows {
+            let gif = path.to_ascii_lowercase().ends_with(".gif");
+            if !dup::is_image(&path) || gif {
+                skipped += 1;
+                continue;
+            }
+            let (versions, active) = db::list_image_versions(&conn, &path).map_err(map_err)?;
+            let shown = active
+                .and_then(|a| versions.iter().find(|v| v.id == a).map(|v| v.file_path.clone()))
+                .unwrap_or_else(|| path.clone());
+            pics.push((id, path, shown, active));
+        }
+        (pics, skipped)
+    };
+    WM_STOP.store(false, std::sync::atomic::Ordering::Relaxed);
+    let app2 = app.clone();
+    let (images, templated, template_from) = tauri::async_runtime::spawn_blocking(move || {
+        let total = pics.len();
+        // 1. every picture on its own
+        let mut sizes: Vec<(u32, u32)> = Vec::new();
+        let mut finds: Vec<Vec<Option<watermark::Hit>>> = Vec::new();
+        for (i, (_, _, shown, _)) in pics.iter().enumerate() {
+            if wm_stopped() {
+                return Err(ai::STOPPED.to_string());
+            }
+            wm_progress(&app2, job, "scan", i, total);
+            match wm_load(shown, key) {
+                Ok((img, _)) => {
+                    sizes.push(img.dimensions());
+                    finds.push(corners.iter().map(|c| watermark::find_text(&img, *c, 0.6)).collect());
+                }
+                Err(_) => {
+                    sizes.push((0, 0));
+                    finds.push(corners.iter().map(|_| None).collect());
+                }
+            }
+        }
+        wm_progress(&app2, job, "scan", total, total);
+        // 2. per corner the templates: per picture size the clearest find of the whole line
+        let templates: Vec<Vec<(usize, watermark::Template)>> = corners
+            .iter()
+            .enumerate()
+            .map(|(ci, corner)| {
+                let list: Vec<((u32, u32), Option<&watermark::Hit>)> =
+                    finds.iter().enumerate().map(|(pi, f)| (sizes[pi], f[ci].as_ref())).collect();
+                // their edges are taken from those pictures, so they're loaded again
+                watermark::template_sources(&list)
+                    .into_iter()
+                    .filter_map(|pi| {
+                        let (img, _) = wm_load(&pics[pi].2, key).ok()?;
+                        Some((pi, watermark::Template::from_hit(finds[pi][ci].as_ref()?, &img, *corner)))
+                    })
+                    .collect()
+            })
+            .collect();
+        // 3. every picture: the template where it fits (only the text, the same on all),
+        // its own find where none does
+        let mut images: Vec<WmImage> = pics
+            .iter()
+            .map(|(id, orig, shown, before)| WmImage {
+                id: *id,
+                shown: shown.clone(),
+                orig: orig.clone(),
+                own: Vec::new(),
+                guessed: false,
+                before: *before,
+                made: None,
+            })
+            .collect();
+        let any_template = templates.iter().any(|t| !t.is_empty());
+        let mut from: Vec<usize> = Vec::new();
+        for (pi, _) in templates.iter().flatten() {
+            if !from.contains(pi) {
+                from.push(*pi);
+            }
+        }
+        let names: Vec<String> = from
+            .iter()
+            .filter_map(|pi| std::path::Path::new(&pics[*pi].1).file_name().map(|n| n.to_string_lossy().into_owned()))
+            .collect();
+        let template_from = (!names.is_empty()).then(|| names.join(", "));
+        let templates: Vec<Vec<watermark::Template>> =
+            templates.into_iter().map(|ts| ts.into_iter().map(|(_, t)| t).collect()).collect();
+        for (pi, (_, _, shown, _)) in pics.iter().enumerate() {
+            if wm_stopped() {
+                return Err(ai::STOPPED.to_string());
+            }
+            wm_progress(&app2, job, "check", pi, total);
+            let img = if any_template && sizes[pi].0 > 0 { wm_load(shown, key).ok().map(|x| x.0) } else { None };
+            for ci in 0..corners.len() {
+                let placed = img.as_ref().and_then(|img| watermark::place_best(img, &templates[ci])).map(|x| x.0);
+                let fits = placed.as_ref().is_some_and(|p| p.score >= watermark::PLACE_MIN);
+                match (placed, &finds[pi][ci]) {
+                    (Some(p), own) if fits => {
+                        if let Some(hit) = watermark::hit_from_mask(&p.mask) {
+                            if own.is_none() {
+                                images[pi].guessed = true;
+                            }
+                            images[pi].own.push(hit);
+                        }
+                    }
+                    (_, Some(own)) => images[pi].own.push(own.clone()),
+                    _ => {}
+                }
+            }
+        }
+        wm_progress(&app2, job, "check", total, total);
+        Ok((images, any_template, template_from))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    let pictures = images.len() as u32;
+    let items = images
+        .iter()
+        .filter(|im| !im.own.is_empty())
+        .map(|im| WmItem { id: im.id.to_string(), path: im.shown.clone(), guessed: im.guessed })
+        .collect();
+    let kept: Vec<WmImage> = images.into_iter().filter(|im| !im.own.is_empty()).collect();
+    wm_jobs().lock().map_err(map_err)?.insert(job, WmJob { images: kept });
+    Ok(WmScan { items, pictures, skipped, shared: templated, template_from })
+}
+
+/// A picture and its mask, cloned out of a job (the work runs off the lock).
+fn wm_take(job: u64, image_id: i64) -> Result<WmImage, String> {
+    let jobs = wm_jobs().lock().map_err(map_err)?;
+    let j = jobs.get(&job).ok_or("This search is gone — search again.")?;
+    let im = j.images.iter().find(|i| i.id == image_id).ok_or("That picture isn't in this search.")?;
+    Ok(WmImage {
+        id: im.id,
+        shown: im.shown.clone(),
+        orig: im.orig.clone(),
+        own: im.own.clone(),
+        guessed: im.guessed,
+        before: im.before,
+        made: im.made,
+    })
+}
+
+/// The picture cleaned in memory: LaMa over its mask, piece by piece.
+fn wm_clean(
+    data: &std::path::Path,
+    im: &WmImage,
+    key: Option<[u8; 32]>,
+) -> Result<(image::RgbaImage, image::RgbaImage, image::GrayImage, bool), String> {
+    let (img, jpeg) = wm_load(&im.shown, key)?;
+    let (w, h) = img.dimensions();
+    let mask = wm_mask(im, w, h);
+    let mut out = img.clone();
+    watermark::remove_in_pieces(data, &mut out, &mask, &wm_stopped)?;
+    Ok((img, out, mask, jpeg))
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WmPreview {
+    /// The spot around the watermark before and after, as JPEG data URLs.
+    before: String,
+    after: String,
+}
+
+/// Before/after of one picture (the spot around the watermark), nothing saved.
+#[tauri::command]
+async fn wm_preview(app: AppHandle, dek: State<'_, DekState>, job: u64, image_id: String) -> Result<WmPreview, String> {
+    let key = session_key(&dek);
+    let data = app_data(&app)?;
+    if !ai::model_ready(&data, ai::Model::Lama) {
+        return Err("The AI model isn't downloaded yet.".into());
+    }
+    let id: i64 = image_id.parse().map_err(map_err)?;
+    let im = wm_take(job, id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let (before, after, mask, _) = wm_clean(&data, &im, key)?;
+        let (w, h) = before.dimensions();
+        let (x0, y0, x1, y1) = edit::mask_bbox(&mask).ok_or("Nothing to remove here.")?;
+        // the spot with room around it, at most 760 px wide
+        let pad = ((y1 - y0 + 1) * 3).max(40);
+        let cx0 = x0.saturating_sub(pad);
+        let cy0 = y0.saturating_sub(pad);
+        let cx1 = (x1 + pad + 1).min(w);
+        let cy1 = (y1 + pad + 1).min(h);
+        let url = |img: &image::RgbaImage| -> Result<String, String> {
+            let crop = image::imageops::crop_imm(img, cx0, cy0, cx1 - cx0, cy1 - cy0).to_image();
+            let crop = if crop.width() > 760 {
+                let nh = (crop.height() as f32 * 760.0 / crop.width() as f32).round().max(1.0) as u32;
+                image::imageops::resize(&crop, 760, nh, image::imageops::FilterType::Triangle)
+            } else {
+                crop
+            };
+            let mut buf = Vec::new();
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 88)
+                .encode_image(&image::DynamicImage::ImageRgba8(crop).to_rgb8())
+                .map_err(|e| e.to_string())?;
+            Ok(format!("data:image/jpeg;base64,{}", B64.encode(buf)))
+        };
+        Ok(WmPreview { before: url(&before)?, after: url(&after)? })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WmApplied {
+    done: u32,
+    failed: Vec<String>,
+    stopped: bool,
+}
+
+/// Remove the watermark from these pictures of a job, each saved as a version (the
+/// original stays) and switched on. Progress: "wm-progress" (phase "remove"). Stop ends
+/// it after the piece it's on; what's done stays done.
+#[tauri::command]
+async fn wm_apply(
+    app: AppHandle,
+    db: State<'_, Db>,
+    dek: State<'_, DekState>,
+    job: u64,
+    image_ids: Vec<String>,
+) -> Result<WmApplied, String> {
+    let key = session_key(&dek);
+    let data = app_data(&app)?;
+    if !ai::model_ready(&data, ai::Model::Lama) {
+        return Err("The AI model isn't downloaded yet.".into());
+    }
+    let dir = data.join("versions");
+    std::fs::create_dir_all(&dir).map_err(map_err)?;
+    WM_STOP.store(false, std::sync::atomic::Ordering::Relaxed);
+    let ids: Vec<i64> = image_ids.iter().filter_map(|s| s.parse().ok()).collect();
+    let total = ids.len();
+    let mut out = WmApplied { done: 0, failed: Vec::new(), stopped: false };
+    for (n, id) in ids.iter().enumerate() {
+        if wm_stopped() {
+            out.stopped = true;
+            break;
+        }
+        wm_progress(&app, job, "remove", n, total);
+        let im = match wm_take(job, *id) {
+            Ok(x) => x,
+            Err(e) => {
+                out.failed.push(e);
+                continue;
+            }
+        };
+        let name = std::path::Path::new(&im.orig)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let data2 = data.clone();
+        let cleaned = tauri::async_runtime::spawn_blocking(move || -> Result<(Vec<u8>, &'static str), String> {
+            let (_, clean, _, jpeg) = wm_clean(&data2, &im, key)?;
+            let mut bytes = Vec::new();
+            let ext = if jpeg {
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 95)
+                    .encode_image(&image::DynamicImage::ImageRgba8(clean).to_rgb8())
+                    .map_err(|e| format!("encode: {e}"))?;
+                "jpg"
+            } else {
+                image::DynamicImage::ImageRgba8(clean)
+                    .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+                    .map_err(|e| format!("encode: {e}"))?;
+                "png"
+            };
+            Ok((bytes, ext))
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        let (bytes, ext) = match cleaned {
+            Ok(x) => x,
+            Err(e) if e == ai::STOPPED => {
+                out.stopped = true;
+                break;
+            }
+            Err(e) => {
+                out.failed.push(format!("{name}: {e}"));
+                continue;
+            }
+        };
+        // a version of the original, switched on (like the editor's save)
+        let res: Result<i64, String> = (|| {
+            let conn = db.conn();
+            let orig = {
+                let jobs = wm_jobs().lock().map_err(map_err)?;
+                jobs.get(&job).and_then(|j| j.images.iter().find(|i| i.id == *id).map(|i| i.orig.clone())).ok_or("gone")?
+            };
+            let vid = db::add_image_version(&conn, &orig, "", Some(WM_VERSION_LABEL)).map_err(map_err)?;
+            let dest = dir.join(format!("{vid}.{ext}"));
+            let to_write = match key {
+                Some(k) => crypto::Dek::from_bytes(k).encrypt_bytes(&bytes),
+                None => bytes,
+            };
+            if let Err(e) = crypto::atomic_write(&dest, &to_write) {
+                let _ = conn.execute("DELETE FROM image_versions WHERE id = ?1", rusqlite::params![vid]);
+                return Err(e);
+            }
+            conn.execute(
+                "UPDATE image_versions SET file_path = ?2 WHERE id = ?1",
+                rusqlite::params![vid, dest.to_string_lossy().to_string()],
+            )
+            .map_err(map_err)?;
+            db::set_active_version(&conn, &orig, Some(vid)).map_err(map_err)?;
+            Ok(vid)
+        })();
+        match res {
+            Ok(vid) => {
+                out.done += 1;
+                if let Ok(mut jobs) = wm_jobs().lock() {
+                    if let Some(im) = jobs.get_mut(&job).and_then(|j| j.images.iter_mut().find(|i| i.id == *id)) {
+                        im.made = Some(vid);
+                    }
+                }
+            }
+            Err(e) => out.failed.push(format!("{name}: {e}")),
+        }
+    }
+    wm_progress(&app, job, "remove", total, total);
+    Ok(out)
+}
+
+/// Undo a job: every picture it changed shows what it showed before again (the made
+/// versions stay in the picture's version list). Returns how many.
+#[tauri::command]
+fn wm_undo(db: State<Db>, job: u64) -> Result<u32, String> {
+    let conn = db.conn();
+    let mut jobs = wm_jobs().lock().map_err(map_err)?;
+    let j = jobs.get_mut(&job).ok_or("This search is gone.")?;
+    let mut n = 0;
+    for im in j.images.iter_mut() {
+        if im.made.take().is_some() {
+            db::set_active_version(&conn, &im.orig, im.before).map_err(map_err)?;
+            n += 1;
+        }
+    }
+    Ok(n)
+}
+
+/// Stop the running scan or removal.
+#[tauri::command]
+fn wm_stop() {
+    WM_STOP.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The window closed: forget its job.
+#[tauri::command]
+fn wm_close(job: u64) {
+    if let Ok(mut jobs) = wm_jobs().lock() {
+        jobs.remove(&job);
+    }
+}
+
+/// The reward a picture (or one of its versions) belongs to, for the editor's button.
+#[tauri::command]
+fn wm_reward_of(db: State<Db>, path: String) -> Result<Option<(i64, String)>, String> {
+    let conn = db.conn();
+    let find = |p: &str| -> Option<(i64, String)> {
+        conn.query_row(
+            "SELECT r.id, r.title FROM images i JOIN rewards r ON r.id = i.reward_id WHERE i.file_path = ?1",
+            rusqlite::params![p],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .ok()
+    };
+    if let Some(x) = find(&path) {
+        return Ok(Some(x));
+    }
+    let orig: Option<String> = conn
+        .query_row(
+            "SELECT orig_path FROM image_versions WHERE file_path = ?1",
+            rusqlite::params![path],
+            |r| r.get(0),
+        )
+        .ok();
+    Ok(orig.and_then(|o| find(&o)))
 }
 
 /* The tray menu: Open, Add rewards, Lock, the recently opened creators, Quit. The
@@ -12406,6 +13045,8 @@ pub fn run() {
             image_versions_for,
             set_active_version,
             delete_image_version,
+            reward_version_count,
+            delete_reward_versions,
             set_password,
             has_password,
             verify_password,
@@ -12466,6 +13107,13 @@ pub fn run() {
             take_launch_action,
             open_popout,
             open_video_pip,
+            wm_scan,
+            wm_preview,
+            wm_apply,
+            wm_undo,
+            wm_stop,
+            wm_close,
+            wm_reward_of,
             save_video_screenshot,
             is_portable,
             portable_update,
@@ -13342,10 +13990,10 @@ mod import_known_tests {
         std::fs::write(other.join("02.jpg"), vec![0u8; 21]).unwrap();
         let mut by_name: FilesByName = std::collections::HashMap::new();
         for e in std::fs::read_dir(&lib).unwrap().flatten() {
-            by_name
-                .entry(e.file_name().to_string_lossy().to_lowercase())
-                .or_default()
-                .push((7, e.path().to_string_lossy().into_owned()));
+            // 01: its size stored (as an encrypted copy would be), the rest looked up
+            let name = e.file_name().to_string_lossy().to_lowercase();
+            let stored = (name == "01.jpg").then_some(10 + crate::crypto::OVERHEAD);
+            by_name.entry(name).or_default().push((7, e.path().to_string_lossy().into_owned(), stored));
         }
         let mut info = std::collections::HashMap::new();
         info.insert(7i64, ("Set A".to_string(), "Nora · Patreon · 2026-03".to_string()));
@@ -13364,10 +14012,13 @@ mod import_known_tests {
             custom_year: None,
             custom_month: None,
         };
-        let found = known_imports(&[row(&inc, "Set A (copy)"), row(&other, "Other"), row(&lib, "Set A")], &by_name, &info);
+        let (found, learned) =
+            known_imports(&[row(&inc, "Set A (copy)"), row(&other, "Other"), row(&lib, "Set A")], &by_name, &info);
         // only the copy: the other set differs, the library's own folder is a rescan
         assert_eq!(found.len(), 1);
         assert_eq!((found[0].reward_id, found[0].matched, found[0].files), (7, 5, 5));
+        // the four without a stored size were looked up, to be kept
+        assert_eq!(learned.len(), 4);
         let _ = std::fs::remove_dir_all(&base);
     }
 }

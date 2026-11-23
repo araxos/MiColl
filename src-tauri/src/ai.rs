@@ -405,6 +405,69 @@ pub fn inpaint_lama(app_data: &Path, img: &mut RgbaImage, mask: &GrayImage) -> R
     Ok(())
 }
 
+/// LaMa on the window around `paste` (the part to fill now), with everything masked in
+/// that window counted as hole, and only `paste` written back. For a long watermark in
+/// pieces: the letters still to come aren't shown to the model as context, so it can't
+/// draw them back in.
+pub fn inpaint_lama_part(
+    app_data: &Path,
+    img: &mut RgbaImage,
+    mask: &GrayImage,
+    paste: &GrayImage,
+) -> Result<(), String> {
+    let (bx0, by0, bx1, by1) = crate::edit::mask_bbox(paste).ok_or("The selection is empty.")?;
+    let (iw, ih) = (img.width(), img.height());
+    let hole_dim = (bx1 - bx0 + 1).max(by1 - by0 + 1);
+    let want = (hole_dim * 3).clamp(LAMA_NET, 2048);
+    // the window centred on the part, also where that's past the picture's edge: what's
+    // outside is the picture mirrored (the mask too). A hole at the window's edge gets
+    // specks there from the model; this way it has context on every side.
+    let cx0 = (((bx0 + bx1) / 2) as i64 - want as i64 / 2).min(bx0 as i64);
+    let cy0 = (((by0 + by1) / 2) as i64 - want as i64 / 2).min(by0 as i64);
+    let cw = want.max((bx1 as i64 - cx0 + 1) as u32);
+    let ch = want.max((by1 as i64 - cy0 + 1) as u32);
+    let mirror = |v: i64, n: u32| -> u32 {
+        let n = n as i64;
+        let v = if v < 0 { -v - 1 } else { v };
+        let v = if v >= n { 2 * n - v - 1 } else { v };
+        v.clamp(0, n - 1) as u32
+    };
+    let at = |x: u32, y: u32| (mirror(cx0 + x as i64, iw), mirror(cy0 + y as i64, ih));
+    let net = LAMA_NET;
+    let crop = RgbaImage::from_fn(cw, ch, |x, y| {
+        let (gx, gy) = at(x, y);
+        *img.get_pixel(gx, gy)
+    });
+    let small = image::imageops::resize(&crop, net, net, FilterType::CatmullRom);
+    let mask_crop = GrayImage::from_fn(cw, ch, |x, y| {
+        let (gx, gy) = at(x, y);
+        *mask.get_pixel(gx, gy)
+    });
+    let mask_small = image::imageops::resize(&mask_crop, net, net, FilterType::Triangle);
+    let out_img = lama_pass(app_data, &small, &mask_small)?;
+    let restored = image::imageops::resize(&out_img, cw, ch, FilterType::CatmullRom);
+    let rim = crate::edit::dilate_mask(paste, 1);
+    for y in 0..ch {
+        for x in 0..cw {
+            let (gx, gy) = (cx0 + x as i64, cy0 + y as i64);
+            if gx < 0 || gy < 0 || gx >= iw as i64 || gy >= ih as i64 {
+                continue;
+            }
+            let (gx, gy) = (gx as u32, gy as u32);
+            let m = paste.get_pixel(gx, gy)[0];
+            if m == 0 && rim.get_pixel(gx, gy)[0] == 0 {
+                continue;
+            }
+            let src = restored.get_pixel(x, y);
+            let dst = *img.get_pixel(gx, gy);
+            let blend = if m > 0 { 1.0f32 } else { 0.5 };
+            let mix = |a: u8, b: u8| -> u8 { (a as f32 * blend + b as f32 * (1.0 - blend)).round() as u8 };
+            img.put_pixel(gx, gy, image::Rgba([mix(src[0], dst[0]), mix(src[1], dst[1]), mix(src[2], dst[2]), dst[3]]));
+        }
+    }
+    Ok(())
+}
+
 /// One LaMa pass on a 512x512 window: small = the picture, mask_small = what to fill
 /// (anything above 8 counts, grown a bit). Returns the filled 512x512 picture.
 fn lama_pass(app_data: &Path, small: &RgbaImage, mask_small: &GrayImage) -> Result<RgbaImage, String> {

@@ -762,6 +762,9 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN access TEXT", []);
     let _ = conn.execute("ALTER TABLE artists ADD COLUMN updated_at TEXT", []);
     let _ = conn.execute("ALTER TABLE images ADD COLUMN phash INTEGER", []);
+    // the file's size on disk (as stored: an encrypted one with its overhead), so the
+    // import check needn't open library files. Filled when indexing, else on first need
+    let _ = conn.execute("ALTER TABLE images ADD COLUMN size INTEGER", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN is_root INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN is_extra INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN is_partial INTEGER NOT NULL DEFAULT 0", []);

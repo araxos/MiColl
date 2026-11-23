@@ -1578,6 +1578,18 @@ export async function deleteImageVersion(versionId: number): Promise<void> {
   await invoke("delete_image_version", { versionId });
 }
 
+/** How many versions the pictures of a reward have, and how many of them
+ *  "Remove watermark" made. */
+export async function rewardVersionCount(rewardId: number): Promise<{ all: number; watermark: number }> {
+  return invoke<{ all: number; watermark: number }>("reward_version_count", { rewardId });
+}
+
+/** Delete the versions of a reward's pictures: all, or only the "Watermark removed" ones
+ *  (files to the recycle bin, the originals stay). Returns how many went. */
+export async function deleteRewardVersions(rewardId: number, onlyWatermark: boolean): Promise<number> {
+  return invoke<number>("delete_reward_versions", { rewardId, onlyWatermark });
+}
+
 /** Open a file with its default app (for files MiColl can't show: PSD, PDF...). */
 export async function openWithDefault(path: string): Promise<void> {
   return invoke<void>("open_with_default", { path });
@@ -2786,4 +2798,70 @@ export async function applyTemplate(
   baseDir: string | null = null,
 ): Promise<ScanSummary> {
   return invoke<ScanSummary>("apply_template", { json, createFolders, baseDir });
+}
+
+/* ---- watermark remover (WatermarkDialog.tsx) ------------------------------- */
+
+/** A picture something comes off. */
+export interface WmItem {
+  id: string;
+  /** The file shown (for the thumbnail). */
+  path: string;
+  /** Found only through the other pictures of the reward. */
+  guessed: boolean;
+}
+
+export interface WmScan {
+  items: WmItem[];
+  /** Pictures looked at, and the rest of the reward (videos, GIFs, other files). */
+  pictures: number;
+  skipped: number;
+  /** The watermark was taken from the clearest picture and laid onto the others. */
+  shared: boolean;
+  /** The file name of that picture. */
+  templateFrom: string | null;
+}
+
+/** Progress of a scan or removal ("wm-progress"). */
+export interface WmProgress {
+  job: number;
+  phase: "scan" | "check" | "remove";
+  done: number;
+  total: number;
+}
+
+/** Look for a line of text in these corners ("tl" "tr" "bl" "br" "bc") of a reward's pictures. */
+export async function wmScan(rewardId: number, corners: string[], job: number): Promise<WmScan> {
+  return invoke<WmScan>("wm_scan", { rewardId, corners, job });
+}
+
+/** Before/after of one picture (the spot around the watermark), nothing saved. */
+export async function wmPreview(job: number, imageId: string): Promise<{ before: string; after: string }> {
+  return invoke("wm_preview", { job, imageId });
+}
+
+/** Remove it from these pictures, each saved as a version (the original stays). */
+export async function wmApply(
+  job: number,
+  imageIds: string[],
+): Promise<{ done: number; failed: string[]; stopped: boolean }> {
+  return invoke("wm_apply", { job, imageIds });
+}
+
+/** Undo a job: the pictures show what they showed before. Returns how many. */
+export async function wmUndo(job: number): Promise<number> {
+  return invoke<number>("wm_undo", { job });
+}
+
+export async function wmStop(): Promise<void> {
+  await invoke("wm_stop");
+}
+
+export async function wmClose(job: number): Promise<void> {
+  await invoke("wm_close", { job });
+}
+
+/** The reward a picture (or one of its versions) belongs to: [id, title]. */
+export async function wmRewardOf(path: string): Promise<[number, string] | null> {
+  return invoke<[number, string] | null>("wm_reward_of", { path });
 }
