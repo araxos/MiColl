@@ -80,6 +80,10 @@ struct ImageDto {
     /// how many edited versions MiColl has of it (left out when none)
     #[serde(skip_serializing_if = "Option::is_none")]
     versions: Option<usize>,
+    /// id of its newest version with the watermark removed, the phone asks which to
+    /// download then (left out when there's none)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    clean_version: Option<i64>,
 }
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -400,6 +404,7 @@ fn make_reward(root: &Path, moved: &SdView, dir: &Path, title: &str, recursive: 
             name: name_of(p),
             kind: kind_for(&ext_lower(p)).unwrap_or("image").to_string(),
             versions: None,
+            clean_version: None,
         })
         .collect();
     Some(RewardDto {
@@ -1371,6 +1376,13 @@ fn json(req: tiny_http::Request, code: u16, body: &serde_json::Value) {
     );
 }
 
+/// Requests that carry a file (or read whole ones to compare them). Not what the phone
+/// asks by itself while it's only connected (ping, gallery, thumbnails): that would never
+/// let the PC sleep.
+fn moves_files(route: &str) -> bool {
+    matches!(route, "/api/file" | "/api/version-file" | "/api/versions" | "/api/upload" | "/api/version" | "/api/check")
+}
+
 fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
     let url = req.url().to_string();
     let path = url.split('?').next().unwrap_or("/");
@@ -1397,6 +1409,9 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
         }
         return fail(req, 401, "pairing key missing or wrong, scan the QR code in MiColl again");
     };
+    // until the file is through, and the idle time starts over then: a download is one
+    // request after the other
+    let _awake = moves_files(&route).then(|| crate::awake::hold("phone transfer"));
 
     let served = served_root(&sh.src.db().conn());
     let root = match served {
@@ -1425,7 +1440,10 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
                     .flat_map(|r| &mut r.images);
                 for im in images {
                     let full = im.path.split('/').fold(root.clone(), |p, part| p.join(part));
-                    im.versions = counts.get(&path_key(&full)).copied();
+                    if let Some(v) = counts.get(&path_key(&full)) {
+                        im.versions = Some(v.count);
+                        im.clean_version = v.clean;
+                    }
                 }
             }
             let meta = meta();
@@ -1914,15 +1932,32 @@ fn applied_templates(conn: &rusqlite::Connection) -> Result<Vec<TemplateDto>, St
     Ok(rows.flatten().collect())
 }
 
-/// How many versions each original has (by path_key).
-fn version_counts(conn: &rusqlite::Connection, moved: &SdView) -> Result<HashMap<String, usize>, String> {
-    let mut stmt = conn.prepare("SELECT orig_path, COUNT(*) FROM image_versions GROUP BY orig_path").map_err(map_err)?;
-    let rows = stmt
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+/// The versions of one original.
+#[derive(Default, Debug, PartialEq)]
+struct Versions {
+    count: usize,
+    /// id of the newest one with the watermark removed
+    clean: Option<i64>,
+}
+
+/// The versions each original has (by path_key).
+fn version_counts(conn: &rusqlite::Connection, moved: &SdView) -> Result<HashMap<String, Versions>, String> {
+    let mut stmt = conn
+        .prepare("SELECT orig_path, id, file_path, label FROM image_versions ORDER BY id")
         .map_err(map_err)?;
-    let mut out = HashMap::new();
-    for (p, n) in rows.flatten() {
-        *out.entry(moved.key(&p)).or_insert(0) += n as usize;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?, r.get::<_, Option<String>>(3)?))
+        })
+        .map_err(map_err)?;
+    let mut out: HashMap<String, Versions> = HashMap::new();
+    for (orig, id, file, label) in rows.flatten() {
+        let v = out.entry(moved.key(&orig)).or_default();
+        v.count += 1;
+        // the file is written after its row, the phone would ask for one that isn't there yet
+        if label.as_deref() == Some(crate::WM_VERSION_LABEL) && Path::new(&file).is_file() {
+            v.clean = Some(id);
+        }
     }
     Ok(out)
 }
@@ -2968,7 +3003,7 @@ mod tests {
             c.execute("INSERT INTO artists (name, kind, preview_image) VALUES ('Bea', 'artist', ?1)", [at(&on_disk(&bea.join("b.png")))]).unwrap();
             c.execute("INSERT INTO images (file_path) VALUES (?1)", [at(&on_disk(&march.join("Moved/m.png")))]).unwrap();
             c.execute(
-                "INSERT INTO image_versions (orig_path, file_path, label) VALUES (?1, ?2, 'v')",
+                "INSERT INTO image_versions (orig_path, file_path, label) VALUES (?1, ?2, 'Watermark removed')",
                 [at(&on_disk(&march.join("Moved/m.png"))), version.to_string_lossy().into_owned()],
             )
             .unwrap();
@@ -3000,6 +3035,7 @@ mod tests {
         assert_eq!(mv["chosenCover"], "Ahri/Patreon/2026/03/Moved/m.png");
         assert!(mv.get("ownCover").is_none());
         assert_eq!(mv["images"][0]["versions"], 1);
+        assert_eq!(mv["images"][0]["cleanVersion"], 1);
         // a whole month: its pictures and the Pack, its number and cover
         let m4 = month(&ahri, "Ahri/Patreon/2026/04").unwrap();
         assert_eq!(paths(&reward(&m4, "04").unwrap()), ["Ahri/Patreon/2026/04/loose.png"]);
@@ -3527,6 +3563,7 @@ mod tests {
             let imgs = g.as_array().unwrap().iter().find(|a| a["name"] == "Ahri").unwrap()["platforms"][0]["months"][0]["rewards"][0]["images"].clone();
             let a = imgs.as_array().unwrap().iter().find(|i| i["name"] == "a.png").unwrap();
             assert_eq!(a["versions"].as_u64(), Some(1));
+            assert!(a.get("cleanVersion").is_none());
             assert!(imgs.as_array().unwrap().iter().filter(|i| i["name"] != "a.png").all(|i| i.get("versions").is_none()));
             let vl = format!("{k}/api/versions?p={}", urlencoding::encode("Ahri/Patreon/2026/03/Set/a.png"));
             let (code, body) = get(&vl, None);
@@ -3649,6 +3686,53 @@ mod tests {
         assert!(bin.join("v1.png").is_file());
         assert!(db::list_image_versions(&conn, &mine.to_string_lossy()).unwrap().0.is_empty());
         drop(conn);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn only_file_transfers_keep_the_pc_awake() {
+        for r in ["/api/file", "/api/version-file", "/api/upload", "/api/version"] {
+            assert!(moves_files(r), "{r}");
+        }
+        for r in ["/api/ping", "/api/gallery", "/api/thumb", "/api/meta", "/api/templates", "/"] {
+            assert!(!moves_files(r), "{r}");
+        }
+    }
+
+    /// The newest "Watermark removed" version is named, never an own edit and never one
+    /// whose file isn't there.
+    #[test]
+    fn the_version_without_watermark_is_told_apart() {
+        let base = std::env::temp_dir().join(format!("micoll-bridge-clean-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE image_versions (id INTEGER PRIMARY KEY, orig_path TEXT NOT NULL, file_path TEXT NOT NULL, label TEXT);")
+            .unwrap();
+        let file = |n: &str| {
+            let f = base.join(n);
+            std::fs::write(&f, b"v").unwrap();
+            f.to_string_lossy().into_owned()
+        };
+        let wm = Some(crate::WM_VERSION_LABEL);
+        for (id, orig, f, label) in [
+            (1, "C:/c/a.png", file("1.png"), wm),
+            (2, "C:/c/a.png", file("2.png"), wm),
+            (3, "C:/c/a.png", file("3.png"), None),
+            (4, "C:/c/a.png", file("4.png"), Some("Phone")),
+            // being written / lost
+            (5, "C:/c/a.png", String::new(), wm),
+            (6, "C:/c/a.png", base.join("gone.png").to_string_lossy().into_owned(), wm),
+            (7, "C:/c/b.png", file("7.png"), None),
+            (8, "C:/c/c.png", String::new(), wm),
+        ] {
+            conn.execute("INSERT INTO image_versions VALUES (?1, ?2, ?3, ?4)", rusqlite::params![id, orig, f, label]).unwrap();
+        }
+        let got = version_counts(&conn, &SdView::default()).unwrap();
+        let of = |p: &str| got.get(&path_key(Path::new(p)));
+        assert_eq!(of("C:/c/a.png"), Some(&Versions { count: 6, clean: Some(2) }));
+        assert_eq!(of("C:/c/b.png"), Some(&Versions { count: 1, clean: None }));
+        assert_eq!(of("C:/c/c.png"), Some(&Versions { count: 1, clean: None }));
+        assert_eq!(of("C:/c/d.png"), None);
         let _ = std::fs::remove_dir_all(&base);
     }
 

@@ -184,7 +184,7 @@ export function CollectionTabs({
   const hasRail = accent !== "iridescent";
 
   return (
-    <div className={cn("mb-6", inset && "pl-4")}>
+    <div className={cn(inset ? "mb-3 pl-4" : "mb-6")}>
       {/* tabs start right under the line, no overlap (the opaque tabs would hide it) */}
       {hasRail && <div className="pt-2">{rail}</div>}
       {/* without a line, -mt-px lets the tabs overlap the box border */}

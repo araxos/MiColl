@@ -2,6 +2,7 @@ mod ai;
 mod alts;
 mod applog;
 mod audio;
+mod awake;
 mod bridge;
 mod crypto;
 mod db;
@@ -981,6 +982,7 @@ fn progress_events<'a>(app: &'a AppHandle, event: &'static str) -> impl Fn(u32, 
 /// and froze the window)
 #[tauri::command]
 async fn rescan(app: AppHandle, db: State<'_, Db>) -> Result<ScanSummary, String> {
+    let _awake = awake::hold("scanning the library");
     indexer::reset_scan_cancel();
     let conn = db.conn();
     let roots = db::list_roots(&conn).map_err(map_err)?;
@@ -1021,6 +1023,7 @@ async fn rescan(app: AppHandle, db: State<'_, Db>) -> Result<ScanSummary, String
 /// Useful after changing folders on disk. Keeps ownership/covers/templates.
 #[tauri::command]
 async fn rescan_collection(app: AppHandle, db: State<'_, Db>) -> Result<ScanSummary, String> {
+    let _awake = awake::hold("scanning the library");
     indexer::reset_scan_cancel();
     let conn = db.conn();
     let root = db::get_setting(&conn, "collection_root")
@@ -1094,6 +1097,7 @@ async fn rescan_artist(
     artist_id: i64,
     period_id: Option<i64>,
 ) -> Result<ScanSummary, String> {
+    let _awake = awake::hold("scanning the library");
     indexer::reset_scan_cancel();
     let conn = db.conn();
     let name: String = conn
@@ -2142,6 +2146,7 @@ async fn summarize_file_props(paths: Vec<String>) -> Result<MetaSummary, String>
 /// Returns how many were cleared.
 #[tauri::command]
 async fn clear_file_props(paths: Vec<String>, fields: props::PropFields) -> Result<u32, String> {
+    let _awake = awake::hold("clearing file properties");
     tauri::async_runtime::spawn_blocking(move || {
         let mut cleared = 0u32;
         for p in &paths {
@@ -2201,6 +2206,7 @@ fn broken_root(path: &str) -> Option<std::path::PathBuf> {
 /// Check every image for a missing file: totals, per artist, and the broken root folders.
 #[tauri::command]
 async fn library_health(db: State<'_, Db>) -> Result<HealthReport, String> {
+    let _awake = awake::hold("checking the library");
     let (rows, sd_paths, broken_collabs, orphan_backups) = {
         let conn = db.conn();
         (
@@ -2461,6 +2467,7 @@ async fn fill_reward(
     // dropped folders that land as a subfolder (with their name), see collect_fill_items
     keep_folders: Option<Vec<String>>,
 ) -> Result<FillReport, String> {
+    let _awake = awake::hold("adding files");
     let key = session_key(&dek);
     // the real target folder
     let target: std::path::PathBuf = {
@@ -2983,6 +2990,7 @@ async fn move_rewards(
     reward_ids: Vec<i64>,
     dest_period_id: i64,
 ) -> Result<u32, String> {
+    let _awake = awake::hold("moving rewards");
     let dest_dir = {
         let conn = db.conn();
         period_month_dir(&conn, dest_period_id)
@@ -3062,6 +3070,7 @@ async fn move_images(
     image_ids: Vec<i64>,
     dest_reward_id: i64,
 ) -> Result<u32, String> {
+    let _awake = awake::hold("moving pictures");
     // the target reward's real folder
     let dest_dir = {
         let conn = db.conn();
@@ -3167,6 +3176,7 @@ async fn merge_rewards(
     dest_reward_id: i64,
     keep_folder: Option<bool>,
 ) -> Result<u32, String> {
+    let _awake = awake::hold("merging rewards");
     let keep_folder = keep_folder.unwrap_or(false);
     // the target reward's real folder
     let dest_dir = {
@@ -3425,6 +3435,7 @@ fn period_own_dir(conn: &rusqlite::Connection, period_id: i64) -> Option<std::pa
 /// Delete a period (a break or empty month), optionally trashing its folder.
 #[tauri::command]
 async fn delete_period(db: State<'_, Db>, period_id: i64, also_files: bool) -> Result<(), String> {
+    let _awake = awake::hold("deleting");
     let conn = db.conn();
     // for the history, read before anything goes
     let (h_artist, h_place) = period_place(&conn, period_id);
@@ -4830,6 +4841,7 @@ async fn stage_files_for_import(
     db: State<'_, Db>,
     paths: Vec<String>,
 ) -> Result<Option<String>, String> {
+    let _awake = awake::hold("import");
     // read the managed setting here, the frontend doesn't know it yet at this point
     let managed = {
         let conn = db.conn();
@@ -4894,6 +4906,7 @@ async fn stage_files_for_import(
 /// Read-only: look at a folder and suggest a structure (no DB writes).
 #[tauri::command]
 async fn analyze_import(db: State<'_, Db>, path: String) -> Result<ImportPlan, String> {
+    let _awake = awake::hold("import");
     // load the library's platform names first (see indexer::refresh_known_platforms)
     {
         let conn = db.conn();
@@ -4956,6 +4969,7 @@ async fn import_known(
     db: State<'_, Db>,
     rewards: Vec<indexer::ResolvedReward>,
 ) -> Result<Vec<ImportKnown>, String> {
+    let _awake = awake::hold("import");
     use std::collections::HashMap;
     // the library's files by name (lowercase), and where each reward sits
     let (by_name, info) = {
@@ -5238,6 +5252,7 @@ fn commit_import(
     styles: Option<Vec<StyleChoice>>,
     open_as_cards: Option<bool>,
 ) -> Result<ScanSummary, String> {
+    let _awake = awake::hold("import");
     let conn = db.conn();
     // before anything moves
     for r in &rewards {
@@ -5343,6 +5358,7 @@ fn commit_import(
 /// "organize-progress" events, a sync command would hold them until the end
 #[tauri::command]
 async fn organize_collection(app: AppHandle, db: State<'_, Db>) -> Result<OrganizeSummary, String> {
+    let _awake = awake::hold("import");
     let conn = db.conn();
     let enabled = db::get_setting(&conn, "managed_enabled")
         .map_err(map_err)?
@@ -5429,6 +5445,7 @@ fn cancel_move_collection() {
 /// with "collection-move-progress" events, and can be cancelled.
 #[tauri::command]
 async fn move_collection(app: AppHandle, db: State<'_, Db>, new_root: String) -> Result<MoveCollectionSummary, String> {
+    let _awake = awake::hold("moving the collection");
     let new_root = new_root.trim().to_string();
     if new_root.is_empty() {
         return Err("Pick a destination folder.".into());
@@ -5814,6 +5831,7 @@ async fn delete_platform(
     platform: String,
     also_files: bool,
 ) -> Result<(), String> {
+    let _awake = awake::hold("deleting");
     let conn = db.conn();
     let name = db::artist_info(&conn, artist_id).map_err(map_err)?.map(|(n, _)| n);
     // for the history, read before anything goes
@@ -5905,6 +5923,7 @@ async fn delete_rewards(
     reward_ids: Vec<i64>,
     also_files: bool,
 ) -> Result<(), String> {
+    let _awake = awake::hold("deleting");
     let conn = db.conn();
     // for the history, read before anything goes
     let (h_artist, h_place) = reward_ids
@@ -5975,6 +5994,7 @@ async fn delete_artist(
     artist_id: i64,
     also_files: bool,
 ) -> Result<(), String> {
+    let _awake = awake::hold("deleting");
     let conn = db.conn();
     let name = db::artist_info(&conn, artist_id).map_err(map_err)?.map(|(n, _)| n);
     // for the history, read before anything goes
@@ -6275,6 +6295,7 @@ async fn extract_archive(
     path: String,
     permanent: Option<bool>,
 ) -> Result<String, String> {
+    let _awake = awake::hold("unpacking an archive");
     let managed = {
         let conn = db.conn();
         managed_collection(&conn)
@@ -6297,6 +6318,7 @@ async fn extract_archive(
 /// although they were loose files.
 #[tauri::command]
 async fn trash_imported_originals(db: State<'_, Db>, paths: Vec<String>) -> Result<Vec<String>, String> {
+    let _awake = awake::hold("import");
     let is_archive = |p: &std::path::Path| {
         matches!(
             p.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).as_deref(),
@@ -6515,6 +6537,7 @@ fn undo_history(
     dek: State<DekState>,
     id: Option<i64>,
 ) -> Result<UndoDone, String> {
+    let _awake = awake::hold("undo");
     let key = session_key(&dek);
     let conn = db.conn();
     let row = match id {
@@ -7053,6 +7076,7 @@ async fn edit_inpaint_ai(
     image_b64: String,
     mask_b64: String,
 ) -> Result<String, String> {
+    let _awake = awake::hold("AI edit");
     let data = app_data(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let mut img = edit::decode_rgba(&image_b64)?;
@@ -7094,6 +7118,7 @@ async fn edit_expand(
     fit_h: Option<u32>,
     people: Option<bool>,
 ) -> Result<String, String> {
+    let _awake = awake::hold("AI edit");
     if width == 0 || height == 0 || width > 16_000 || height > 16_000 {
         return Err("That size is out of range.".into());
     }
@@ -7205,6 +7230,7 @@ async fn edit_upscale(
     width: u32,
     height: u32,
 ) -> Result<String, String> {
+    let _awake = awake::hold("AI edit");
     if width == 0 || height == 0 || width > 16_000 || height > 16_000 {
         return Err("That size is out of range.".into());
     }
@@ -7226,6 +7252,7 @@ async fn edit_cutout(
     image_b64: String,
     feather: Option<u32>,
 ) -> Result<String, String> {
+    let _awake = awake::hold("AI edit");
     let data = app_data(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let img = edit::decode_rgba(&image_b64)?;
@@ -7279,6 +7306,7 @@ fn ai_model_status(app: AppHandle, model: Option<String>) -> Result<AiModelStatu
 /// Download an AI model once, emits ai-model-progress { model, done, total }.
 #[tauri::command]
 async fn ai_model_download(app: AppHandle, model: Option<String>) -> Result<(), String> {
+    let _awake = awake::hold("downloading an AI model");
     let id = model.unwrap_or_else(|| "lama".to_string());
     let m = ai::Model::from_id(&id)?;
     let data = app_data(&app)?;
@@ -7490,6 +7518,7 @@ async fn add_reward_alts(
     reward_id: i64,
     paths: Vec<String>,
 ) -> Result<AltsAdded, String> {
+    let _awake = awake::hold("adding alts");
     let key = session_key(&dek);
     let reward_dir = alt_reward_dir(&db, reward_id)?
         .ok_or("This reward's folder isn't on this PC (is it on the MiSD disk?)")?;
@@ -8064,6 +8093,7 @@ fn reward_version_count(db: State<Db>, reward_id: i64) -> Result<RewardVersions,
 /// went.
 #[tauri::command]
 fn delete_reward_versions(db: State<Db>, reward_id: i64, only_watermark: bool) -> Result<u32, String> {
+    let _awake = awake::hold("deleting versions");
     let conn = db.conn();
     let list = reward_versions_of(&conn, reward_id, only_watermark)?;
     if list.is_empty() {
@@ -8602,6 +8632,7 @@ async fn wm_scan(
     corners: Vec<String>,
     job: u64,
 ) -> Result<WmScan, String> {
+    let _awake = awake::hold("removing watermarks");
     let key = session_key(&dek);
     let corners: Vec<watermark::Corner> = corners.iter().filter_map(|c| watermark::Corner::from_id(c)).collect();
     if corners.is_empty() {
@@ -8753,6 +8784,7 @@ async fn wm_scan_mark(
     stroke: f32,
     job: u64,
 ) -> Result<WmScan, String> {
+    let _awake = awake::hold("removing watermarks");
     let key = session_key(&dek);
     let mut mask = image::load_from_memory(&edit::decode_data_url(&mask)?).map_err(|e| format!("mask: {e}"))?.to_luma8();
     for p in mask.pixels_mut() {
@@ -8917,6 +8949,7 @@ struct WmPreview {
 /// Before/after of one picture (the spot around the watermark), nothing saved.
 #[tauri::command]
 async fn wm_preview(app: AppHandle, dek: State<'_, DekState>, job: u64, image_id: String) -> Result<WmPreview, String> {
+    let _awake = awake::hold("removing watermarks");
     let key = session_key(&dek);
     let data = app_data(&app)?;
     if !ai::model_ready(&data, ai::Model::Lama) {
@@ -8974,6 +9007,7 @@ async fn wm_apply(
     job: u64,
     image_ids: Vec<String>,
 ) -> Result<WmApplied, String> {
+    let _awake = awake::hold("removing watermarks");
     let key = session_key(&dek);
     let data = app_data(&app)?;
     if !ai::model_ready(&data, ai::Model::Lama) {
@@ -9683,6 +9717,7 @@ async fn enable_encryption(
     dek_state: State<'_, DekState>,
     password: String,
 ) -> Result<String, String> {
+    let _awake = awake::hold("encrypting");
     let (dek_raw, files, recovery) = {
         let conn = db.conn();
         if !password_ok(&conn, &password) {
@@ -9733,6 +9768,7 @@ async fn disable_encryption(
     dek_state: State<'_, DekState>,
     password: String,
 ) -> Result<(), String> {
+    let _awake = awake::hold("decrypting");
     let (dek_raw, files) = {
         let conn = db.conn();
         if !enc_enabled(&conn) {
@@ -9772,6 +9808,7 @@ async fn encrypt_collection(
     db: State<'_, Db>,
     dek_state: State<'_, DekState>,
 ) -> Result<(), String> {
+    let _awake = awake::hold("encrypting");
     let (dek_raw, files) = {
         let conn = db.conn();
         if !enc_enabled(&conn) {
@@ -10495,6 +10532,7 @@ fn handle_share(
         _ => return fail(req, 404),
     };
 
+    let _awake = awake::hold("phone transfer");
     let path_str = path.to_string_lossy().into_owned();
     let ctype = media_mime(&path_str);
     let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
@@ -10654,6 +10692,7 @@ async fn share_folder_to_phone(
     srcs: Vec<String>,
     name: String,
 ) -> Result<ShareInfo, String> {
+    let _awake = awake::hold("packing for the phone");
     let key = session_key(&dek);
     let cache = app_cache(&app)?;
     let app2 = app.clone();
@@ -10757,6 +10796,7 @@ async fn export_files(
     dest_dir: String,
     name: String,
 ) -> Result<u32, String> {
+    let _awake = awake::hold("exporting");
     let key = session_key(&dek);
     tauri::async_runtime::spawn_blocking(move || -> Result<u32, String> {
         let target = std::path::Path::new(&dest_dir).join(sanitize_name(&name));
@@ -10793,6 +10833,7 @@ async fn copy_files_to_clipboard(
     dek: State<'_, DekState>,
     srcs: Vec<String>,
 ) -> Result<u32, String> {
+    let _awake = awake::hold("copying");
     let key = session_key(&dek);
     let dir = share_stage_dir(&app)?;
     tauri::async_runtime::spawn_blocking(move || -> Result<u32, String> {
@@ -11136,6 +11177,7 @@ async fn mega_upload(
     src: String,
     folder: String,
 ) -> Result<(), String> {
+    let _awake = awake::hold("uploading");
     let key = session_key(&dek);
     let cache = app_cache(&app)?;
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
@@ -11209,6 +11251,7 @@ async fn mega_upload_files(
     folder: String,
     name: String,
 ) -> Result<(), String> {
+    let _awake = awake::hold("uploading");
     let key = session_key(&dek);
     let cache = app_cache(&app)?;
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
@@ -11381,6 +11424,7 @@ async fn mega_upload_media(
     // Only the uploaded copies are renamed.
     names: Option<Vec<String>>,
 ) -> Result<MegaUploadSummary, String> {
+    let _awake = awake::hold("uploading");
     let key = session_key(&dek);
     let cache = app_cache(&app)?;
     let app2 = app.clone();
@@ -11941,6 +11985,7 @@ fn is_portable() -> bool {
 /// Update a portable copy: swap in the new MiColl.exe, start it, quit this one.
 #[tauri::command]
 async fn portable_update(app: AppHandle, db: State<'_, Db>, version: String) -> Result<(), String> {
+    let _awake = awake::hold("updating");
     if portable_root().is_none() {
         return Err("This isn't a portable copy.".into());
     }
@@ -12117,6 +12162,7 @@ async fn sd_transport(
     db: State<'_, Db>,
     dek: State<'_, DekState>,
 ) -> Result<sd::SdSummary, String> {
+    let _awake = awake::hold("MiSD transport");
     let thumbs_dir = app_cache(&app)?.join("thumbs");
     let key = session_key(&dek);
     let conn = db.conn();
@@ -12130,6 +12176,7 @@ async fn sd_return(
     db: State<'_, Db>,
     reward_ids: Option<Vec<i64>>,
 ) -> Result<sd::SdSummary, String> {
+    let _awake = awake::hold("MiSD transport");
     let conn = db.conn();
     sd::bring_back(&conn, reward_ids.as_deref(), &sd_progress(&app, "return"))
 }
@@ -12137,6 +12184,7 @@ async fn sd_return(
 /// Copy every reward queued for backup to the disk (same check), nothing deleted locally.
 #[tauri::command]
 async fn sd_backup_now(app: AppHandle, db: State<'_, Db>) -> Result<sd::SdSummary, String> {
+    let _awake = awake::hold("MiSD backup");
     let conn = db.conn();
     sd::backup(&conn, &sd_progress(&app, "backup"))
 }
@@ -12215,6 +12263,7 @@ fn sd_cancel() {
 /// Remove MiSD backups (local files stay). reward_ids None = all.
 #[tauri::command]
 fn sd_backup_drop(db: State<Db>, reward_ids: Option<Vec<i64>>) -> Result<sd::SdSummary, String> {
+    let _awake = awake::hold("MiSD backup");
     let conn = db.conn();
     sd::drop_backup(&conn, reward_ids.as_deref())
 }
@@ -12366,6 +12415,7 @@ async fn apply_template(
     create_folders: bool,
     base_dir: Option<String>,
 ) -> Result<ScanSummary, String> {
+    let _awake = awake::hold("applying a template");
     let conn = db.conn();
     let t = template::parse(&json)?;
     // refuse before changing anything if a month is listed twice
@@ -12526,6 +12576,7 @@ async fn find_duplicates(
     similar: Option<bool>,
     scan_id: Option<u64>,
 ) -> Result<Vec<Vec<DupImage>>, String> {
+    let _awake = awake::hold("finding duplicates");
     use std::collections::HashMap;
     let key = session_key(&dek);
     let scan = scan_id.unwrap_or(0);

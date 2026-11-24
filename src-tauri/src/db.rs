@@ -730,6 +730,9 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_periods_artist ON periods(artist_id);
         CREATE INDEX IF NOT EXISTS idx_rewards_period ON rewards(period_id);
         CREATE INDEX IF NOT EXISTS idx_images_reward  ON images(reward_id);
+        -- a picture by its path (exact, and in any case for paths from the phone)
+        CREATE INDEX IF NOT EXISTS idx_images_path    ON images(file_path);
+        CREATE INDEX IF NOT EXISTS idx_images_path_nc ON images(file_path COLLATE NOCASE);
         CREATE INDEX IF NOT EXISTS idx_applied_artist ON applied_templates(artist_id);
         CREATE INDEX IF NOT EXISTS idx_collab_artist  ON reward_collabs(artist_id);
         "#,
@@ -4468,6 +4471,36 @@ mod tests {
 
         // invalid styles are rejected
         assert!(set_artist_release_style(&conn, "Old Dateless", "weekly").is_err());
+    }
+
+    /// A picture is found by its path without going through the whole table (an import
+    /// looks up hundreds), also in a database from before the indexes.
+    #[test]
+    fn pictures_are_looked_up_by_path_with_an_index() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        conn.execute_batch("DROP INDEX idx_images_path; DROP INDEX idx_images_path_nc;").unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys = OFF;
+             INSERT INTO images(reward_id, file_path) VALUES(1, 'C:/Lib/A/01.png');",
+        )
+        .unwrap();
+        migrate(&conn).unwrap();
+        for sql in [
+            "UPDATE images SET size = 1 WHERE file_path = ?1",
+            "SELECT reward_id FROM images WHERE file_path = ?1",
+            "SELECT reward_id FROM images WHERE file_path = ?1 COLLATE NOCASE",
+        ] {
+            let plan: String =
+                conn.query_row(&format!("EXPLAIN QUERY PLAN {sql}"), ["x"], |r| r.get(3)).unwrap();
+            assert!(plan.contains("SEARCH") && plan.contains("idx_images_path"), "{sql}: {plan}");
+        }
+        let found = |sql: &str, p: &str| conn.query_row(sql, [p], |r| r.get::<_, i64>(0)).optional().unwrap();
+        let exact = "SELECT reward_id FROM images WHERE file_path = ?1";
+        let any = "SELECT reward_id FROM images WHERE file_path = ?1 COLLATE NOCASE";
+        assert_eq!(found(exact, "C:/Lib/A/01.png"), Some(1));
+        assert_eq!(found(exact, "c:/lib/a/01.PNG"), None);
+        assert_eq!(found(any, "c:/lib/a/01.PNG"), Some(1));
     }
 
     /// versions are keyed by path, so they survive a re-index. set/list/revert/delete.

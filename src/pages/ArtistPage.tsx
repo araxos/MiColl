@@ -100,7 +100,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
   // Only the material, so the collection tabs can use it without radius/padding.
   const glassMaterial =
     "border border-white/10 bg-zinc-900/32 backdrop-blur-xl [transform:translateZ(0)]";
-  const glassBox = cn("rounded-2xl p-4 shadow-lg shadow-black/20", glassMaterial);
+  const glassBox = cn("rounded-none p-4 shadow-lg shadow-black/20", glassMaterial);
   // dropdown style for "+ Platform" / "Break" per theme
   const menuSurface =
     accent === "cyberpunk"
@@ -940,7 +940,9 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
         className={cn(
           // min-h-full so the drop target reaches the bottom of the window
           // (a drop below it would be read as "no creator" = a new one)
-          "min-h-full w-full px-6 py-6 2xl:px-10",
+          "min-h-full w-full px-6 pb-6 2xl:px-10",
+          // iridescent: as close to the top bar as the dashboard's bar
+          irid ? "pt-3" : "pt-6",
           // reserve space on the right while Details is open (no transition, it flickered)
           sidebar && "pr-[21rem]",
         )}
@@ -960,8 +962,8 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
           className={cn(
             "relative z-20",
             // no bottom gap when the collection tabs follow
-            showTabs ? "mb-0" : dateless ? "mb-3" : casual ? "mb-4" : "mb-6",
-            irid && glassBox,
+            showTabs ? "mb-0" : dateless || irid ? "mb-3" : casual ? "mb-4" : "mb-6",
+            irid && cn(glassBox, "py-2.5"),
             accent === "cyberpunk" && "p-4",
             // sakura: the dashboard's rose glass bar (index.css .sak-dash-bar)
             sakura && "sak-dash-bar p-4",
@@ -977,7 +979,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
         {accent === "cyberpunk" && (
           <div aria-hidden className="cp-artist-plate pointer-events-none absolute inset-0 -z-10" />
         )}
-        <div className={cn("flex flex-wrap items-center gap-y-2", casual ? "mb-2" : "mb-4")}>
+        <div className={cn("flex flex-wrap items-center gap-y-2", casual || irid ? "mb-2" : "mb-4")}>
           <Button
             variant="ghost"
             size="sm"
