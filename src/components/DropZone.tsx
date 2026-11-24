@@ -235,10 +235,10 @@ export function DropZone() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="absolute rounded-lg border-2 border-brand-400 ring-4 ring-brand-400/30 shadow-[0_0_0_9999px_rgba(9,9,11,0.55)]"
+          className="drop-frame absolute rounded-lg border-2 border-brand-400 ring-4 ring-brand-400/30 shadow-[0_0_0_9999px_rgba(9,9,11,0.55)]"
           style={{ left: hit.rect.left, top: hit.rect.top, width: hit.rect.width, height: hit.rect.height }}
         >
-          <div className="absolute -top-3 left-1/2 flex max-w-[90vw] -translate-x-1/2 -translate-y-full items-center gap-2 whitespace-nowrap rounded-full border border-brand-400/60 bg-zinc-900/95 px-3.5 py-1.5 text-sm shadow-2xl">
+          <div className="drop-label absolute -top-3 left-1/2 flex max-w-[90vw] -translate-x-1/2 -translate-y-full items-center gap-2 whitespace-nowrap rounded-full border border-brand-400/60 bg-zinc-900/95 px-3.5 py-1.5 text-sm shadow-2xl">
             <Upload className="h-4 w-4 shrink-0 text-brand-300" />
             <span className="truncate font-semibold text-zinc-50">{hit.caption}</span>
           </div>
@@ -254,10 +254,10 @@ export function DropZone() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="absolute rounded-lg border-2 border-brand-400 ring-4 ring-brand-400/30 shadow-[0_0_0_9999px_rgba(9,9,11,0.55)]"
+          className="drop-frame absolute rounded-lg border-2 border-brand-400 ring-4 ring-brand-400/30 shadow-[0_0_0_9999px_rgba(9,9,11,0.55)]"
           style={{ left: hit.rect.left, top: hit.rect.top, width: hit.rect.width, height: hit.rect.height }}
         >
-          <div className="absolute -top-3 left-1/2 flex max-w-[90vw] -translate-x-1/2 -translate-y-full items-center gap-2 whitespace-nowrap rounded-full border border-brand-400/60 bg-zinc-900/95 px-3.5 py-1.5 text-sm shadow-2xl">
+          <div className="drop-label absolute -top-3 left-1/2 flex max-w-[90vw] -translate-x-1/2 -translate-y-full items-center gap-2 whitespace-nowrap rounded-full border border-brand-400/60 bg-zinc-900/95 px-3.5 py-1.5 text-sm shadow-2xl">
             <ImageIcon className="h-4 w-4 shrink-0 text-brand-300" />
             <span className="text-zinc-400">{t("Cover for")}</span>
             <span className="truncate font-semibold text-zinc-50">{hit.caption}</span>
@@ -281,7 +281,7 @@ export function DropZone() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="absolute rounded-2xl border-2 border-brand-400 ring-4 ring-brand-400/30 shadow-[0_0_0_9999px_rgba(9,9,11,0.55)]"
+          className="drop-frame drop-target absolute rounded-2xl border-2 border-brand-400 ring-4 ring-brand-400/30 shadow-[0_0_0_9999px_rgba(9,9,11,0.55)]"
           style={{
             left: target.rect.left,
             top: target.rect.top,
@@ -289,7 +289,7 @@ export function DropZone() {
             height: target.rect.height,
           }}
         >
-          <div className="absolute -top-3 left-1/2 flex max-w-[90vw] -translate-x-1/2 -translate-y-full items-center gap-2 whitespace-nowrap rounded-full border border-brand-400/60 bg-zinc-900/95 px-3.5 py-1.5 text-sm shadow-2xl">
+          <div className="drop-label absolute -top-3 left-1/2 flex max-w-[90vw] -translate-x-1/2 -translate-y-full items-center gap-2 whitespace-nowrap rounded-full border border-brand-400/60 bg-zinc-900/95 px-3.5 py-1.5 text-sm shadow-2xl">
             <FolderInput className="h-4 w-4 shrink-0 text-brand-300" />
             <span className="text-zinc-400">{verb}</span>
             <span className="truncate font-semibold text-zinc-50">{target.caption}</span>
@@ -306,10 +306,10 @@ export function DropZone() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="pointer-events-none fixed inset-0 z-[120] flex items-center justify-center bg-brand-950/70 backdrop-blur-sm"
+        className="pointer-events-none fixed inset-0 z-[120] flex items-center justify-center bg-brand-950/70 backdrop-blur-sm drop-veil"
       >
-        <div className="flex flex-col items-center gap-4 rounded-3xl border-2 border-dashed border-brand-400/70 bg-zinc-900/80 px-16 py-12 text-center shadow-2xl">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-500/20 text-brand-200">
+        <div className="drop-box flex flex-col items-center gap-4 rounded-3xl border-2 border-dashed border-brand-400/70 bg-zinc-900/80 px-16 py-12 text-center shadow-2xl">
+          <div className="drop-icon flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-500/20 text-brand-200">
             <FolderInput className="h-8 w-8" />
           </div>
           <div>

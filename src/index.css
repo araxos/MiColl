@@ -2768,6 +2768,81 @@ html[data-holo-freq="2"] :is(.ruby-run i, .ruby-frame-glow, .ruby-frame-sheen, .
   object-position: 50% 20%;
 }
 
+/* ---- Iridescent: files dragged over the window (DropZone) ----
+   the frame around the target is a foil rim that turns slowly, with a halo in the same
+   colours, the label and the "drop to import" box get a thinner one */
+[data-accent="iridescent"] :is(.drop-frame, .drop-label, .drop-box) {
+  border-color: transparent;
+}
+[data-accent="iridescent"] .drop-frame {
+  box-shadow:
+    -5px -5px 20px rgba(196, 181, 253, 0.55),
+    5px -5px 20px rgba(245, 194, 255, 0.5),
+    5px 5px 20px rgba(167, 243, 208, 0.45),
+    -5px 5px 20px rgba(186, 230, 253, 0.5),
+    0 0 0 9999px rgba(9, 9, 11, 0.55);
+}
+/* cards, years and pages are square on this theme */
+[data-accent="iridescent"] .drop-target {
+  border-radius: 0;
+}
+/* a real border masked to the ring, see .iri-lead--fine */
+[data-accent="iridescent"] :is(.drop-frame, .drop-label, .drop-box)::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border: 3px solid transparent;
+  border-radius: inherit;
+  pointer-events: none;
+  background: conic-gradient(from var(--iri-ang2), var(--iri-spectrum)) border-box;
+  -webkit-mask:
+    linear-gradient(#000 0 0) padding-box,
+    linear-gradient(#000 0 0) border-box;
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: micoll-iri-edge 7s steps(140) infinite;
+}
+[data-accent="iridescent"] .drop-label {
+  background: rgba(14, 12, 24, 0.95);
+  box-shadow: 0 0 14px rgba(245, 194, 255, 0.35);
+}
+[data-accent="iridescent"] .drop-label::after {
+  inset: -1px;
+  border-width: 1.5px;
+}
+[data-accent="iridescent"] .drop-veil {
+  background: rgba(9, 9, 16, 0.7);
+}
+[data-accent="iridescent"] .drop-box {
+  position: relative;
+  background: rgba(14, 12, 24, 0.88);
+  box-shadow:
+    -8px -8px 34px rgba(196, 181, 253, 0.3),
+    8px -8px 34px rgba(245, 194, 255, 0.28),
+    8px 8px 34px rgba(167, 243, 208, 0.25),
+    -8px 8px 34px rgba(186, 230, 253, 0.28);
+}
+[data-accent="iridescent"] :is(.drop-label, .drop-icon) svg {
+  color: #f5c2ff;
+  filter: drop-shadow(0 0 5px rgba(245, 194, 255, 0.7));
+}
+[data-accent="iridescent"] .drop-icon {
+  background: linear-gradient(
+    135deg,
+    rgba(196, 181, 253, 0.2),
+    rgba(245, 194, 255, 0.16) 45%,
+    rgba(167, 243, 208, 0.18)
+  );
+}
+[data-animations="off"] :is(.drop-frame, .drop-label, .drop-box)::after {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-accent="iridescent"] :is(.drop-frame, .drop-label, .drop-box)::after {
+    animation: none;
+  }
+}
+
 /* right-click menus: a dark plate in a chrome line with two corners cut. Plate and line
    are pseudo elements, a clip on the menu itself would cut its glow and its submenus */
 [data-accent="corruptruby"] .ctx-menu.ruby-panel {
@@ -9265,7 +9340,7 @@ html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-acc
 html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-accent="sakura"][data-fx-off~="shimmer.sakura"], [data-accent="cyberpunk"][data-fx-off~="shimmer.cyberpunk"], [data-accent="corruptruby"][data-fx-off~="shimmer.corruptruby"])
   :is(.imp-fill, .crop-frame, .tb-hint, .micoll-viewer .viewer-thumb, .iri-lead--fine, .iri-licence, .sak-licence, .cp-licence, .cp-create)::before,
 html:is([data-accent="iridescent"][data-fx-off~="shimmer.iridescent"], [data-accent="sakura"][data-fx-off~="shimmer.sakura"], [data-accent="cyberpunk"][data-fx-off~="shimmer.cyberpunk"], [data-accent="corruptruby"][data-fx-off~="shimmer.corruptruby"])
-  :is(.imp-fill, .crop-frame, .tb-hint, .micoll-viewer .viewer-thumb, .iri-lead--fine, .iri-licence, .sak-licence, .cp-licence, .cp-create)::after {
+  :is(.imp-fill, .crop-frame, .tb-hint, .micoll-viewer .viewer-thumb, .iri-lead--fine, .iri-licence, .sak-licence, .cp-licence, .cp-create, .drop-frame, .drop-label, .drop-box)::after {
   animation: none !important;
 }
 

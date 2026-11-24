@@ -6,7 +6,7 @@
 use image::{GrayImage, Luma, RgbaImage};
 
 use crate::watermark::{self, Corner, Hit, Rect, Template, Tried};
-use crate::wm_motif;
+use crate::{wm_layer, wm_motif, wm_shared};
 
 /// Opens one of the reward's other pictures.
 pub type Load<'a> = &'a (dyn Fn(&str) -> Option<RgbaImage> + Sync);
@@ -52,21 +52,42 @@ pub fn text_mask(img: &RgbaImage, others: &[String], load: Load, corners: &[Corn
     let own: Vec<Option<Hit>> = corners.iter().map(|c| watermark::find_text(img, *c, strength)).collect();
     // the others' finds (only the ones that can be opened)
     let start = std::time::Instant::now();
-    let seen: Vec<(String, (u32, u32), Vec<Option<Hit>>)> = each(others, |p| {
+    let edges: Vec<bool> =
+        [false, true].into_iter().filter(|top| corners.iter().any(|c| wm_shared::is_top(*c) == *top)).collect();
+    type Seen = (String, (u32, u32), Vec<Option<Hit>>, Vec<wm_shared::Band>);
+    let seen: Vec<Seen> = each(others, |p| {
         if start.elapsed() > LOOK_FOR {
             return None;
         }
         let o = load(p)?;
-        Some((p.clone(), o.dimensions(), corners.iter().map(|c| watermark::find_text(&o, *c, 0.6)).collect()))
+        Some((
+            p.clone(),
+            o.dimensions(),
+            corners.iter().map(|c| watermark::find_text(&o, *c, 0.6)).collect(),
+            edges.iter().filter_map(|top| wm_shared::band(&o, *top)).collect(),
+        ))
     })
     .into_iter()
     .flatten()
     .collect();
     let sizes: Vec<(u32, u32)> = std::iter::once(img.dimensions()).chain(seen.iter().map(|s| s.1)).collect();
 
+    let mine: Vec<wm_shared::Band> = edges.iter().filter_map(|top| wm_shared::band(img, *top)).collect();
+    let bands: Vec<&wm_shared::Band> = mine.iter().chain(seen.iter().flat_map(|s| s.3.iter())).collect();
     let mut out = GrayImage::new(img.width(), img.height());
     let mut any = false;
     for (ci, corner) in corners.iter().enumerate() {
+        // the text all of them have in common there
+        if let Some(c) = wm_shared::Corners::of(&bands, *corner) {
+            let top = wm_shared::is_top(*corner);
+            let t = c.try_on(img, mine.iter().find(|b| b.is_top() == top));
+            // (it's only shown as a selection, so also where it can hardly be told)
+            if let Some(hit) = t.fit.or(t.reserve) {
+                any = true;
+                lay(&mut out, &hit);
+                continue;
+            }
+        }
         let finds: Vec<Option<&Hit>> =
             std::iter::once(own[ci].as_ref()).chain(seen.iter().map(|s| s.2[ci].as_ref())).collect();
         let list: Vec<((u32, u32), Option<&Hit>)> = sizes.iter().copied().zip(finds.iter().copied()).collect();
@@ -185,13 +206,14 @@ pub fn remove_mark(
         let (bx, by) = (r.x + x0, r.y + y0);
         let cut = image::imageops::crop_imm(&cut, x0, y0, x1 - x0 + 1, y1 - y0 + 1).to_image();
         let stroke = if stroke > 0.0 { stroke } else { wm_motif::stroke_width(&cut) };
-        // (a shadow takes at least four pictures to tell)
+        let Some(mut hit) = wm_motif::own_hit(&cut, bx, by, stroke, w, h) else { continue };
+        // (it takes at least four pictures to tell what's around it)
         if one && others.len() >= 3 {
-            if let Some((shadow, spot)) = shadow_of(img, &cut, bx, by, stroke, others, load) {
-                shadow.lift(img, &spot);
+            if let Some((layer, f)) = learned(img, &cut, bx, by, stroke, &hit, others, load) {
+                layer.lift(img, &f.spot);
+                hit = f.hit;
             }
         }
-        let Some(hit) = wm_motif::own_hit(&cut, bx, by, stroke, w, h) else { continue };
         let mut full = GrayImage::new(w, h);
         lay(&mut full, &hit);
         wm_motif::remove_motif(data, img, &full, stroke, &|| false)?;
@@ -199,16 +221,18 @@ pub fn remove_mark(
     Ok(())
 }
 
-/// The soft shadow the mark has on all pictures it's found on, and where it is here.
-fn shadow_of(
+/// What the mark does around it as the other pictures show, and what comes off here.
+#[allow(clippy::too_many_arguments)]
+fn learned(
     img: &RgbaImage,
     cut: &GrayImage,
     bx: u32,
     by: u32,
     stroke: f32,
+    own: &Hit,
     others: &[String],
     load: Load,
-) -> Option<(wm_motif::Shadow, wm_motif::Spot)> {
+) -> Option<(wm_layer::Layer, wm_layer::Found)> {
     let motif = wm_motif::motif_from_mask(cut, stroke, img.width(), img.height())?;
     let spot = wm_motif::Spot {
         cx: bx as f32 + motif.mask.width() as f32 / 2.0,
@@ -216,18 +240,16 @@ fn shadow_of(
         scale: 1.0,
         angle: 0.0,
     };
-    let parts = wm_motif::colour_parts(img, &motif, bx, by);
-    let mut around = wm_motif::Around::new(&motif);
-    around.add(&around.look(img, &spot));
-    let seen = each(others, |p| {
-        let o = load(p)?;
-        let hit = wm_motif::find_motif(&o, &motif, &|| false)?;
-        (hit.score >= wm_motif::MOTIF_MIN && hit.spot.angle.abs() < 0.5).then(|| around.look(&o, &hit.spot))
-    });
-    for s in seen.into_iter().flatten() {
-        around.add(&s);
-    }
-    Some((around.shadow(&parts)?, spot))
+    let (found, layer) = wm_layer::hunt(
+        others.len() + 1,
+        &|i| if i == 0 { Some(img.clone()) } else { load(&others[i - 1]) },
+        &motif,
+        Some((0, spot, own.clone())),
+        false,
+        &|| false,
+        &|_, _, _| (),
+    );
+    Some((layer?, found.into_iter().next()??))
 }
 
 #[cfg(test)]

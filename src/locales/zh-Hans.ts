@@ -1667,6 +1667,7 @@ export const dict: Dict = {
   "Draw a frame around the watermark.": "在水印周围画一个框。",
   "This is what’s looked for on the other pictures. Paint in what’s missing, wipe off what isn’t the mark.": "这就是在其他图片中要查找的内容。补画缺失的部分，擦掉不属于标记的部分。",
   "Looking for the mark on every picture…": "正在所有图片中查找标记…",
+  "Looking closer where it wasn’t found for sure…": "正在仔细查找不确定的图片…",
   "Not found on: {names}": "未找到于：{names}",
   "Not sure it’s the mark — tick it if it is": "不确定是否为该标记 — 是的话请勾选",
   "Remove watermark": "去除水印",

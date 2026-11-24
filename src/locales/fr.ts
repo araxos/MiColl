@@ -1690,6 +1690,7 @@ export const dict: Dict = {
   "Draw a frame around the watermark.": "Dessine un cadre autour du filigrane.",
   "This is what’s looked for on the other pictures. Paint in what’s missing, wipe off what isn’t the mark.": "C’est ce qui est cherché sur les autres images. Peins ce qui manque, efface ce qui n’est pas le motif.",
   "Looking for the mark on every picture…": "Recherche du motif sur toutes les images…",
+  "Looking closer where it wasn’t found for sure…": "Recherche plus poussée là où ce n’était pas sûr…",
   "Not found on: {names}": "Introuvable sur : {names}",
   "Not sure it’s the mark — tick it if it is": "Pas sûr que ce soit le motif — coche-le si c’est le cas",
   "Remove watermark": "Retirer le filigrane",

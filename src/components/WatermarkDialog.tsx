@@ -395,7 +395,9 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
               p={progress}
               label={
                 mode === "mark"
-                  ? t("Looking for the mark on every picture…")
+                  ? progress?.phase === "again"
+                    ? t("Looking closer where it wasn’t found for sure…")
+                    : t("Looking for the mark on every picture…")
                   : progress?.phase === "check"
                     ? t("Checking the other pictures…")
                     : t("Looking for text in the corners…")

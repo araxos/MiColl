@@ -23,7 +23,9 @@ mod transfer;
 mod unlock;
 mod wallsets;
 mod watermark;
+mod wm_layer;
 mod wm_motif;
+mod wm_shared;
 mod wm_single;
 mod history;
 mod inbox;
@@ -8560,10 +8562,10 @@ struct WmImage {
     own: Vec<watermark::Hit>,
     /// Mode B (a framed mark): its strokes' width on this picture, px. None = mode A.
     stroke: Option<f32>,
-    /// Mode B: where the mark sits, and the soft shadow it has on all of them (taken off
-    /// before it's filled).
+    /// Mode B: where the mark sits, and what it does around it as all of them show
+    /// (shadows, glows: calculated off before it's filled).
     spot: Option<wm_motif::Spot>,
-    shadow: Option<std::sync::Arc<wm_motif::Shadow>>,
+    layer: Option<std::sync::Arc<wm_layer::Layer>>,
     /// Found only through the template (nothing found on it by itself).
     guessed: bool,
     /// Mode B: it may be the mark, the user has to say so.
@@ -8758,11 +8760,15 @@ async fn wm_scan(
     let (pics, skipped) = wm_pictures_of(&db.conn(), reward_id)?;
     WM_STOP.store(false, std::sync::atomic::Ordering::Relaxed);
     let app2 = app.clone();
-    let (images, templated, template_from) = tauri::async_runtime::spawn_blocking(move || {
+    let (images, template_from) = tauri::async_runtime::spawn_blocking(move || {
         let total = pics.len();
         // 1. every picture on its own
         let mut sizes: Vec<(u32, u32)> = Vec::new();
         let mut finds: Vec<Vec<Option<watermark::Hit>>> = Vec::new();
+        let mut bands: Vec<Vec<wm_shared::Band>> = Vec::new();
+        let mut learn: Vec<Vec<wm_shared::Band>> = Vec::new();
+        let edges: Vec<bool> =
+            [false, true].into_iter().filter(|top| corners.iter().any(|c| wm_shared::is_top(*c) == *top)).collect();
         for (i, (_, _, shown, _)) in pics.iter().enumerate() {
             if wm_stopped() {
                 return Err(ai::STOPPED.to_string());
@@ -8772,19 +8778,38 @@ async fn wm_scan(
                 Ok((img, _)) => {
                     sizes.push(img.dimensions());
                     finds.push(corners.iter().map(|c| watermark::find_text(&img, *c, 0.6)).collect());
+                    bands.push(edges.iter().filter_map(|top| wm_shared::band(&img, *top)).collect());
+                    // learned from the original: a version may have it off (half) already
+                    let orig = &pics[i].1;
+                    let from = if orig == shown { None } else { wm_load(orig, key).ok().map(|x| x.0) };
+                    if let Some(o) = from.filter(|o| o.dimensions() == img.dimensions()) {
+                        learn.push(edges.iter().filter_map(|top| wm_shared::band(&o, *top)).collect());
+                    } else {
+                        learn.push(Vec::new());
+                    }
                 }
                 Err(_) => {
                     sizes.push((0, 0));
                     finds.push(corners.iter().map(|_| None).collect());
+                    bands.push(Vec::new());
+                    learn.push(Vec::new());
                 }
             }
         }
         wm_progress(&app2, job, "scan", total, total);
+        // the text all pictures of a size have in common there (however faint it is)
+        let all_bands: Vec<&wm_shared::Band> =
+            bands.iter().zip(&learn).flat_map(|(b, l)| if l.is_empty() { b } else { l }).collect();
+        let common: Vec<Option<wm_shared::Corners>> =
+            corners.iter().map(|c| wm_shared::Corners::of(&all_bands, *c)).collect();
         // 2. per corner the templates: per picture size the clearest find of the whole line
         let templates: Vec<Vec<(usize, watermark::Template)>> = corners
             .iter()
             .enumerate()
             .map(|(ci, corner)| {
+                if common[ci].is_some() {
+                    return Vec::new();
+                }
                 let list: Vec<((u32, u32), Option<&watermark::Hit>)> =
                     finds.iter().enumerate().map(|(pi, f)| (sizes[pi], f[ci].as_ref())).collect();
                 // their edges are taken from those pictures, so they're loaded again
@@ -8815,14 +8840,14 @@ async fn wm_scan(
                 own: Vec::new(),
                 stroke: None,
                 spot: None,
-                shadow: None,
+                layer: None,
                 guessed: false,
                 unsure: false,
                 before: *before,
                 made: None,
             })
             .collect();
-        let any_template = templates.iter().any(|t| !t.is_empty());
+        let any_template = templates.iter().any(|t| !t.is_empty()) || common.iter().any(|c| c.is_some());
         let mut from: Vec<usize> = Vec::new();
         for (pi, _) in templates.iter().flatten() {
             if !from.contains(pi) {
@@ -8845,22 +8870,34 @@ async fn wm_scan(
             let img = if any_template && sizes[pi].0 > 0 { wm_load(shown, key).ok().map(|x| x.0) } else { None };
             for (ci, list) in tried.iter_mut().enumerate() {
                 list.push(match &img {
-                    Some(img) => watermark::try_templates(img, &templates[ci]),
+                    Some(img) => match &common[ci] {
+                        Some(c) => {
+                            let top = wm_shared::is_top(corners[ci]);
+                            c.try_on(img, bands[pi].iter().find(|b| b.is_top() == top))
+                        }
+                        None => watermark::try_templates(img, &templates[ci]),
+                    },
                     None => watermark::Tried { fit: None, reserve: None },
                 });
             }
         }
         for (ci, list) in tried.into_iter().enumerate() {
             let own: Vec<Option<&watermark::Hit>> = finds.iter().map(|f| f[ci].as_ref()).collect();
+            // the text all of a size share, and this picture shows it: nothing guessed there
+            let sure: Vec<bool> = list
+                .iter()
+                .enumerate()
+                .map(|(pi, t)| t.fit.is_some() && common[ci].as_ref().is_some_and(|c| c.knows(sizes[pi])))
+                .collect();
             for (pi, got) in watermark::choose(&sizes, &own, list).into_iter().enumerate() {
                 if let Some((hit, guessed)) = got {
-                    images[pi].guessed |= guessed;
+                    images[pi].guessed |= guessed && !sure[pi];
                     images[pi].own.push(hit);
                 }
             }
         }
         wm_progress(&app2, job, "check", total, total);
-        Ok((images, any_template, template_from))
+        Ok((images, template_from))
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -8869,7 +8906,7 @@ async fn wm_scan(
     let items = wm_items(&images);
     let kept: Vec<WmImage> = images.into_iter().filter(|im| !im.own.is_empty()).collect();
     wm_jobs().lock().map_err(map_err)?.insert(job, WmJob { images: kept });
-    Ok(WmScan { items, pictures, skipped, shared: templated, template_from, missed: Vec::new() })
+    Ok(WmScan { items, pictures, skipped, shared: template_from.is_some(), template_from, missed: Vec::new() })
 }
 
 /// The pictures something comes off, for the window.
@@ -8914,70 +8951,31 @@ async fn wm_scan_mark(
         let (own, _) = wm_load(&path, key)?;
         let motif = wm_motif::motif_from_mask(&mask, stroke, own.width(), own.height())
             .ok_or("The mark is empty. Draw the frame again, or paint it in.")?;
-        // the mark's box on its own picture, and its parts by colour
+        // the mark's box on its own picture
         let (bx, by, _, _) = edit::mask_bbox(&mask).ok_or("The mark is empty.")?;
-        let (bx, by) = (x + bx, y + by);
-        let parts = wm_motif::colour_parts(&own, &motif, bx, by);
-        drop(own);
         let own_spot = wm_motif::Spot {
-            cx: bx as f32 + motif.mask.width() as f32 / 2.0,
-            cy: by as f32 + motif.mask.height() as f32 / 2.0,
+            cx: (x + bx) as f32 + motif.mask.width() as f32 / 2.0,
+            cy: (y + by) as f32 + motif.mask.height() as f32 / 2.0,
             scale: 1.0,
             angle: 0.0,
         };
-        let total = pics.len();
-        wm_progress(&app2, job, "mark", 0, total);
-        // what all pictures have around the mark (a shadow)
-        let around = std::sync::Mutex::new(wm_motif::Around::new(&motif));
-        let empty = wm_motif::Around::new(&motif);
-        // (what comes off, its stroke width there, where, unsure) per picture
-        type Found = Option<(watermark::Hit, f32, wm_motif::Spot, bool)>;
-        let one = |shown: &str| -> Found {
-            let (img, _) = wm_load(shown, key).ok()?;
-            let found: Found = if shown == path {
-                // its own picture: exactly what was framed
-                wm_motif::own_hit(&mask, x, y, stroke, img.width(), img.height()).map(|h| (h, stroke, own_spot, false))
-            } else {
-                let hit = wm_motif::find_motif(&img, &motif, &wm_stopped)?;
-                (hit.score >= wm_motif::MOTIF_UNSURE)
-                    .then_some((hit.hit, stroke * hit.spot.scale, hit.spot, hit.score < wm_motif::MOTIF_MIN))
-            };
-            if let Some((_, _, spot, false)) = &found {
-                if spot.angle.abs() < 0.5 {
-                    let seen = empty.look(&img, spot);
-                    if let Ok(mut a) = around.lock() {
-                        a.add(&seen);
-                    }
-                }
-            }
-            found
-        };
-        // a few pictures side by side (each takes a second or two)
-        let threads = std::thread::available_parallelism().map(|n| n.get() / 2).unwrap_or(1).clamp(1, 3);
-        let next = std::sync::atomic::AtomicUsize::new(0);
-        let done = std::sync::atomic::AtomicUsize::new(0);
-        let found: std::sync::Mutex<Vec<Found>> = std::sync::Mutex::new((0..total).map(|_| None).collect());
-        std::thread::scope(|sc| {
-            for _ in 0..threads {
-                sc.spawn(|| loop {
-                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    if i >= total || wm_stopped() {
-                        break;
-                    }
-                    let f = one(&pics[i].2);
-                    if let Ok(mut v) = found.lock() {
-                        v[i] = f;
-                    }
-                    let d = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                    wm_progress(&app2, job, "mark", d, total);
-                });
-            }
-        });
+        let own_hit = wm_motif::own_hit(&mask, x, y, stroke, own.width(), own.height());
+        drop(own);
+        let own = own_hit.and_then(|h| Some((pics.iter().position(|p| p.2 == path)?, own_spot, h)));
+        wm_progress(&app2, job, "mark", 0, pics.len());
+        let (found, layer) = wm_layer::hunt(
+            pics.len(),
+            &|i| wm_load(&pics[i].2, key).ok().map(|x| x.0),
+            &motif,
+            own,
+            true,
+            &wm_stopped,
+            &|round, done, of| wm_progress(&app2, job, if round == 1 { "mark" } else { "again" }, done, of),
+        );
         if wm_stopped() {
             return Err(ai::STOPPED.to_string());
         }
-        let found = found.into_inner().map_err(map_err)?;
-        let shadow = around.into_inner().map_err(map_err)?.shadow(&parts).map(std::sync::Arc::new);
+        let layer = layer.map(std::sync::Arc::new);
         let mut images = Vec::new();
         let mut missed = Vec::new();
         for ((id, orig, shown, before), f) in pics.into_iter().zip(found) {
@@ -8985,7 +8983,7 @@ async fn wm_scan_mark(
                 missed.push(file_name_of(&orig));
             }
             let (own, width, spot, unsure) = match f {
-                Some((h, st, sp, u)) => (vec![h], st, Some(sp), u),
+                Some(f) => (vec![f.hit], stroke * f.spot.scale, Some(f.spot), f.unsure),
                 None => (Vec::new(), stroke, None, false),
             };
             images.push(WmImage {
@@ -8995,7 +8993,7 @@ async fn wm_scan_mark(
                 own,
                 stroke: Some(width),
                 spot,
-                shadow: shadow.clone(),
+                layer: layer.clone(),
                 guessed: false,
                 unsure,
                 before,
@@ -9026,7 +9024,7 @@ fn wm_take(job: u64, image_id: i64) -> Result<WmImage, String> {
         own: im.own.clone(),
         stroke: im.stroke,
         spot: im.spot,
-        shadow: im.shadow.clone(),
+        layer: im.layer.clone(),
         guessed: im.guessed,
         unsure: im.unsure,
         before: im.before,
@@ -9044,8 +9042,8 @@ fn wm_clean(
     let (w, h) = img.dimensions();
     let mask = wm_mask(im, w, h);
     let mut out = img.clone();
-    if let (Some(shadow), Some(spot)) = (&im.shadow, &im.spot) {
-        shadow.lift(&mut out, spot);
+    if let (Some(layer), Some(spot)) = (&im.layer, &im.spot) {
+        layer.lift(&mut out, spot);
     }
     match im.stroke {
         Some(st) => wm_motif::remove_motif(data, &mut out, &mask, st, &wm_stopped)?,
@@ -9262,9 +9260,9 @@ fn wm_others(conn: &rusqlite::Connection, path: &str, max: usize) -> Vec<String>
 }
 
 /// How many of the reward's other pictures the tool looks at: for a line of text (its
-/// first letters can drown in the background on most of them), and for a mark's shadow.
+/// first letters can drown in the background on most of them), and for what's around a mark (a shadow).
 const WM_OTHERS_TEXT: usize = 24;
-const WM_OTHERS_MARK: usize = 8;
+const WM_OTHERS_MARK: usize = 14;
 
 /// "Text in a corner": the line of text as a selection (a rose PNG like Detect's).
 /// path = the original (its reward's pictures help), strength 0..1.

@@ -1667,6 +1667,7 @@ export const dict: Dict = {
   "Draw a frame around the watermark.": "透かしの周りに枠を描いてください。",
   "This is what’s looked for on the other pictures. Paint in what’s missing, wipe off what isn’t the mark.": "これが他の画像で探されます。足りない部分を塗り、マークでない部分を消してください。",
   "Looking for the mark on every picture…": "すべての画像でマークを探しています…",
+  "Looking closer where it wasn’t found for sure…": "確実でない画像をもう一度詳しく調べています…",
   "Not found on: {names}": "見つからなかった画像：{names}",
   "Not sure it’s the mark — tick it if it is": "マークかどうか不確実 — マークならチェック",
   "Remove watermark": "透かしを除去",

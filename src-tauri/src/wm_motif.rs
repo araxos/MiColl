@@ -84,7 +84,7 @@ fn bold_width(mask: &GrayImage) -> f32 {
 }
 
 /// How much wider than its strokes the mark is taken off (its soft edge).
-fn grow_of(stroke: f32) -> i32 {
+pub(crate) fn grow_of(stroke: f32) -> i32 {
     ((stroke * 0.5).round() as i32).clamp(2, 6)
 }
 
@@ -221,11 +221,182 @@ pub fn mark_in_box(img: &RgbaImage, bx: u32, by: u32, bw: u32, bh: u32) -> Optio
         m[0] = m[0].max(b[0]);
         c[0] = c[0].max(b[0]);
     }
+    if let Some((d, w, h, noise)) = off_smooth(&crop) {
+        // a smooth background says by itself what isn't it
+        let smooth = smooth_mark(&d, w, h, noise);
+        if smooth.iter().filter(|v| **v).count() >= 20 {
+            for y in 0..bh {
+                for x in 0..bw {
+                    let i = (y as usize * h / bh as usize).min(h - 1) * w + (x as usize * w / bw as usize).min(w - 1);
+                    if smooth[i] {
+                        mask.put_pixel(x, y, Luma([255]));
+                        core.put_pixel(x, y, Luma([255]));
+                    } else if d[i] < (2.0 * noise).max(10.0) {
+                        mask.put_pixel(x, y, Luma([0]));
+                        core.put_pixel(x, y, Luma([0]));
+                    }
+                }
+            }
+        }
+    } else {
+        for ((m, c), b) in mask.pixels_mut().zip(core.pixels_mut()).zip(flat_parts(&crop).pixels()) {
+            m[0] = m[0].max(b[0]);
+            c[0] = c[0].max(b[0]);
+        }
+    }
     if mask.pixels().filter(|p| p[0] > 0).count() < 20 {
         return None;
     }
     let stroke = stroke_width(&core);
     Some((mask, stroke))
+}
+
+/// How far the frame's pixels are from its background, when the background is smooth
+/// enough to say what it is under the mark (sky, a wall): the largest difference of a
+/// channel, and what's noise. None on anything busier.
+fn off_smooth(crop: &RgbaImage) -> Option<(Vec<f32>, usize, usize, f32)> {
+    let (fw, fh) = crop.dimensions();
+    let f = (700.0 / fw.max(fh) as f32).min(1.0);
+    let (sw, sh) = (((fw as f32 * f).round() as u32).max(1), ((fh as f32 * f).round() as u32).max(1));
+    let small = if f < 1.0 { imageops::resize(crop, sw, sh, FilterType::Triangle) } else { crop.clone() };
+    let (w, h) = (sw as usize, sh as usize);
+    if w < 24 || h < 24 {
+        return None;
+    }
+    let b = ((w.min(h) as f32 * 0.05) as usize).max(3);
+    let mut free: Vec<bool> =
+        (0..w * h).map(|i| i % w < b || i / w < b || i % w + b >= w || i / w + b >= h).collect();
+    let rim = free.clone();
+    let px: Vec<[f32; 3]> = small.pixels().map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]).collect();
+    let mut d = vec![0f32; w * h];
+    let mut noise = 0f32;
+    for round in 0..3 {
+        // the background from the free pixels, close by first
+        let on: Vec<f32> = free.iter().map(|v| *v as i32 as f32).collect();
+        let mut back = vec![[0f32; 3]; w * h];
+        let mut done = vec![0f32; w * h];
+        for s in [0.01f32, 0.03, 0.08, 0.2, 0.5] {
+            let sigma = (w.max(h) as f32 * s).max(1.5);
+            let den = blur(&on, w, h, sigma);
+            for c in 0..3 {
+                let num = blur(&(0..w * h).map(|i| px[i][c] * on[i]).collect::<Vec<_>>(), w, h, sigma);
+                for i in 0..w * h {
+                    if den[i] > 1e-5 {
+                        back[i][c] += (den[i] / 0.06).min(1.0) * (1.0 - done[i]) * num[i] / den[i];
+                    }
+                }
+            }
+            for i in 0..w * h {
+                if den[i] > 1e-5 {
+                    done[i] += (den[i] / 0.06).min(1.0) * (1.0 - done[i]);
+                }
+            }
+        }
+        for i in 0..w * h {
+            d[i] = (0..3).map(|c| (px[i][c] - back[i][c] / done[i].max(1e-3)).abs()).fold(0f32, f32::max);
+        }
+        // (something in a corner of the frame doesn't count)
+        noise = percentile((0..w * h).filter(|i| rim[*i]).map(|i| d[i]).collect(), 0.9).max(1.5);
+        if noise > 13.0 {
+            return None;
+        }
+        if round < 2 {
+            let thr = (3.0 * noise).max(16.0);
+            let off: Vec<bool> = d.iter().map(|v| *v > thr).collect();
+            free = morph(&off, w, h, 3, false).into_iter().map(|v| !v).collect();
+            if free.iter().filter(|v| **v).count() * 12 < w * h {
+                return None;
+            }
+        }
+    }
+    Some((d, w, h, noise))
+}
+
+/// The mark on a smooth background: everything that clearly isn't the background, with
+/// what's right at it (its soft edge), but no glow on its own.
+fn smooth_mark(d: &[f32], w: usize, h: usize, noise: f32) -> Vec<bool> {
+    let strong: Vec<bool> = d.iter().map(|v| *v > (4.5 * noise).max(38.0)).collect();
+    let near = morph(&strong, w, h, 2, false);
+    let weak = (3.0 * noise).max(22.0);
+    let m: Vec<bool> = (0..w * h).map(|i| strong[i] || (near[i] && d[i] > weak)).collect();
+    let g = GrayImage::from_fn(w as u32, h as u32, |x, y| Luma([m[y as usize * w + x as usize] as u8 * 255]));
+    let (labels, comps) = components(&g);
+    labels.iter().map(|l| *l > 0 && comps[*l as usize - 1].area >= 6).collect()
+}
+
+/// Bigger areas in one flat colour the frame's rim doesn't have (a board, a badge, a
+/// filled shape behind letters): too wide to be a stroke, too even to be the picture.
+fn flat_parts(crop: &RgbaImage) -> GrayImage {
+    let (fw, fh) = crop.dimensions();
+    let f = (500.0 / fw.max(fh) as f32).min(1.0);
+    let (sw, sh) = (((fw as f32 * f).round() as u32).max(1), ((fh as f32 * f).round() as u32).max(1));
+    let small = if f < 1.0 { imageops::thumbnail(crop, sw, sh) } else { crop.clone() };
+    let (w, h) = (sw as usize, sh as usize);
+    let mut out = GrayImage::new(fw, fh);
+    if w < 24 || h < 24 {
+        return out;
+    }
+    let px: Vec<[f32; 3]> = small.pixels().map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]).collect();
+    let dist = |a: &[f32; 3], b: &[f32; 3]| (0..3).map(|c| (a[c] - b[c]).powi(2)).sum::<f32>().sqrt();
+    let b = ((w.min(h) as f32 * 0.05) as usize).max(3);
+    let is_rim = |i: usize| i % w < b || i / w < b || i % w + b >= w || i / w + b >= h;
+    let mut bins: std::collections::HashMap<[u8; 3], usize> = std::collections::HashMap::new();
+    let mut n = 0usize;
+    for i in (0..w * h).filter(|i| is_rim(*i)) {
+        *bins.entry(px[i].map(|v| v as u8 / 24)).or_insert(0) += 1;
+        n += 1;
+    }
+    let rim: Vec<[f32; 3]> =
+        bins.into_iter().filter(|(_, c)| *c * 60 >= n).map(|(q, _)| q.map(|v| v as f32 * 24.0 + 12.0)).collect();
+    let mut seen = vec![false; w * h];
+    for start in 0..w * h {
+        if seen[start] {
+            continue;
+        }
+        // neighbours of (nearly) the same colour, never drifting far from the first
+        seen[start] = true;
+        let mut list = vec![start];
+        let mut at = 0;
+        let mut edge = false;
+        while at < list.len() {
+            let i = list[at];
+            at += 1;
+            edge |= is_rim(i);
+            let (x, y) = (i % w, i / w);
+            for j in [(x > 0).then(|| i - 1), (x + 1 < w).then(|| i + 1), (y > 0).then(|| i - w), (y + 1 < h).then(|| i + w)]
+                .into_iter()
+                .flatten()
+            {
+                if !seen[j] && dist(&px[i], &px[j]) < 9.0 && dist(&px[start], &px[j]) < 26.0 {
+                    seen[j] = true;
+                    list.push(j);
+                }
+            }
+        }
+        if edge || list.len() * 220 < w * h {
+            continue;
+        }
+        let mut mean = [0f32; 3];
+        for i in &list {
+            for c in 0..3 {
+                mean[c] += px[*i][c] / list.len() as f32;
+            }
+        }
+        let spread = (list.iter().map(|i| dist(&px[*i], &mean).powi(2)).sum::<f32>() / list.len() as f32).sqrt();
+        if spread > 9.0 || rim.iter().any(|r| dist(r, &mean) < 62.0) {
+            continue;
+        }
+        for i in list {
+            let (x0, y0) = ((i % w) as u32, (i / w) as u32);
+            let at = |v: u32, s: u32, full: u32| ((v as u64 * full as u64) / s as u64) as u32;
+            for y in at(y0, sh, fh)..at(y0 + 1, sh, fh).max(at(y0, sh, fh) + 1).min(fh) {
+                for x in at(x0, sw, fw)..at(x0 + 1, sw, fw).max(at(x0, sw, fw) + 1).min(fw) {
+                    out.put_pixel(x, y, Luma([255]));
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Thin strokes (up to ~11 px): the small top-hats, dark or light (whichever stands out),
@@ -347,7 +518,7 @@ fn off_background(px: &[[f32; 3]], mask: &[bool], w: usize, h: usize, r: usize) 
 }
 
 /// Grown (or shrunk) by r px, square.
-fn morph(m: &[bool], w: usize, h: usize, r: usize, shrink: bool) -> Vec<bool> {
+pub(crate) fn morph(m: &[bool], w: usize, h: usize, r: usize, shrink: bool) -> Vec<bool> {
     let src: Vec<i32> = m.iter().map(|v| *v as i32).collect();
     min_max(&src, w, h, r, shrink).into_iter().map(|v| v > 0).collect()
 }
@@ -773,10 +944,28 @@ fn turned(m: &Motif, deg: f32) -> Motif {
     Motif { mask, ..m.clone() }
 }
 
+/// The mark's exact place when it's known about where it is (a few percent of its size).
+pub(crate) fn at_spot(img: &RgbaImage, m: &Motif, about: &Spot) -> Option<Spot> {
+    let (mw, mh) = (m.mask.width() as f32, m.mask.height() as f32);
+    let side = mw.max(mh) * about.scale;
+    let start = Place { x: about.cx - mw * about.scale / 2.0, y: about.cy - mh * about.scale / 2.0, scale: about.scale, score: 0.0 };
+    let f1 = (150.0 / side).min(1.0);
+    let wide: Vec<f32> = (-6..=6).map(|i| 1.0 + i as f32 * 0.02).collect();
+    let a = refine(img, m, f1, &start, (side * 0.06).max(3.0 / f1), &wide, true)?;
+    let f2 = (450.0 / side).min(1.0);
+    let near: Vec<f32> = (-3..=3).map(|i| 1.0 + i as f32 * 0.006).collect();
+    let b = refine(img, m, f2, &a, 2.0 / f1, &near, true)?;
+    // (to a pixel or so: finer than that the faint edges don't show)
+    let f3 = (900.0 / side).min(1.0);
+    let c = if f3 > f2 * 1.2 { refine(img, m, f3, &b, 2.0 / f2, &[0.997, 1.0, 1.003], false).unwrap_or(b) } else { b };
+    let (tw, th) = ((mw * c.scale).round(), (mh * c.scale).round());
+    Some(Spot { cx: c.x + tw / 2.0, cy: c.y + th / 2.0, scale: c.scale, angle: 0.0 })
+}
+
 /// Look for the mark on a picture: anywhere, from half to double its size (against the
 /// picture's size), and when it isn't there straight, turned up to ~14 degrees. The best
 /// place, or None when nothing is close.
-pub fn find_motif(img: &RgbaImage, m: &Motif, stop: &dyn Fn() -> bool) -> Option<MotifHit> {
+pub fn find_motif(img: &RgbaImage, m: &Motif, turn: bool, stop: &dyn Fn() -> bool) -> Option<MotifHit> {
     let (w, h) = img.dimensions();
     let side = m.mask.width().max(m.mask.height()) as f32;
     // the same mark on a bigger picture is likely bigger too
@@ -809,7 +998,7 @@ pub fn find_motif(img: &RgbaImage, m: &Motif, stop: &dyn Fn() -> bool) -> Option
     if stop() {
         return None;
     }
-    if best.map_or(true, |b| b.score < MOTIF_MIN) {
+    if turn && best.map_or(true, |b| b.score < MOTIF_MIN) {
         // turned? the usual sizes only
         let usual: Vec<f32> = scales.iter().copied().filter(|s| (0.75..=1.34).contains(&(s / k0))).collect();
         for deg in [-4f32, 4.0, -8.0, 8.0, -12.0, 12.0] {
@@ -924,8 +1113,6 @@ pub fn remove_motif(
     Ok(())
 }
 
-/* ---- a soft shadow (or glow) around the mark ---------------------------------- */
-
 /// Where the mark sits on a picture: its box's middle, its size against the framed one,
 /// how far it's turned (degrees).
 #[derive(Clone, Copy)]
@@ -936,44 +1123,8 @@ pub struct Spot {
     pub angle: f32,
 }
 
-/// The mark and some room around it on a small canvas, the same for every picture: there
-/// the pictures are laid on top of each other to see what they all have around the mark.
-struct Canvas {
-    /// Canvas px per px of the framed mark.
-    f: f32,
-    w: usize,
-    h: usize,
-}
-
-impl Canvas {
-    fn of(m: &Motif) -> Canvas {
-        let (mw, mh) = (m.mask.width() as f32, m.mask.height() as f32);
-        let room = 0.135 * mw.max(mh);
-        let f = (750.0 / (mw.max(mh) + 2.0 * room)).min(1.0);
-        Canvas { f, w: ((mw + 2.0 * room) * f).round().max(8.0) as usize, h: ((mh + 2.0 * room) * f).round().max(8.0) as usize }
-    }
-
-    /// A mask of the mark's size on the canvas, 0..1.
-    fn lay(&self, mask: &GrayImage) -> Vec<f32> {
-        let (tw, th) = (
-            ((mask.width() as f32 * self.f).round() as u32).max(1),
-            ((mask.height() as f32 * self.f).round() as u32).max(1),
-        );
-        let small = imageops::resize(mask, tw, th, FilterType::Triangle);
-        let (ox, oy) = ((self.w - (tw as usize).min(self.w)) / 2, (self.h - (th as usize).min(self.h)) / 2);
-        let mut out = vec![0f32; self.w * self.h];
-        for (x, y, p) in small.enumerate_pixels() {
-            let (cx, cy) = (ox + x as usize, oy + y as usize);
-            if cx < self.w && cy < self.h {
-                out[cy * self.w + cx] = p[0] as f32 / 255.0;
-            }
-        }
-        out
-    }
-}
-
 /// A blur with about this sigma (three box blurs, nothing outside).
-fn blur(v: &[f32], w: usize, h: usize, sigma: f32) -> Vec<f32> {
+pub(crate) fn blur(v: &[f32], w: usize, h: usize, sigma: f32) -> Vec<f32> {
     let r = (((4.0 * sigma * sigma + 1.0).sqrt() - 1.0) / 2.0).round().max(1.0) as usize;
     let n = (2 * r + 1) as f32;
     let mut a = v.to_vec();
@@ -993,270 +1144,6 @@ fn blur(v: &[f32], w: usize, h: usize, sigma: f32) -> Vec<f32> {
         }
     }
     a
-}
-
-/// What the pictures have in common around the mark, summed up.
-pub struct Around {
-    canvas: Canvas,
-    /// The mark on the canvas, and grown: too close to say anything, and the area a
-    /// shadow can be in.
-    close: Vec<bool>,
-    zone: Vec<bool>,
-    sum: Vec<f32>,
-    weight: Vec<f32>,
-    pictures: usize,
-}
-
-impl Around {
-    pub fn new(m: &Motif) -> Around {
-        let canvas = Canvas::of(m);
-        let on: Vec<bool> = canvas.lay(&m.mask).iter().map(|v| *v > 0.01).collect();
-        let (w, h) = (canvas.w, canvas.h);
-        let close = morph(&on, w, h, 2, false);
-        let zone = morph(&on, w, h, (w / 25).max(4), false);
-        Around { canvas, close, zone, sum: vec![0.0; w * h], weight: vec![0.0; w * h], pictures: 0 }
-    }
-
-    /// How much brighter or darker (log) a picture is around its mark than further out,
-    /// and how much each pixel counts (a busy picture less).
-    pub fn look(&self, img: &RgbaImage, at: &Spot) -> Vec<(f32, f32)> {
-        let (w, h) = (self.canvas.w, self.canvas.h);
-        // the picture's part under the canvas, scaled to it
-        let k = at.scale / self.canvas.f;
-        let (px, py) = (at.cx - w as f32 * k / 2.0, at.cy - h as f32 * k / 2.0);
-        let x0 = px.max(0.0).floor() as u32;
-        let y0 = py.max(0.0).floor() as u32;
-        let x1 = ((px + w as f32 * k).ceil().max(0.0) as u32).min(img.width());
-        let y1 = ((py + h as f32 * k).ceil().max(0.0) as u32).min(img.height());
-        let none = vec![(0.0, 0.0); w * h];
-        if x1 <= x0 + 8 || y1 <= y0 + 8 {
-            return none;
-        }
-        let cut = imageops::crop_imm(img, x0, y0, x1 - x0, y1 - y0).to_image();
-        let (sw, sh) = ((((x1 - x0) as f32 / k).round() as u32).max(1), (((y1 - y0) as f32 / k).round() as u32).max(1));
-        let small = shrink(&cut, sw, sh);
-        let (ox, oy) = (((x0 as f32 - px) / k).round() as i64, ((y0 as f32 - py) / k).round() as i64);
-        let mut lum = vec![0f32; w * h];
-        let mut there = vec![false; w * h];
-        for (x, y, p) in small.enumerate_pixels() {
-            let (cx, cy) = (ox + x as i64, oy + y as i64);
-            if cx >= 0 && cy >= 0 && (cx as usize) < w && (cy as usize) < h {
-                let i = cy as usize * w + cx as usize;
-                lum[i] = (p[0] as f32 * 0.299 + p[1] as f32 * 0.587 + p[2] as f32 * 0.114 + 6.0).ln();
-                there[i] = true;
-            }
-        }
-        // the background from further out, smooth
-        let sigma = w as f32 * 0.06;
-        let far: Vec<f32> = (0..w * h).map(|i| (there[i] && !self.zone[i]) as i32 as f32).collect();
-        let num = blur(&lum.iter().zip(&far).map(|(l, f)| l * f).collect::<Vec<_>>(), w, h, sigma);
-        let den = blur(&far, w, h, sigma);
-        let (mut sq, mut n) = (0f32, 0f32);
-        for i in (0..w * h).filter(|i| far[*i] > 0.0 && den[*i] > 0.02) {
-            sq += (lum[i] - num[i] / den[i]).powi(2);
-            n += 1.0;
-        }
-        if n < 50.0 {
-            return none;
-        }
-        let weight = 1.0 / (sq / n + 0.003);
-        (0..w * h)
-            .map(|i| {
-                if there[i] && !self.close[i] && den[i] > 0.02 {
-                    (lum[i] - num[i] / den[i], weight)
-                } else {
-                    (0.0, 0.0)
-                }
-            })
-            .collect()
-    }
-
-    pub fn add(&mut self, seen: &[(f32, f32)]) {
-        for (i, (d, w)) in seen.iter().enumerate() {
-            self.sum[i] += d * w;
-            self.weight[i] += w;
-        }
-        self.pictures += 1;
-    }
-
-    /// The shadow (or glow) they all have: one of the mark's parts, blurred and shifted,
-    /// as strong as fits best. None when there isn't clearly one. parts: masks of the
-    /// mark's size (its colours; often only one of them throws a shadow).
-    pub fn shadow(&self, parts: &[GrayImage]) -> Option<Shadow> {
-        if self.pictures < 4 {
-            return None;
-        }
-        let (w, h) = (self.canvas.w, self.canvas.h);
-        let unit = w as f32 / 755.0;
-        let reach = (12.0 * unit).round().max(1.0) as i32;
-        let step = (2.0 * unit).round().max(1.0) as usize;
-        let pts: Vec<(usize, usize, f32, f32)> = (0..w * h)
-            .filter(|i| self.zone[*i] && self.weight[*i] > 0.0)
-            .step_by(3)
-            .map(|i| (i % w, i / w, self.sum[i] / self.weight[i], self.weight[i]))
-            .collect();
-        let sw: f64 = pts.iter().map(|p| p.3 as f64).sum();
-        if pts.len() < 200 || sw <= 0.0 {
-            return None;
-        }
-        let mr = pts.iter().map(|p| (p.2 * p.3) as f64).sum::<f64>() / sw;
-        let vr = pts.iter().map(|p| p.3 as f64 * (p.2 as f64 - mr).powi(2)).sum::<f64>();
-        // (how well it fits, strength, blurred part, shift)
-        let mut best: Option<(f64, f64, Vec<f32>, i32, i32)> = None;
-        for part in parts {
-            let on = self.canvas.lay(part);
-            for sigma in [3f32, 4.0, 6.0, 8.0, 11.0, 13.0, 15.0, 17.0, 20.0] {
-                let soft = blur(&on, w, h, (sigma * unit).max(1.0));
-                let mut here: Option<(f64, f64, i32, i32)> = None;
-                for dy in (-reach..=reach).step_by(step) {
-                    for dx in (-reach..=reach).step_by(step) {
-                        let (mut sf, mut sff, mut sfr) = (0f64, 0f64, 0f64);
-                        for (x, y, r, wt) in &pts {
-                            let (sx, sy) = (*x as i32 - dx, *y as i32 - dy);
-                            if sx >= 0 && sy >= 0 && (sx as usize) < w && (sy as usize) < h {
-                                let v = soft[sy as usize * w + sx as usize] as f64;
-                                let wv = v * *wt as f64;
-                                sf += wv;
-                                sff += wv * v;
-                                sfr += wv * *r as f64;
-                            }
-                        }
-                        let cov = sfr - sf * mr;
-                        let var = sff - sf * sf / sw;
-                        if var <= 1e-9 || vr <= 1e-9 {
-                            continue;
-                        }
-                        let corr = cov / (var * vr).sqrt();
-                        if here.map_or(true, |b| corr.abs() > b.0.abs()) {
-                            here = Some((corr, cov / var, dx, dy));
-                        }
-                    }
-                }
-                if let Some((corr, amp, dx, dy)) = here {
-                    if best.as_ref().map_or(true, |b| corr.abs() > b.0.abs()) {
-                        best = Some((corr, amp, soft, dx, dy));
-                    }
-                }
-            }
-        }
-        let (corr, amp, soft, dx, dy) = best?;
-        let field: Vec<f32> = (0..w * h)
-            .map(|i| {
-                let (sx, sy) = ((i % w) as i32 - dx, (i / w) as i32 - dy);
-                if sx >= 0 && sy >= 0 && (sx as usize) < w && (sy as usize) < h {
-                    (amp * soft[sy as usize * w + sx as usize] as f64) as f32
-                } else {
-                    0.0
-                }
-            })
-            .collect();
-        let strongest = field.iter().fold(0f32, |a, b| a.max(b.abs()));
-        (corr.abs() >= 0.5 && strongest >= 0.06).then_some(Shadow { f: self.canvas.f, w, h, field })
-    }
-}
-
-/// A soft shadow (or glow) around the mark: how much it darkens (log, negative) on the
-/// canvas around it.
-pub struct Shadow {
-    f: f32,
-    w: usize,
-    h: usize,
-    field: Vec<f32>,
-}
-
-impl Shadow {
-    /// Take it off a picture: what's under it is kept, only made as bright as it was.
-    pub fn lift(&self, img: &mut RgbaImage, at: &Spot) {
-        let k = at.scale / self.f;
-        let (sin, cos) = at.angle.to_radians().sin_cos();
-        // the canvas's box on the picture (turned: its circle)
-        let half = ((self.w * self.w + self.h * self.h) as f32).sqrt() * k / 2.0;
-        let x0 = (at.cx - half).max(0.0) as u32;
-        let y0 = (at.cy - half).max(0.0) as u32;
-        let x1 = ((at.cx + half).max(0.0) as u32 + 1).min(img.width());
-        let y1 = ((at.cy + half).max(0.0) as u32 + 1).min(img.height());
-        let at_field = |x: i32, y: i32| -> f32 {
-            if x < 0 || y < 0 || x >= self.w as i32 || y >= self.h as i32 {
-                0.0
-            } else {
-                self.field[y as usize * self.w + x as usize]
-            }
-        };
-        for y in y0..y1 {
-            for x in x0..x1 {
-                let (dx, dy) = ((x as f32 + 0.5 - at.cx) / k, (y as f32 + 0.5 - at.cy) / k);
-                let sx = dx * cos + dy * sin + self.w as f32 / 2.0 - 0.5;
-                let sy = -dx * sin + dy * cos + self.h as f32 / 2.0 - 0.5;
-                let (fx, fy) = (sx.floor(), sy.floor());
-                let (ax, ay) = (sx - fx, sy - fy);
-                let (ix, iy) = (fx as i32, fy as i32);
-                let v = (at_field(ix, iy) * (1.0 - ax) + at_field(ix + 1, iy) * ax) * (1.0 - ay)
-                    + (at_field(ix, iy + 1) * (1.0 - ax) + at_field(ix + 1, iy + 1) * ax) * ay;
-                if v.abs() < 0.004 {
-                    continue;
-                }
-                let gain = (-v).exp();
-                let p = img.get_pixel_mut(x, y);
-                for c in 0..3 {
-                    p[c] = (p[c] as f32 * gain).round().clamp(0.0, 255.0) as u8;
-                }
-            }
-        }
-    }
-}
-
-/// The mark's parts by colour (each a mask of the mark's size): a shadow often belongs to
-/// one colour only. Always has the whole mark too. img = its own picture, (x, y) the top
-/// left of the mark's box there.
-pub fn colour_parts(img: &RgbaImage, m: &Motif, x: u32, y: u32) -> Vec<GrayImage> {
-    let (w, h) = m.mask.dimensions();
-    let mut parts = vec![m.mask.clone()];
-    if x + w > img.width() || y + h > img.height() {
-        return parts;
-    }
-    let on: Vec<bool> = m.mask.pixels().map(|p| p[0] > 127).collect();
-    let core = morph(&on, w as usize, h as usize, 1, true);
-    let col = |i: usize| -> [f32; 3] {
-        let p = img.get_pixel(x + i as u32 % w, y + i as u32 / w);
-        [p[0] as f32, p[1] as f32, p[2] as f32]
-    };
-    let dist = |a: &[f32; 3], b: &[f32; 3]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
-    let mut bins: std::collections::HashMap<[u8; 3], ([f64; 3], f64)> = std::collections::HashMap::new();
-    let mut total = 0f64;
-    for i in (0..on.len()).filter(|i| core[*i]) {
-        let c = col(i);
-        let e = bins.entry(c.map(|v| v as u8 / 32)).or_insert(([0.0; 3], 0.0));
-        for k in 0..3 {
-            e.0[k] += c[k] as f64;
-        }
-        e.1 += 1.0;
-        total += 1.0;
-    }
-    // the biggest first, near ones are the same colour
-    let mut list: Vec<([f32; 3], f64)> =
-        bins.into_values().filter(|(_, n)| *n >= 0.03 * total).map(|(s, n)| (s.map(|v| (v / n) as f32), n)).collect();
-    list.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    let mut cols: Vec<[f32; 3]> = Vec::new();
-    for (c, _) in list {
-        if cols.iter().all(|k| dist(k, &c) > 80.0) {
-            cols.push(c);
-        }
-    }
-    if cols.len() < 2 {
-        return parts;
-    }
-    for (k, _) in cols.iter().enumerate().take(4) {
-        parts.push(GrayImage::from_fn(w, h, |px, py| {
-            let i = (py * w + px) as usize;
-            if !on[i] {
-                return Luma([0]);
-            }
-            let c = col(i);
-            let near = (0..cols.len()).min_by(|a, b| dist(&cols[*a], &c).partial_cmp(&dist(&cols[*b], &c)).unwrap_or(std::cmp::Ordering::Equal));
-            Luma([if near == Some(k) { 255 } else { 0 }])
-        }));
-    }
-    parts
 }
 
 #[cfg(test)]
@@ -1369,7 +1256,7 @@ mod tests {
                 b.put_pixel(330 + x, 140 + y, image::Rgba([20, 20, 20, 255]));
             }
         }
-        let hit = find_motif(&b, &m, &|| false).expect("found");
+        let hit = find_motif(&b, &m, true, &|| false).expect("found");
         assert!(hit.score >= MOTIF_MIN, "score {} angle {}", hit.score, hit.spot.angle);
         let (x0, y0, _, _) = hit.hit.bbox;
         let (tx, ty, _, _) = crate::edit::mask_bbox(&t.mask).unwrap();
@@ -1384,7 +1271,7 @@ mod tests {
         // on another picture: elsewhere, 1.3x, white
         let mut b = busy(500, 700, 2);
         draw_mark(&mut b, 330.0, 300.0, 130.0, 5.0, 240);
-        let hit = find_motif(&b, &m, &|| false).expect("found");
+        let hit = find_motif(&b, &m, true, &|| false).expect("found");
         assert!(hit.score >= MOTIF_MIN, "score {}", hit.score);
         assert!((hit.spot.scale - 1.3).abs() < 0.08, "scale {}", hit.spot.scale);
         let (x0, y0, x1, y1) = hit.hit.bbox;
@@ -1392,76 +1279,7 @@ mod tests {
         assert!((cx - 330.0).abs() < 8.0 && (cy - 306.0).abs() < 12.0, "centre {cx},{cy}");
         // a picture without it
         let c = busy(500, 700, 3);
-        assert!(find_motif(&c, &m, &|| false).map_or(true, |h| h.score < MOTIF_MIN));
-    }
-
-    #[test]
-    fn a_shadow_all_pictures_have_is_measured_and_lifted() {
-        // a mark in two colours, only the second throws a soft shadow
-        let (w, h) = (420u32, 300u32);
-        let bar = |x: u32, y: u32| (110..310).contains(&x) && (150..180).contains(&y);
-        let dot = |x: u32, y: u32| (x as f32 - 210.0).powi(2) + (y as f32 - 115.0).powi(2) < 400.0;
-        let shade = |x: u32, y: u32| {
-            let r = ((x as f32 - 210.0).powi(2) + (y as f32 - 115.0).powi(2)).sqrt();
-            0.4 * (1.0 - ((r - 14.0) / 16.0).clamp(0.0, 1.0))
-        };
-        let plain = |seed: u32| {
-            RgbaImage::from_fn(w, h, |x, y| {
-                let v = 120.0 + 40.0 * ((x + seed * 37) as f32 / 120.0).sin() + 25.0 * ((y + seed * 91) as f32 / 90.0).cos();
-                image::Rgba([v as u8, (v * 0.9) as u8, (v * 0.8) as u8, 255])
-            })
-        };
-        let marked = |seed: u32, shadow: bool| {
-            let mut img = plain(seed);
-            for (x, y, p) in img.enumerate_pixels_mut() {
-                if shadow {
-                    for c in 0..3 {
-                        p[c] = (p[c] as f32 * (1.0 - shade(x, y))) as u8;
-                    }
-                }
-                if bar(x, y) {
-                    *p = image::Rgba([250, 250, 250, 255]);
-                }
-                if dot(x, y) {
-                    *p = image::Rgba([220, 20, 30, 255]);
-                }
-            }
-            img
-        };
-        let mask = GrayImage::from_fn(w, h, |x, y| Luma([if bar(x, y) || dot(x, y) { 255 } else { 0 }]));
-        let (x0, y0, x1, y1) = crate::edit::mask_bbox(&mask).unwrap();
-        let m = motif_from_mask(&mask, 20.0, w, h).unwrap();
-        let spot = Spot { cx: (x0 + x1 + 1) as f32 / 2.0, cy: (y0 + y1 + 1) as f32 / 2.0, scale: 1.0, angle: 0.0 };
-        let parts = colour_parts(&marked(0, true), &m, x0, y0);
-        assert_eq!(parts.len(), 3, "the whole and its two colours");
-        for shadow in [true, false] {
-            let mut around = Around::new(&m);
-            for seed in 0..6 {
-                let seen = around.look(&marked(seed, shadow), &spot);
-                around.add(&seen);
-            }
-            let found = around.shadow(&parts);
-            assert_eq!(found.is_some(), shadow);
-            let Some(s) = found else { continue };
-            let (mut img, want) = (marked(3, true), plain(3));
-            let off = |img: &RgbaImage| {
-                let (mut e, mut n) = (0f32, 0f32);
-                for (x, y, p) in img.enumerate_pixels() {
-                    let r = ((x as f32 - 210.0).powi(2) + (y as f32 - 115.0).powi(2)).sqrt();
-                    if (23.0..32.0).contains(&r) && !bar(x, y) {
-                        e += (p[0] as f32 - want.get_pixel(x, y)[0] as f32).abs();
-                        n += 1.0;
-                    }
-                }
-                e / n
-            };
-            let before = off(&img);
-            s.lift(&mut img, &spot);
-            let after = off(&img);
-            assert!(after < before * 0.5, "{before} -> {after}");
-            // far off nothing changes
-            assert_eq!(img.get_pixel(20, 280), marked(3, true).get_pixel(20, 280));
-        }
+        assert!(find_motif(&c, &m, true, &|| false).map_or(true, |h| h.score < MOTIF_MIN));
     }
 
     /// Real pictures: WM_MOTIF = a folder with the pictures in orig/ and box.txt
@@ -1481,35 +1299,6 @@ mod tests {
         eprintln!("mark {:?} stroke {:.1} wide {:.0}", m.mask.dimensions(), m.stroke, m.wide);
         std::fs::create_dir_all(dir.join("out")).unwrap();
         m.mask.save(dir.join("out").join("mark.png")).unwrap();
-        let (fx0, fy0) = {
-            let (mask, _) = mark_in_box(&r, n(1), n(2), n(3), n(4)).unwrap();
-            let (x, y, _, _) = crate::edit::mask_bbox(&mask).unwrap();
-            (n(1) + x, n(2) + y)
-        };
-        let parts = colour_parts(&r, &m, fx0, fy0);
-        let shadow = std::env::var("WM_SHADOW").is_ok().then(|| {
-            let mut around = Around::new(&m);
-            let mut all: Vec<_> = std::fs::read_dir(dir.join("orig")).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
-            all.sort();
-            for f in all {
-                let img = load(&f);
-                if let Some(h) = find_motif(&img, &m, &|| false).filter(|h| h.score >= MOTIF_MIN && h.spot.angle.abs() < 0.5) {
-                    let seen = around.look(&img, &h.spot);
-                    around.add(&seen);
-                }
-            }
-            let t = std::time::Instant::now();
-            let s = around.shadow(&parts);
-            eprintln!(
-                "shadow from {} pictures, {} parts: {} strongest {:.2} in {:?}",
-                around.pictures,
-                parts.len(),
-                s.is_some(),
-                s.as_ref().map_or(0.0, |s| s.field.iter().fold(0f32, |a, b| a.max(b.abs()))),
-                t.elapsed()
-            );
-            s
-        });
         let mut names: Vec<String> =
             std::fs::read_dir(dir.join("orig")).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         names.sort();
@@ -1519,14 +1308,14 @@ mod tests {
         for name in &names {
             let img = load(name);
             let t = std::time::Instant::now();
-            let hit = find_motif(&img, &m, &|| false);
+            let hit = find_motif(&img, &m, true, &|| false);
             let took = t.elapsed().as_secs_f32();
             let flipped = image::imageops::flip_horizontal(&image::imageops::flip_vertical(&img));
             // the same picture turned over: the mark isn't there in that shape any more
             let blank = if std::env::var("WM_FAST").is_ok() {
                 -1.0
             } else {
-                find_motif(&flipped, &m, &|| false).map(|h| h.score).unwrap_or(0.0)
+                find_motif(&flipped, &m, true, &|| false).map(|h| h.score).unwrap_or(0.0)
             };
             let Some(hit) = hit else {
                 eprintln!("{name}: none (turned {blank:.2})");
@@ -1552,14 +1341,60 @@ mod tests {
             image::imageops::crop_imm(&view, cx, cy, cw, ch).to_image().save(dir.join("out").join(format!("{name}.png"))).unwrap();
             if let Ok(ad) = std::env::var("WM_APPDATA") {
                 let mut out = img.clone();
-                if let Some(Some(s)) = &shadow {
-                    s.lift(&mut out, &hit.spot);
-                }
                 let t = std::time::Instant::now();
                 if remove_motif(std::path::Path::new(&ad), &mut out, &full, m.stroke * hit.spot.scale, &|| false).is_ok() {
                     image::imageops::crop_imm(&out, cx, cy, cw, ch).to_image().save(dir.join("out").join(format!("after_{name}.png"))).unwrap();
                     eprintln!("{name}: removed in {:.1}s", t.elapsed().as_secs_f32());
                 }
+            }
+        }
+    }
+
+    /// A yellow board with a dark rim, white letters over it and a dark line under it.
+    fn board(x: i32, y: i32) -> u8 {
+        let d = ((x - 420) as f32 / 110.0).powi(2) + ((y - 110) as f32 / 80.0).powi(2);
+        if (70..150).contains(&y) && (60..380).contains(&x) && x % 64 < 22 {
+            return 1;
+        }
+        if d < 0.9 {
+            2
+        } else if d < 1.0 || ((200..207).contains(&y) && (70..430).contains(&x) && x % 30 < 17) {
+            3
+        } else {
+            0
+        }
+    }
+
+    #[test]
+    fn a_filled_shape_belongs_to_the_mark() {
+        for busy_back in [false, true] {
+            let img = RgbaImage::from_fn(560, 250, |x, y| {
+                let n = (x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663)).wrapping_mul(2_654_435_761) >> 24;
+                let stripes = if busy_back && (x / 23 + y / 17) % 2 == 0 { 70 } else { 0 };
+                let grain = if busy_back { n % 60 } else { n % 5 };
+                let c = match board(x as i32, y as i32) {
+                    1 => [252u32, 252, 252],
+                    2 => [245, 198, 92],
+                    3 => [8, 8, 8],
+                    _ => [90 + x / 14 + grain, 120 + y / 12 + stripes / 2 + grain, 190u32.saturating_sub(stripes) + grain / 2],
+                };
+                image::Rgba([c[0].min(255) as u8, c[1].min(255) as u8, c[2].min(255) as u8, 255])
+            });
+            let (mask, _) = mark_in_box(&img, 0, 0, 560, 250).expect("mark");
+            let (mut hit, mut all, mut wrong, mut on) = ([0u32; 4], [0u32; 4], 0u32, 0u32);
+            for (x, y, p) in mask.enumerate_pixels() {
+                let k = board(x as i32, y as i32) as usize;
+                all[k] += 1;
+                hit[k] += (p[0] > 0) as u32;
+                let near = (-4..=4).any(|dy| (-4..=4).any(|dx| board(x as i32 + dx, y as i32 + dy) > 0));
+                on += (p[0] > 0) as u32;
+                wrong += (p[0] > 0 && !near) as u32;
+            }
+            let share = |k: usize| hit[k] as f32 / all[k].max(1) as f32;
+            assert!(share(2) > 0.85, "busy {busy_back}: board {:.2}", share(2));
+            if !busy_back {
+                assert!(share(1) > 0.97 && share(3) > 0.9, "letters {:.2} line {:.2}", share(1), share(3));
+                assert!((wrong as f32) < 0.02 * on as f32, "{wrong} of {on} isn't the mark");
             }
         }
     }

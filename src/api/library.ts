@@ -2841,7 +2841,7 @@ export interface WmScan {
 /** Progress of a scan or removal ("wm-progress"). */
 export interface WmProgress {
   job: number;
-  phase: "scan" | "check" | "mark" | "remove";
+  phase: "scan" | "check" | "mark" | "again" | "remove";
   done: number;
   total: number;
 }
