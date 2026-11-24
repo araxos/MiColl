@@ -106,7 +106,7 @@ fn stroke_map(img: &RgbaImage, light: bool) -> Vec<i32> {
 }
 
 /// Above what a stroke counts: well over what the area does in general.
-fn stroke_threshold(map: &[i32], k: f32) -> f32 {
+pub(crate) fn stroke_threshold(map: &[i32], k: f32) -> f32 {
     let n = map.len().max(1) as f64;
     let mean = map.iter().map(|v| *v as f64).sum::<f64>() / n;
     let var = map.iter().map(|v| (*v as f64 - mean).powi(2)).sum::<f64>() / n;
@@ -325,7 +325,7 @@ pub fn find_text(img: &RgbaImage, corner: Corner, strength: f32) -> Option<Hit> 
 }
 
 /// 8-connected pieces of a mask: a label per pixel (0 = off, else index + 1) and the pieces.
-fn components(mask: &GrayImage) -> (Vec<u32>, Vec<Comp>) {
+pub(crate) fn components(mask: &GrayImage) -> (Vec<u32>, Vec<Comp>) {
     let (w, h) = mask.dimensions();
     let mut labels = vec![0u32; (w * h) as usize];
     let mut comps: Vec<Comp> = Vec::new();
@@ -367,40 +367,49 @@ fn components(mask: &GrayImage) -> (Vec<u32>, Vec<Comp>) {
 }
 
 /// Min or max over a (2*rad+1) square, done as a row pass and a column pass.
-fn min_max(src: &[i32], w: usize, h: usize, rad: usize, take_min: bool) -> Vec<i32> {
+pub(crate) fn min_max(src: &[i32], w: usize, h: usize, rad: usize, take_min: bool) -> Vec<i32> {
     min_max_rect(src, w, h, rad, rad, take_min)
 }
 
-/// Min or max over a (2*rx+1) x (2*ry+1) box.
+/// Min or max over a (2*rx+1) x (2*ry+1) box (cut off at the edges), a row pass and a
+/// column pass. The same time for any box size: along a line only the values that can
+/// still become the answer are kept (a queue, best first).
 fn min_max_rect(src: &[i32], w: usize, h: usize, rx: usize, ry: usize, take_min: bool) -> Vec<i32> {
-    let pick = |a: i32, b: i32| if take_min { a.min(b) } else { a.max(b) };
-    let mut tmp = vec![0i32; src.len()];
-    for y in 0..h {
-        for x in 0..w {
-            let (x0, x1) = (x.saturating_sub(rx), (x + rx).min(w - 1));
-            let mut v = src[y * w + x0];
-            for xx in x0 + 1..=x1 {
-                v = pick(v, src[y * w + xx]);
+    // the window's best along one line: n values, get reads, put writes
+    fn line(n: usize, rad: usize, take_min: bool, queue: &mut Vec<(usize, i32)>, get: impl Fn(usize) -> i32, mut put: impl FnMut(usize, i32)) {
+        queue.clear();
+        let mut head = 0;
+        let mut next = 0;
+        for i in 0..n {
+            while next < n && next <= i + rad {
+                let v = get(next);
+                while queue.len() > head && (if take_min { queue[queue.len() - 1].1 >= v } else { queue[queue.len() - 1].1 <= v }) {
+                    queue.pop();
+                }
+                queue.push((next, v));
+                next += 1;
             }
-            tmp[y * w + x] = v;
+            while queue[head].0 + rad < i {
+                head += 1;
+            }
+            put(i, queue[head].1);
         }
     }
-    let mut out = vec![0i32; src.len()];
+    let mut queue: Vec<(usize, i32)> = Vec::new();
+    let mut tmp = vec![0i32; src.len()];
     for y in 0..h {
-        let (y0, y1) = (y.saturating_sub(ry), (y + ry).min(h - 1));
-        for x in 0..w {
-            let mut v = tmp[y0 * w + x];
-            for yy in y0 + 1..=y1 {
-                v = pick(v, tmp[yy * w + x]);
-            }
-            out[y * w + x] = v;
-        }
+        let (from, to) = (&src[y * w..(y + 1) * w], &mut tmp[y * w..(y + 1) * w]);
+        line(w, rx, take_min, &mut queue, |x| from[x], |x, v| to[x] = v);
+    }
+    let mut out = vec![0i32; src.len()];
+    for x in 0..w {
+        line(h, ry, take_min, &mut queue, |y| tmp[y * w + x], |y, v| out[y * w + x] = v);
     }
     out
 }
 
 /// How much thin light (light = true) or dark strokes stand out, per pixel.
-fn tophat(lum: &[i32], w: usize, h: usize, rad: usize, light: bool) -> Vec<i32> {
+pub(crate) fn tophat(lum: &[i32], w: usize, h: usize, rad: usize, light: bool) -> Vec<i32> {
     if light {
         // opening = max(min(.)): what's left without the thin light strokes
         let open = min_max(&min_max(lum, w, h, rad, true), w, h, rad, false);
@@ -412,12 +421,12 @@ fn tophat(lum: &[i32], w: usize, h: usize, rad: usize, light: bool) -> Vec<i32> 
 }
 
 #[derive(Clone, Copy)]
-struct Comp {
-    x0: u32,
-    y0: u32,
-    x1: u32,
-    y1: u32,
-    area: u32,
+pub(crate) struct Comp {
+    pub x0: u32,
+    pub y0: u32,
+    pub x1: u32,
+    pub y1: u32,
+    pub area: u32,
 }
 
 /// The pixels of the one line of text in mask (region size), or None if what's there
@@ -1653,6 +1662,28 @@ mod tests {
         assert_eq!(t.get_pixel(60, 75)[0], 0, "nothing far off");
         assert_eq!(t.get_pixel(137, 75)[0], 0, "a wide gap stays");
         assert_eq!(t.get_pixel(150, 40)[0], 0, "nothing above");
+    }
+
+    #[test]
+    fn min_max_is_the_windows_min_and_max() {
+        let (w, h) = (23usize, 17usize);
+        let v: Vec<i32> = (0..w * h).map(|i| ((i as u32).wrapping_mul(2_654_435_761) >> 20) as i32 % 97).collect();
+        for (rx, ry) in [(0, 0), (1, 1), (3, 2), (9, 1), (30, 40)] {
+            for take_min in [true, false] {
+                let got = min_max_rect(&v, w, h, rx, ry, take_min);
+                for y in 0..h {
+                    for x in 0..w {
+                        let mut best = v[y * w + x];
+                        for yy in y.saturating_sub(ry)..=(y + ry).min(h - 1) {
+                            for xx in x.saturating_sub(rx)..=(x + rx).min(w - 1) {
+                                best = if take_min { best.min(v[yy * w + xx]) } else { best.max(v[yy * w + xx]) };
+                            }
+                        }
+                        assert_eq!(got[y * w + x], best);
+                    }
+                }
+            }
+        }
     }
 
     #[test]

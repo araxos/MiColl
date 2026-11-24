@@ -2809,6 +2809,8 @@ export interface WmItem {
   path: string;
   /** Found only through the other pictures of the reward. */
   guessed: boolean;
+  /** Same mark anywhere: not sure it's the mark (left out unless ticked). */
+  unsure: boolean;
 }
 
 export interface WmScan {
@@ -2820,12 +2822,14 @@ export interface WmScan {
   shared: boolean;
   /** The file name of that picture. */
   templateFrom: string | null;
+  /** Same mark anywhere: the file names of the pictures it wasn't found on. */
+  missed: string[];
 }
 
 /** Progress of a scan or removal ("wm-progress"). */
 export interface WmProgress {
   job: number;
-  phase: "scan" | "check" | "remove";
+  phase: "scan" | "check" | "mark" | "remove";
   done: number;
   total: number;
 }
@@ -2833,6 +2837,17 @@ export interface WmProgress {
 /** Look for a line of text in these corners ("tl" "tr" "bl" "br" "bc") of a reward's pictures. */
 export async function wmScan(rewardId: number, corners: string[], job: number): Promise<WmScan> {
   return invoke<WmScan>("wm_scan", { rewardId, corners, job });
+}
+
+/** Same mark anywhere: look for a framed mark on every picture of the reward. mask = its
+ *  pixels in the frame (grey PNG data URL), stroke = its strokes' width (0 = painted by
+ *  hand, measured there). */
+export async function wmScanMark(
+  rewardId: number,
+  mark: { path: string; x: number; y: number; mask: string; stroke: number },
+  job: number,
+): Promise<WmScan> {
+  return invoke<WmScan>("wm_scan_mark", { rewardId, ...mark, job });
 }
 
 /** Before/after of one picture (the spot around the watermark), nothing saved. */
@@ -2859,6 +2874,28 @@ export async function wmStop(): Promise<void> {
 
 export async function wmClose(job: number): Promise<void> {
   await invoke("wm_close", { job });
+}
+
+/** A picture of a reward for "Same mark anywhere": what it shows now. */
+export interface WmPic {
+  id: string;
+  path: string;
+}
+
+/** The reward's pictures, to frame the mark on one of them. */
+export async function wmPictures(rewardId: number): Promise<WmPic[]> {
+  return invoke<WmPic[]>("wm_pictures", { rewardId });
+}
+
+/** The mark picked out of a frame (full-size px): its pixels (grey PNG, the frame's
+ *  size) and its strokes' width. */
+export interface WmMark {
+  mask: string;
+  stroke: number;
+}
+
+export async function wmMarkAuto(path: string, x: number, y: number, w: number, h: number): Promise<WmMark> {
+  return invoke<WmMark>("wm_mark_auto", { path, x, y, w, h });
 }
 
 /** The reward a picture (or one of its versions) belongs to: [id, title]. */

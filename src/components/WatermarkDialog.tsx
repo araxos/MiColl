@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Check, Download, Eraser, Loader2, RotateCcw, Search, Square, Stamp, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ModelDownloadDialog } from "@/components/ModelDownloadDialog";
+import { WatermarkMark, type MarkState } from "@/components/WatermarkMark";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { useAccent } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,17 @@ const CORNERS: { id: string; label: string }[] = [
   { id: "br", label: "Bottom right" },
 ];
 const CORNERS_KEY = "micoll.wmCorners";
+/** "corner" = a line of text in a corner, "mark" = the same mark anywhere. */
+const MODE_KEY = "micoll.wmMode";
+type Mode = "corner" | "mark";
+
+function savedMode(): Mode {
+  try {
+    return localStorage.getItem(MODE_KEY) === "mark" ? "mark" : "corner";
+  } catch {
+    return "corner";
+  }
+}
 /** How many pictures the preview shows. */
 const PREVIEW_N = 6;
 
@@ -96,8 +108,8 @@ function Progress({ p, label }: { p: api.WmProgress | null; label: string }) {
 type Step = "setup" | "scanning" | "preview" | "running" | "done";
 
 /**
- * "Remove watermark" for a whole reward (mode A): a line of text in a corner is found in
- * every picture, a preview shows 4-6 of them before/after with a tick each, then all go
+ * "Remove watermark" for a whole reward: a line of text in a corner, or a mark framed once
+ * on one picture (WatermarkMark), is found in every picture, a preview shows 4-6 of them before/after with a tick each, then all go
  * with progress and Stop. Each result is a version of its picture (the original stays),
  * Undo switches them back.
  */
@@ -108,6 +120,17 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
   const { refresh } = useData();
   const [step, setStep] = useState<Step>("setup");
   const [corners, setCorners] = useState<string[]>(savedCorners);
+  const [mode, setModeState] = useState<Mode>(savedMode);
+  // mode "mark": the mark as framed and touched up
+  const [mark, setMark] = useState<MarkState | null>(null);
+  const setMode = (m: Mode) => {
+    setModeState(m);
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {
+      /* not remembered */
+    }
+  };
   const [model, setModel] = useState<api.AiModelStatus | null>(null);
   const [askModel, setAskModel] = useState(false);
   const [dl, setDl] = useState<{ done: number; total: number } | null>(null);
@@ -204,7 +227,7 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
     }
   };
 
-  /** Search the corners, then preview a few pictures one by one. */
+  /** Search (the corners, or for the framed mark), then preview a few pictures one by one. */
   const runScan = async () => {
     setError(null);
     if (job.current) void api.wmClose(job.current).catch(() => {});
@@ -215,7 +238,14 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
     setStep("scanning");
     let s: api.WmScan;
     try {
-      s = await api.wmScan(rewardId, corners, job.current);
+      s =
+        mode === "mark" && mark
+          ? await api.wmScanMark(
+              rewardId,
+              { path: mark.path, x: mark.frame.x, y: mark.frame.y, mask: mark.mask(), stroke: mark.stroke },
+              job.current,
+            )
+          : await api.wmScan(rewardId, corners, job.current);
     } catch (e) {
       setStep("setup");
       if (`${e}` !== "stopped") setError(`${e}`);
@@ -223,10 +253,15 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
     }
     setScan(s);
     setStep("preview");
-    // spread over the reward: the first, the last and some between
-    const n = Math.min(PREVIEW_N, s.items.length);
+    // the unsure ones first (off until ticked), then spread over the reward: the first,
+    // the last and some between
+    const unsure = s.items.filter((i) => i.unsure);
+    const sure = s.items.filter((i) => !i.unsure);
+    setOff(new Set(unsure.map((i) => i.id)));
+    const n = Math.min(PREVIEW_N, sure.length);
     const chosen = [
-      ...new Set(Array.from({ length: n }, (_, i) => s.items[Math.round((i * (s.items.length - 1)) / Math.max(1, n - 1))])),
+      ...unsure,
+      ...new Set(Array.from({ length: n }, (_, i) => sure[Math.round((i * (sure.length - 1)) / Math.max(1, n - 1))])),
     ];
     setPicks(chosen);
     const mine = job.current;
@@ -276,7 +311,11 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
       <motion.div
         initial={{ opacity: 0, y: 12, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        className={cn("flex max-h-[92vh] w-[46rem] max-w-full flex-col overflow-hidden", dlg.panel)}
+        className={cn(
+          "flex max-h-[92vh] max-w-full flex-col overflow-hidden",
+          mode === "mark" && step === "setup" ? "w-[60rem]" : "w-[46rem]",
+          dlg.panel,
+        )}
       >
         <div className={cn("flex items-center justify-between border-b px-5 py-3.5", dlg.divider)}>
           <div className="min-w-0">
@@ -295,12 +334,34 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
           {error && <p className={cn("mb-3 px-3 py-2 text-xs text-rose-200", dlg.box)}>{error}</p>}
 
           {step === "setup" && (
-            <div className="space-y-4">
+            <div className={cn("space-y-4", mode === "mark" && "mb-4")}>
+              {/* which kind of watermark */}
+              <div className="flex flex-wrap gap-1.5">
+                {(
+                  [
+                    ["corner", t("Text in a corner")],
+                    ["mark", t("Same mark anywhere")],
+                  ] as [Mode, string][]
+                ).map(([id, name]) => (
+                  <button
+                    key={id}
+                    onClick={() => setMode(id)}
+                    className={cn("px-3 py-1.5 text-xs font-medium", mode === id ? dlg.controlOn : dlg.control)}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
               <p className="text-sm text-zinc-300">
-                {t(
-                  "Finds a line of text (like a link) in a corner of every picture of this reward and removes it. You see a preview first; each result is saved as a version, the originals stay.",
-                )}
+                {mode === "corner"
+                  ? t(
+                      "Finds a line of text (like a link) in a corner of every picture of this reward and removes it. You see a preview first; each result is saved as a version, the originals stay.",
+                    )
+                  : t(
+                      "For a mark (a logo, a signature) that sits somewhere else on every picture, bigger or smaller, dark or light: frame it once, it's looked for on all pictures. You see a preview first; the originals stay.",
+                    )}
               </p>
+              {mode === "corner" && (
               <div>
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{t("Where is it?")}</div>
                 <div className="flex items-start gap-4">
@@ -332,12 +393,13 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
                   </div>
                 </div>
               </div>
+              )}
               {model && !ready && (
                 <div className={cn("flex items-center gap-3 px-3 py-2.5", dlg.box)}>
                   <p className="flex-1 text-xs text-zinc-300">
                     {t("The remover uses the local AI model (LaMa). It’s downloaded once, nothing leaves your PC.")}
                   </p>
-                  <Button variant="primary" onClick={() => setAskModel(true)} disabled={!!dl}>
+                  <Button variant="primary" className={dlg.primary} onClick={() => setAskModel(true)} disabled={!!dl}>
                     <Download className="h-4 w-4" />
                     {dl
                       ? dl.total > 0
@@ -350,10 +412,23 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
             </div>
           )}
 
+          {/* stays mounted while searching, so "Search again" comes back to the same mark */}
+          {mode === "mark" && (
+            <div className={cn(step !== "setup" && "hidden")}>
+              <WatermarkMark rewardId={rewardId} onChange={setMark} />
+            </div>
+          )}
+
           {step === "scanning" && (
             <Progress
               p={progress}
-              label={progress?.phase === "check" ? t("Checking the other pictures…") : t("Looking for text in the corners…")}
+              label={
+                mode === "mark"
+                  ? t("Looking for the mark on every picture…")
+                  : progress?.phase === "check"
+                    ? t("Checking the other pictures…")
+                    : t("Looking for text in the corners…")
+              }
             />
           )}
 
@@ -371,6 +446,13 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
                   </span>
                 )}
               </p>
+              {scan.missed.length > 0 && (
+                <p className="text-xs text-amber-200" title={scan.missed.join("\n")}>
+                  {tf("Not found on: {names}", {
+                    names: scan.missed.slice(0, 6).join(", ") + (scan.missed.length > 6 ? " …" : ""),
+                  })}
+                </p>
+              )}
               {scan.skipped > 0 && (
                 <p className="text-xs text-zinc-500">{tf("Skipped (videos, GIFs, other files): {n}", { n: scan.skipped })}</p>
               )}
@@ -407,6 +489,11 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
                             {it.guessed && (
                               <p className="mb-1 text-[10px] text-amber-200">{t("Found through the other pictures")}</p>
                             )}
+                            {it.unsure && (
+                              <p className="mb-1 text-[10px] text-amber-200">
+                                {t("Not sure it’s the mark — tick it if it is")}
+                              </p>
+                            )}
                             {p === undefined ? (
                               <div className="grid h-28 place-items-center">
                                 <Loader2 className={cn("h-5 w-5 animate-spin", dlg.accentText)} />
@@ -414,7 +501,7 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
                             ) : p === "error" ? (
                               <p className="py-6 text-center text-xs text-rose-300">{t("Couldn’t make the preview")}</p>
                             ) : (
-                              <div className={cn("space-y-1", !on && "opacity-40")}>
+                              <div className={cn("space-y-1", !on && !it.unsure && "opacity-40")}>
                                 {[
                                   [p.before, t("Before")],
                                   [p.after, t("After")],
@@ -463,7 +550,12 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
               <Button variant="ghost" onClick={close}>
                 {t("Close")}
               </Button>
-              <Button variant="primary" onClick={() => void runScan()} disabled={!corners.length || !ready}>
+              <Button
+                variant="primary"
+                className={dlg.primary}
+                onClick={() => void runScan()}
+                disabled={!ready || (mode === "mark" ? !mark : !corners.length)}
+              >
                 <Search className="h-4 w-4" />
                 {t("Search")}
               </Button>
@@ -480,7 +572,7 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
               <Button variant="ghost" onClick={() => setStep("setup")}>
                 {t("Search again")}
               </Button>
-              <Button variant="primary" onClick={() => void runApply()} disabled={!picked.length}>
+              <Button variant="primary" className={dlg.primary} onClick={() => void runApply()} disabled={!picked.length}>
                 <Eraser className="h-4 w-4" />
                 {tf("Remove from {n} pictures", { n: picked.length })}
               </Button>
@@ -494,7 +586,7 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
                   {t("Undo")}
                 </Button>
               )}
-              <Button variant="primary" onClick={close}>
+              <Button variant="primary" className={dlg.primary} onClick={close}>
                 {t("Close")}
               </Button>
             </>
