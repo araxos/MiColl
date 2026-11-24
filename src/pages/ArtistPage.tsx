@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ChevronLeft, Plus, PanelRight, BadgeCheck, ClipboardList, Trash2, Coffee, CopyCheck, RefreshCw, Star, Heart, Images, Calendar, CalendarOff, Check, FolderPlus, Hash, HardDrive, DatabaseBackup, BellOff, Info, Pencil } from "lucide-react";
@@ -19,6 +19,7 @@ import {
   NewCollectionButton,
   type CollectionTab,
 } from "@/components/CollectionTabs";
+import { PlatformHangTabs } from "@/components/PlatformHangTabs";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils";
@@ -151,6 +152,43 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
   // place for the dateless grid's "Select" button next to Details
   const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null);
   const [platformPickerOpen, setPlatformPickerOpen] = useState(false);
+  // the platform row scrolled out of view: the platforms hang from the top bar instead
+  // (PlatformHangTabs). The menu of "+ Platform" opens where it was clicked.
+  const [platformRow, setPlatformRow] = useState<HTMLDivElement | null>(null);
+  const [hanging, setHanging] = useState(false);
+  const [pickerHangs, setPickerHangs] = useState(false);
+  useEffect(() => {
+    const main = platformRow?.closest("main");
+    if (!platformRow || !main) {
+      setHanging(false);
+      return;
+    }
+    // (they cover the last bit of the row)
+    const io = new IntersectionObserver(
+      ([e]) => setHanging(!e.isIntersecting && e.boundingClientRect.top < main.getBoundingClientRect().top),
+      { root: main, rootMargin: "-24px 0px 0px 0px" },
+    );
+    io.observe(platformRow);
+    return () => io.disconnect();
+  }, [platformRow]);
+  // picked on a hanging tab: the other platform starts right under the tabs, so they stay
+  const contentRef = useRef<HTMLDivElement>(null);
+  const fromHangRef = useRef(false);
+  useLayoutEffect(() => {
+    if (!fromHangRef.current) return;
+    fromHangRef.current = false;
+    const go = () => {
+      const el = contentRef.current;
+      const main = el?.closest("main");
+      if (!el || !main) return;
+      const tabs = main.parentElement?.querySelector<HTMLElement>(".hang-tab")?.offsetHeight ?? 34;
+      main.scrollTop += el.getBoundingClientRect().top - main.getBoundingClientRect().top - tabs - 4;
+    };
+    go();
+    // once more when the grid has its size
+    const raf = requestAnimationFrame(go);
+    return () => cancelAnimationFrame(raf);
+  }, [platform?.id]);
   const [addingPlatform, setAddingPlatform] = useState(false);
   // typing a new platform name in "+ Platform" (null = not typing)
   const [newPlatform, setNewPlatform] = useState<string | null>(null);
@@ -222,6 +260,13 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
     setPlatformPickerOpen(false);
     setNewPlatform(null);
   };
+  // its menu goes with the tabs it hangs from
+  useEffect(() => {
+    if (!hanging && pickerHangs) {
+      setPlatformPickerOpen(false);
+      setPickerHangs(false);
+    }
+  }, [hanging, pickerHangs]);
 
   // add a break month to the active platform
   const addBreak = async () => {
@@ -485,12 +530,20 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
     return out;
   }, [artist]);
 
-  // one random picture per collection as tab background, new per visit (not per render)
+  // the pictures on the collection cards: up to four (five on some themes) different ones,
+  // spread over the collection. New per visit (not per render).
   const previewRoll = useMemo(() => Math.random(), [artist?.id]);
-  const pickPreview = (imgs: RewardImage[]) => {
-    // images only (video thumbnails are async)
-    const stills = imgs.filter((im) => im.path && im.kind !== "video");
-    return stills.length ? stills[Math.floor(previewRoll * stills.length)]?.path : undefined;
+  const pickPreviews = (imgs: RewardImage[]) => {
+    const withPath = imgs.filter((im) => im.path);
+    // images first (video thumbnails are async)
+    const stills = withPath.filter((im) => im.kind !== "video");
+    const pool = stills.length ? stills : withPath;
+    const n = Math.min(irid || cyber ? 4 : 5, pool.length);
+    const start = Math.floor(previewRoll * pool.length);
+    return Array.from(
+      { length: n },
+      (_, i) => pool[(start + Math.floor((i * pool.length) / n)) % pool.length].path,
+    );
   };
 
   /* ---- user collections ----
@@ -796,11 +849,12 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                   "h-3.5 w-3.5 fill-rose-400 text-rose-400",
                   // iridescent uses the foil gradient (index.css)
                   irid && "iri-foil",
+                  ruby && "fill-[#ff4d86] text-[#ff4d86]",
                 )}
               />
             ),
             onOpen: openFavorites,
-            preview: pickPreview(favoriteImages),
+            previews: pickPreviews(favoriteImages),
           },
         ]
       : []),
@@ -817,11 +871,12 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
                   favImages.length && "fill-amber-400 text-amber-400",
                   // iridescent uses the foil gradient (index.css)
                   irid && "iri-foil",
+                  ruby && favImages.length && "fill-[#ffd6e4] text-[#ffd6e4]",
                 )}
               />
             ),
             onOpen: openFav,
-            preview: pickPreview(favImages),
+            previews: pickPreviews(favImages),
             onSetWallpaper: isTauri() ? () => void setFavAsWallpaper() : undefined,
           },
         ]
@@ -830,8 +885,8 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
       key: c.id,
       name: c.name,
       count: (collectionImages.get(c.id) ?? []).length,
-      icon: <Images className="h-3.5 w-3.5 text-brand-300" />,
-      preview: pickPreview(collectionImages.get(c.id) ?? []),
+      icon: <Images className={cn("h-3.5 w-3.5 text-brand-300", irid && "iri-foil-line")} />,
+      previews: pickPreviews(collectionImages.get(c.id) ?? []),
       onOpen: () => openCollection(c),
       onSetWallpaper: isTauri() ? () => void setCollectionAsWallpaper(c) : undefined,
       onRename: (name: string) => void renameCollection(c.id, name),
@@ -894,9 +949,115 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
     }
   };
 
+  // the menu of "+ Platform", under its button or the hanging tab
+  const platformPicker = (
+    <>
+      <div className="fixed inset-0 z-40" onClick={closePlatformPicker} />
+      <div
+        className={cn(
+          "absolute left-0 top-full z-50 mt-1.5 max-h-72 w-48 overflow-y-auto p-1 shadow-2xl shadow-black/40",
+          menuSurface,
+        )}
+      >
+        {availablePlatforms.map((p) => (
+          <button
+            key={p}
+            onClick={() => void addPlatform(p)}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors",
+              irid ? "text-zinc-100 hover:bg-white/10" : "text-zinc-200 hover:bg-white/10",
+            )}
+          >
+            <Plus className="h-3.5 w-3.5 text-brand-300" />
+            {p}
+          </button>
+        ))}
+
+        {/* add a new platform (divider only if there are suggestions above) */}
+        {availablePlatforms.length > 0 && (
+          <div className={cn("my-1 h-px", irid ? "bg-white/10" : "bg-brand-500/20")} />
+        )}
+        {newPlatform === null ? (
+          <button
+            onClick={() => setNewPlatform("")}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm font-medium transition-colors",
+              irid ? "text-brand-100 hover:bg-white/10" : "text-brand-200 hover:bg-white/10",
+            )}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {t("Add platform…")}
+          </button>
+        ) : (
+          <div className="flex flex-wrap items-center gap-1 p-1">
+            <input
+              autoFocus
+              value={newPlatform}
+              onChange={(e) => setNewPlatform(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") addCustomPlatform();
+                else if (e.key === "Escape") setNewPlatform(null);
+              }}
+              placeholder={t("Platform name")}
+              className={cn(
+                "h-7 min-w-0 flex-1 rounded-md border px-2 text-xs outline-none",
+                irid
+                  ? "border-white/15 bg-white/10 text-zinc-100 placeholder:text-zinc-400 focus:border-white/50"
+                  : "border-zinc-700 bg-zinc-950 text-zinc-100 focus:border-brand-500/60",
+              )}
+            />
+            <button
+              onClick={addCustomPlatform}
+              title={t("Add")}
+              className="rounded-md border border-brand-500/40 bg-brand-500/15 px-2 py-1 text-xs font-medium text-brand-100 transition-colors hover:bg-brand-500/25"
+            >
+              {t("Add")}
+            </button>
+            {isMiscPlatform(newPlatform) && (
+              <p className="w-full px-1 text-xs text-amber-300">{t("“Misc” can’t be a platform.")}</p>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  );
+  const dropTarget = {
+    "data-drop-artist": artist.name,
+    "data-drop-nodate": dateless ? "1" : "0",
+    "data-drop-style": style,
+    "data-drop-platform":
+      platform && (PLATFORMS as readonly string[]).includes(platform.name) ? platform.name : undefined,
+  };
+
   return (
     <Layout
       onLock={onLock}
+      overlay={
+        platform && (
+          <PlatformHangTabs
+            {...dropTarget}
+            show={hanging}
+            platforms={orderedPlatforms}
+            activeId={platform.id}
+            onPick={(p) => {
+              if (p.id === platform.id) return;
+              fromHangRef.current = true;
+              selectPlatform(p, true);
+            }}
+            onMenu={platformMenu}
+            onAdd={
+              backed && !addingPlatform
+                ? () => {
+                    setPickerHangs(true);
+                    setPlatformPickerOpen(true);
+                  }
+                : undefined
+            }
+            picker={platformPickerOpen && pickerHangs ? platformPicker : undefined}
+            right={sidebar ? "21rem" : undefined}
+          />
+        )
+      }
       search={{ value: q, onChange: setQ, placeholder: t("Search rewards…") }}
       titleSlot={
         <span className="flex min-w-0 items-center gap-1.5">
@@ -947,14 +1108,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
           sidebar && "pr-[21rem]",
         )}
         // drop target: this artist + the current platform
-        data-drop-artist={artist.name}
-        data-drop-nodate={dateless ? "1" : "0"}
-        data-drop-style={style}
-        data-drop-platform={
-          platform && (PLATFORMS as readonly string[]).includes(platform.name)
-            ? platform.name
-            : undefined
-        }
+        {...dropTarget}
       >
         {/* top controls in a frosted box (iridescent). relative z-20 so the dropdowns
             are above the year sections */}
@@ -962,7 +1116,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
           className={cn(
             "relative z-20",
             // no bottom gap when the collection tabs follow
-            showTabs ? "mb-0" : dateless || irid ? "mb-3" : casual ? "mb-4" : "mb-6",
+            irid ? "mb-3" : showTabs ? "mb-4" : dateless ? "mb-3" : casual ? "mb-4" : "mb-6",
             irid && cn(glassBox, "py-2.5"),
             accent === "cyberpunk" && "p-4",
             // sakura: the dashboard's rose glass bar (index.css .sak-dash-bar)
@@ -1103,6 +1257,108 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
           <ArtistLinks links={artist.links} accent={accent} />
 
           <div className="ml-auto flex items-center gap-2">
+            {/* add a break month (icon, label on hover like New folder) */}
+            {backed && (style === "monthly" || custom) && platform && (
+              <div className="relative">
+                <button
+                  onClick={() => setSkipPickerOpen((o) => !o)}
+                  aria-label={t("Break")}
+                  aria-description={t("Mark a month the creator skipped (a break)")}
+                  aria-expanded={skipPickerOpen}
+                  className={cn(
+                    "group inline-flex h-8 items-center px-2 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-500",
+                    control,
+                  )}
+                >
+                  <span className="grid h-4 w-4 shrink-0 place-items-center">
+                    <Coffee className="h-4 w-4 text-white" />
+                  </span>
+                  <span
+                    className={cn(
+                      "overflow-hidden whitespace-nowrap transition-all duration-200 group-hover:ml-1.5 group-hover:max-w-[8rem] group-hover:opacity-100",
+                      // stays out while its menu is open
+                      skipPickerOpen ? "ml-1.5 max-w-[8rem] opacity-100" : "max-w-0 opacity-0",
+                    )}
+                  >
+                    {t("Break")}
+                  </span>
+                </button>
+                {skipPickerOpen && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setSkipPickerOpen(false)} />
+                    {/* same surface as the "+ Platform" menu, themed fields */}
+                    <div
+                      className={cn(
+                        "absolute right-0 top-full z-40 mt-1.5 w-60 p-3 shadow-2xl shadow-black/40",
+                        menuSurface,
+                      )}
+                    >
+                      <p className="mb-2 text-xs text-zinc-400">
+                        {tf("Mark a skipped month on {platform}.", { platform: platform.name })}
+                      </p>
+                      {custom ? (
+                        <div className="space-y-2">
+                          <NameCombo
+                            live
+                            typos
+                            value={skipYearName}
+                            onCommit={setSkipYearName}
+                            suggestions={customYearNames(platform.months)}
+                            placeholder={t("Year name")}
+                            className={cn(
+                              "h-8 w-full px-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-500",
+                              field,
+                            )}
+                          />
+                          <NameCombo
+                            live
+                            typos
+                            value={skipMonthName}
+                            onCommit={setSkipMonthName}
+                            suggestions={customMonthNames(platform.months, skipYearName)}
+                            placeholder={t("Month name")}
+                            className={cn(
+                              "h-8 w-full px-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-500",
+                              field,
+                            )}
+                          />
+                        </div>
+                      ) : (
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={skipYear}
+                          onChange={(e) => setSkipYear(e.target.value.replace(/[^0-9]/g, ""))}
+                          placeholder={t("Year")}
+                          className={cn(
+                            "h-8 w-16 px-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-500",
+                            field,
+                          )}
+                        />
+                        {/* not a native <select>: Windows draws its list grey */}
+                        <ThemedSelect
+                          value={skipMonth}
+                          onChange={setSkipMonth}
+                          options={months.map((mn, idx) => ({ value: String(idx + 1), label: mn }))}
+                          className={cn("h-8 min-w-0 flex-1 px-2 text-xs text-zinc-100", field)}
+                          minWidth={120}
+                        />
+                      </div>
+                      )}
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        className="mt-3 w-full"
+                        disabled={custom && (!skipYearName.trim() || !skipMonthName.trim())}
+                        onClick={() => void addBreak()}
+                      >
+                        <Coffee className="h-4 w-4" />
+                        {t("Add break")}
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             {/* New folder (icon, label on hover = the hint, no title), picks the year in
                 its dialog */}
             {backed && platform && (
@@ -1141,7 +1397,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
         {/* casual themes: a fading line between the two rows, edge to edge */}
         {casual && <div aria-hidden className="casual-bar-rule -mx-4 mb-2" />}
         {/* platform tabs */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div ref={setPlatformRow} className="flex flex-wrap items-center gap-2">
           {orderedPlatforms.map((p) => {
             const s = platformStats(p);
             const active = p.id === platform?.id;
@@ -1205,176 +1461,20 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
               variant="outline"
               size="sm"
               disabled={!backed || addingPlatform}
-              onClick={() => (platformPickerOpen ? closePlatformPicker() : setPlatformPickerOpen(true))}
+              onClick={() => {
+                setPickerHangs(false);
+                if (platformPickerOpen) closePlatformPicker();
+                else setPlatformPickerOpen(true);
+              }}
               title={t("Add a platform to this creator")}
               className={iriOutline}
             >
               <Plus className="h-4 w-4" />
               {t("Platform")}
             </Button>
-            {platformPickerOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={closePlatformPicker} />
-                <div
-                  className={cn(
-                    "absolute left-0 top-full z-50 mt-1.5 max-h-72 w-48 overflow-y-auto p-1 shadow-2xl shadow-black/40",
-                    menuSurface,
-                  )}
-                >
-                  {availablePlatforms.map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => void addPlatform(p)}
-                      className={cn(
-                        "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors",
-                        irid ? "text-zinc-100 hover:bg-white/10" : "text-zinc-200 hover:bg-white/10",
-                      )}
-                    >
-                      <Plus className="h-3.5 w-3.5 text-brand-300" />
-                      {p}
-                    </button>
-                  ))}
-
-                  {/* add a new platform (divider only if there are suggestions above) */}
-                  {availablePlatforms.length > 0 && (
-                    <div className={cn("my-1 h-px", irid ? "bg-white/10" : "bg-brand-500/20")} />
-                  )}
-                  {newPlatform === null ? (
-                    <button
-                      onClick={() => setNewPlatform("")}
-                      className={cn(
-                        "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm font-medium transition-colors",
-                        irid ? "text-brand-100 hover:bg-white/10" : "text-brand-200 hover:bg-white/10",
-                      )}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      {t("Add platform…")}
-                    </button>
-                  ) : (
-                    <div className="flex flex-wrap items-center gap-1 p-1">
-                      <input
-                        autoFocus
-                        value={newPlatform}
-                        onChange={(e) => setNewPlatform(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") addCustomPlatform();
-                          else if (e.key === "Escape") setNewPlatform(null);
-                        }}
-                        placeholder={t("Platform name")}
-                        className={cn(
-                          "h-7 min-w-0 flex-1 rounded-md border px-2 text-xs outline-none",
-                          irid
-                            ? "border-white/15 bg-white/10 text-zinc-100 placeholder:text-zinc-400 focus:border-white/50"
-                            : "border-zinc-700 bg-zinc-950 text-zinc-100 focus:border-brand-500/60",
-                        )}
-                      />
-                      <button
-                        onClick={addCustomPlatform}
-                        title={t("Add")}
-                        className="rounded-md border border-brand-500/40 bg-brand-500/15 px-2 py-1 text-xs font-medium text-brand-100 transition-colors hover:bg-brand-500/25"
-                      >
-                        {t("Add")}
-                      </button>
-                      {isMiscPlatform(newPlatform) && (
-                        <p className="w-full px-1 text-xs text-amber-300">{t("“Misc” can’t be a platform.")}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
+            {platformPickerOpen && !pickerHangs && platformPicker}
           </div>
 
-          {/* add a break month */}
-          {(style === "monthly" || custom) && platform && (
-            <div className="relative">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!backed}
-                onClick={() => setSkipPickerOpen((o) => !o)}
-                title={t("Mark a month the creator skipped (a break)")}
-                className={iriOutline}
-              >
-                <Coffee className="h-4 w-4" />
-                {t("Break")}
-              </Button>
-              {skipPickerOpen && (
-                <>
-                  <div className="fixed inset-0 z-30" onClick={() => setSkipPickerOpen(false)} />
-                  {/* same surface as the "+ Platform" menu, themed fields */}
-                  <div
-                    className={cn(
-                      "absolute left-0 top-full z-40 mt-1.5 w-60 p-3 shadow-2xl shadow-black/40",
-                      menuSurface,
-                    )}
-                  >
-                    <p className="mb-2 text-xs text-zinc-400">
-                      {tf("Mark a skipped month on {platform}.", { platform: platform.name })}
-                    </p>
-                    {custom ? (
-                      <div className="space-y-2">
-                        <NameCombo
-                          live
-                          typos
-                          value={skipYearName}
-                          onCommit={setSkipYearName}
-                          suggestions={customYearNames(platform.months)}
-                          placeholder={t("Year name")}
-                          className={cn(
-                            "h-8 w-full px-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-500",
-                            field,
-                          )}
-                        />
-                        <NameCombo
-                          live
-                          typos
-                          value={skipMonthName}
-                          onCommit={setSkipMonthName}
-                          suggestions={customMonthNames(platform.months, skipYearName)}
-                          placeholder={t("Month name")}
-                          className={cn(
-                            "h-8 w-full px-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-500",
-                            field,
-                          )}
-                        />
-                      </div>
-                    ) : (
-                    <div className="flex items-center gap-2">
-                      <input
-                        value={skipYear}
-                        onChange={(e) => setSkipYear(e.target.value.replace(/[^0-9]/g, ""))}
-                        placeholder={t("Year")}
-                        className={cn(
-                          "h-8 w-16 px-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-500",
-                          field,
-                        )}
-                      />
-                      {/* not a native <select>: Windows draws its list grey */}
-                      <ThemedSelect
-                        value={skipMonth}
-                        onChange={setSkipMonth}
-                        options={months.map((mn, idx) => ({ value: String(idx + 1), label: mn }))}
-                        className={cn("h-8 min-w-0 flex-1 px-2 text-xs text-zinc-100", field)}
-                        minWidth={120}
-                      />
-                    </div>
-                    )}
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      className="mt-3 w-full"
-                      disabled={custom && (!skipYearName.trim() || !skipMonthName.trim())}
-                      onClick={() => void addBreak()}
-                    >
-                      <Coffee className="h-4 w-4" />
-                      {t("Add break")}
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
           {/* card shape for this creator, and the "+" for the first collection */}
           <div className="ml-auto flex items-center gap-2 self-end">
             {/* only once we know if the creator has collections (not while loading) */}
@@ -1396,11 +1496,12 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
             tabs={tabs}
             onCreate={backed ? createCollection : undefined}
             glass={irid ? glassMaterial : undefined}
-            inset={irid}
           />
         )}
 
 
+        {/* where the platform's content starts (a hanging tab scrolls here) */}
+        <div ref={contentRef} aria-hidden />
         {artist.platforms.length === 0 ? (
           <div className="grid place-items-center rounded-2xl border border-dashed border-zinc-800 py-20 text-center text-sm text-zinc-500">
             {t("No rewards yet. Use the “+” on this creator’s card to add some.")}

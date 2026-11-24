@@ -1123,6 +1123,14 @@ export async function setSetting(key: string, value: string): Promise<void> {
   await invoke("set_setting", { key, value });
 }
 
+/** The settings key behind "invisible in screen sharing" — read it with `getSetting`. */
+export const HIDE_FROM_CAPTURE_KEY = "hide_from_capture";
+
+/** Hide MiColl's windows from screen sharing and recordings. Throws when Windows refuses. */
+export async function setHideFromCapture(on: boolean): Promise<void> {
+  await invoke("set_hide_from_capture", { on });
+}
+
 /** The settings key behind "keep running in the tray" — read it with `getSetting`. */
 export const CLOSE_TO_TRAY_KEY = "close_to_tray";
 
@@ -1366,6 +1374,8 @@ export async function editExpand(
   fit: { w: number; h: number } | null,
   /** HQ only: someone reaches to the edge (body details mode, the picture stays untouched). */
   people = false,
+  /** Several tries in one go: which one this is (the taskbar's bar runs over all of them). */
+  tries: { run: number; runs: number } | null = null,
 ): Promise<string> {
   return invoke<string>("edit_expand", {
     imageB64,
@@ -1378,6 +1388,8 @@ export async function editExpand(
     fitW: fit?.w ?? null,
     fitH: fit?.h ?? null,
     people,
+    run: tries?.run ?? null,
+    runs: tries?.runs ?? null,
   });
 }
 
@@ -2896,6 +2908,33 @@ export interface WmMark {
 
 export async function wmMarkAuto(path: string, x: number, y: number, w: number, h: number): Promise<WmMark> {
   return invoke<WmMark>("wm_mark_auto", { path, x, y, w, h });
+}
+
+/** The label of a version the watermark was taken off (lib.rs WM_VERSION_LABEL, never translated). */
+export const WM_VERSION_LABEL = "Watermark removed";
+
+/**
+ * The editor's watermark tool, "Text in a corner": the line of text as a selection (rose
+ * PNG). path = the original (its reward's other pictures help), strength 0..1.
+ */
+export async function editWmText(imageB64: string, path: string, corners: string[], strength: number): Promise<string> {
+  return invoke<string>("edit_wm_text", { imageB64, path, corners, strength });
+}
+
+/** The editor's watermark tool, "Frame a mark": the mark in the frame (rose PNG of its size). */
+export async function editWmMark(imageB64: string, x: number, y: number, w: number, h: number): Promise<WmMark> {
+  return invoke<WmMark>("edit_wm_mark", { imageB64, x, y, w, h });
+}
+
+/** Take the selected watermark off. stroke = the mark's strokes' width (0 = measured). */
+export async function editWmRemove(
+  imageB64: string,
+  maskB64: string,
+  path: string,
+  kind: "text" | "mark",
+  stroke: number,
+): Promise<string> {
+  return invoke<string>("edit_wm_remove", { imageB64, maskB64, path, kind, stroke });
 }
 
 /** The reward a picture (or one of its versions) belongs to: [id, title]. */

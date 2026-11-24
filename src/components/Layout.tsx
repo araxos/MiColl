@@ -60,6 +60,8 @@ interface LayoutProps {
    * scroll area, so they never scroll away.
    */
   toolbar?: React.ReactNode;
+  /** Over the top edge of the scroll area, right under the top bar (hanging tabs). */
+  overlay?: React.ReactNode;
 }
 
 /* ---- what the current page wants in the top bar ----------------------- */
@@ -654,7 +656,7 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
  * Page frame: the page's toolbar and its scroll area. The top bar itself is in App,
  * this only tells it the page's search box and title.
  */
-export function Layout({ children, search, titleSlot, toolbar }: LayoutProps) {
+export function Layout({ children, search, titleSlot, toolbar, overlay }: LayoutProps) {
   const location = useLocation();
   // every render, so the search value and title stay current
   useLayoutEffect(() => {
@@ -739,6 +741,7 @@ export function Layout({ children, search, titleSlot, toolbar }: LayoutProps) {
         <main ref={mainRef} className="overlay-scroll-host flex-1 overflow-y-auto">
           {children}
         </main>
+        {overlay}
         <OverlayScrollbar target={mainRef} />
       </div>
     </div>

@@ -34,8 +34,25 @@ import {
   SplitSquareHorizontal,
   PersonStanding,
 } from "lucide-react";
-import { Stamp } from "lucide-react";
-import { openWatermark } from "@/lib/watermark";
+import {
+  ArrowDown,
+  ArrowDownLeft,
+  ArrowDownRight,
+  ArrowUpLeft,
+  ArrowUpRight,
+  Search,
+  SquareDashed,
+  Stamp,
+} from "lucide-react";
+import {
+  openWatermark,
+  savedWmCorners,
+  savedWmMode,
+  saveWmCorners,
+  saveWmMode,
+  WM_CORNERS,
+  type WmMode,
+} from "@/lib/watermark";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { cn } from "@/lib/utils";
 import { useT, useTf } from "@/lib/i18n";
@@ -53,8 +70,13 @@ import {
   editUpscale,
   editCutout,
   editDetect,
+  editWmText,
+  editWmMark,
+  editWmRemove,
   editSave,
   indexAddedImage,
+  listImageVersions,
+  WM_VERSION_LABEL,
   saveImageVersion,
   aiModelStatus,
   aiModelDownload,
@@ -68,7 +90,7 @@ import { ThemedSelect } from "@/components/ThemedSelect";
 import { AiWorkFx, BusyNote, useLongBusy } from "@/components/AiWorkFx";
 import { useAccent } from "@/lib/theme";
 
-type Tool = "erase" | "cutout" | "crop" | "transform" | "resize" | "expand" | "adjust";
+type Tool = "erase" | "watermark" | "cutout" | "crop" | "transform" | "resize" | "expand" | "adjust";
 
 /** The tools in the left bar, in order (also used for the options bar badge). */
 const TOOLS: {
@@ -87,6 +109,14 @@ const TOOLS: {
     Icon: Eraser,
     title: "Object remover — paint over something and fill it in",
     hintAdd: "Paint over the area → Detect to snap to the object → adjust → Remove",
+    hintSub: "Paint to un-select parts you want to keep",
+  },
+  {
+    id: "watermark",
+    label: "Watermark",
+    Icon: Stamp,
+    title: "Watermark remover — a line of text in a corner, or a mark you frame",
+    hintAdd: "Pick the corners → Find → touch it up with the brush → Remove watermark",
     hintSub: "Paint to un-select parts you want to keep",
   },
   {
@@ -127,6 +157,15 @@ const TOOLS: {
     hintAdd: "The preview is the result — the sliders bake in exactly what you see",
   },
 ];
+
+/** The corner buttons of the watermark tool. */
+const CORNER_ICONS: Record<string, typeof Eraser> = {
+  tl: ArrowUpLeft,
+  tr: ArrowUpRight,
+  bl: ArrowDownLeft,
+  bc: ArrowDown,
+  br: ArrowDownRight,
+};
 
 /** All AI models the editor uses. */
 const MODELS: AiModel[] = ["lama", "esrgan", "isnet", "sd15"];
@@ -398,6 +437,27 @@ export function ImageEditor({
   const [dims, setDims] = useState<Dims | null>(null);
   const [tool, setTool] = useState<Tool>("erase");
   const [maskMode, setMaskMode] = useState<"add" | "subtract">("add");
+  // watermark: which way and corners (remembered, like for a whole reward), framing or
+  // touching up, the frame being drawn, the framed marks' stroke width
+  const [wmMode, setWmModeState] = useState<WmMode>(savedWmMode);
+  const [wmCorners, setWmCorners] = useState<string[]>(savedWmCorners);
+  const [wmFrameOn, setWmFrameOn] = useState(true);
+  const [wmDrag, setWmDrag] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const wmStrokeRef = useRef(0);
+  // the states of the picture that differ from the file only by a removed watermark
+  const wmOnlyRef = useRef(new Set<string>());
+  const setWmMode = (m: WmMode) => {
+    setWmModeState(m);
+    saveWmMode(m);
+  };
+  const toggleWmCorner = (id: string) => {
+    const next = wmCorners.includes(id) ? wmCorners.filter((x) => x !== id) : [...wmCorners, id];
+    setWmCorners(next);
+    saveWmCorners(next);
+  };
+  const wmFraming = tool === "watermark" && wmMode === "mark" && wmFrameOn;
+  // the brush paints the selection
+  const paints = tool === "erase" || (tool === "watermark" && !wmFraming);
   // on-screen radius (px), the same on every picture (remembered)
   const [brush, setBrushState] = useState(() => {
     const v = Number(localStorage.getItem("micoll.brushSize"));
@@ -692,15 +752,15 @@ export function ImageEditor({
   }, [closeOrAsk]);
 
   // [ and ] make the brush smaller / bigger (like in Photoshop), Shift = bigger steps
-  const brushKeyRef = useRef({ brush, tool, setBrush });
-  brushKeyRef.current = { brush, tool, setBrush };
+  const brushKeyRef = useRef({ brush, paints, setBrush });
+  brushKeyRef.current = { brush, paints, setBrush };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "[" && e.key !== "]") return;
       const el = e.target as HTMLElement | null;
       if (el?.closest('input:not([type="range"]), textarea, [contenteditable="true"]')) return;
       const k = brushKeyRef.current;
-      if (k.tool !== "erase") return;
+      if (!k.paints) return;
       e.preventDefault();
       const step = e.shiftKey ? 10 : 4;
       const next = Math.min(90, Math.max(6, k.brush + (e.key === "]" ? step : -step)));
@@ -966,18 +1026,20 @@ export function ImageEditor({
   const recomputeHasMask = () => {
     const c = maskRef.current;
     if (!c) return;
-    const tw = Math.min(96, c.width);
-    const th = Math.min(96, c.height);
+    const tw = Math.min(256, c.width);
+    const th = Math.min(256, c.height);
     const tmp = document.createElement("canvas");
     tmp.width = tw;
     tmp.height = th;
     const tctx = tmp.getContext("2d");
     if (!tctx) return;
+    // averaged, or the thin lines of a watermark fall between the pixels
+    tctx.imageSmoothingQuality = "high";
     tctx.drawImage(c, 0, 0, tw, th);
     const d = tctx.getImageData(0, 0, tw, th).data;
     let any = false;
     for (let i = 3; i < d.length; i += 4) {
-      if (d[i] > 12) {
+      if (d[i] > 3) {
         any = true;
         break;
       }
@@ -1015,9 +1077,14 @@ export function ImageEditor({
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     const p = toNat(e);
+    if (wmFraming) {
+      const [x, y] = [clamp(p.x, dims.w), clamp(p.y, dims.h)];
+      setWmDrag({ x0: x, y0: y, x1: x, y1: y });
+      return;
+    }
     // remember the "before" state now, push it when the drag ends
-    if (tool === "erase") dragUndoRef.current = snapshot();
-    if (tool === "erase") {
+    if (paints) dragUndoRef.current = snapshot();
+    if (paints) {
       paintingRef.current = true;
       lastRef.current = null;
       strokeTo(clamp(p.x, dims.w), clamp(p.y, dims.h), brush / p.scale);
@@ -1028,13 +1095,28 @@ export function ImageEditor({
   const onPointerMove = (e: React.PointerEvent) => {
     if (!dims) return;
     const p = toNat(e);
-    if (tool === "erase" && paintingRef.current) {
+    if (wmDrag) {
+      setWmDrag({ ...wmDrag, x1: clamp(p.x, dims.w), y1: clamp(p.y, dims.h) });
+      return;
+    }
+    if (paints && paintingRef.current) {
       strokeTo(clamp(p.x, dims.w), clamp(p.y, dims.h), brush / p.scale);
     }
   };
 
   const onPointerUp = () => {
-    const painted = paintingRef.current && tool === "erase";
+    if (wmDrag) {
+      const r = wmDrag;
+      setWmDrag(null);
+      const x = Math.round(Math.min(r.x0, r.x1));
+      const y = Math.round(Math.min(r.y0, r.y1));
+      const w = Math.round(Math.abs(r.x1 - r.x0));
+      const h = Math.round(Math.abs(r.y1 - r.y0));
+      // a click without a drag does nothing
+      if (w >= 8 && h >= 8) void doWmFrame(x, y, w, h);
+      return;
+    }
+    const painted = paintingRef.current && paints;
     const cropped = false;
     if (painted) {
       recomputeHasMask();
@@ -1107,6 +1189,7 @@ export function ImageEditor({
     if (c && ctx) ctx.clearRect(0, 0, c.width, c.height);
     roughMaskRef.current = null;
     maskCacheRef.current = null;
+    wmStrokeRef.current = 0;
     setHasMask(false);
   };
 
@@ -1165,6 +1248,94 @@ export function ImageEditor({
       const res = useAi ? await editInpaintAi(working, mask) : await editInpaint(working, mask);
       pushWorking(res);
       clearMask();
+    } catch (err) {
+      failed(t("Removing failed"), err);
+    } finally {
+      setBusy(false);
+      setBusyMsg(t("Working…"));
+    }
+  };
+
+  /* ---- watermark: find it, touch it up, take it off --------------------- */
+  /** Draw a found mask onto the selection at (x, y). alone = instead of what's selected. */
+  const drawMask = async (src: string, x: number, y: number, alone: boolean) => {
+    const im = await loadImage(src);
+    const c = maskRef.current;
+    const ctx = c?.getContext("2d");
+    if (!c || !ctx) return;
+    ctx.globalCompositeOperation = "source-over";
+    if (alone) ctx.clearRect(0, 0, c.width, c.height);
+    ctx.drawImage(im, x, y);
+    maskCacheRef.current = undefined;
+    roughMaskRef.current = maskNow();
+    setHasMask(true);
+    setMaskMode("add");
+  };
+
+  const doWmFind = async () => {
+    if (!working || busy || !wmCorners.length) return;
+    const before = snapshot();
+    setBusyMsg(t("Looking for text in the corners…"));
+    setBusy(true);
+    try {
+      const mask = await editWmText(working, versionKey, wmCorners, detectStrength / 100);
+      await drawMask(mask, 0, 0, true);
+      wmStrokeRef.current = 0;
+      commit(before);
+    } catch (err) {
+      if (String(err).startsWith("No watermark found")) {
+        showToast({
+          tone: "warn",
+          title: t("No watermark found in the chosen corners."),
+          detail: t("Raise the sensitivity, or paint over it with the brush."),
+        });
+      } else failed(t("Detection failed"), err);
+    } finally {
+      setBusy(false);
+      setBusyMsg(t("Working…"));
+    }
+  };
+
+  const doWmFrame = async (x: number, y: number, w: number, h: number) => {
+    if (!working || busy) return;
+    const before = snapshot();
+    setBusyMsg(t("Picking out the mark…"));
+    setBusy(true);
+    try {
+      const m = await editWmMark(working, x, y, w, h);
+      // next to what's framed already (a second mark)
+      await drawMask(m.mask, x, y, false);
+      wmStrokeRef.current = Math.max(wmStrokeRef.current, m.stroke);
+      commit(before);
+      setWmFrameOn(false);
+    } catch (err) {
+      if (String(err).startsWith("No mark found")) {
+        showToast({
+          tone: "warn",
+          title: t("No mark found in the frame"),
+          detail: t("Draw it a little bigger, or paint over the mark with the brush."),
+        });
+      } else failed(t("Detection failed"), err);
+    } finally {
+      setBusy(false);
+      setBusyMsg(t("Working…"));
+    }
+  };
+
+  const doWmRemove = async () => {
+    if (!hasMask || busy || ready.lama !== true) return;
+    const mask = maskRef.current?.toDataURL("image/png");
+    if (!mask) return;
+    setBusyMsg(t("Removing (AI)…"));
+    setBusy(true);
+    try {
+      await warmModel("lama", t("Removing (AI)…"));
+      const kind = wmMode === "mark" ? "mark" : "text";
+      const res = await editWmRemove(working, mask, versionKey, kind, wmStrokeRef.current);
+      if (working === original || wmOnlyRef.current.has(working)) wmOnlyRef.current.add(res);
+      pushWorking(res);
+      clearMask();
+      setWmFrameOn(true);
     } catch (err) {
       failed(t("Removing failed"), err);
     } finally {
@@ -1330,7 +1501,10 @@ export function ImageEditor({
         }
         // a new seed every time: HQ draws something different on every try
         const seed = Math.floor(Math.random() * 2 ** 31);
-        const result = await editExpand(job.src, job.W, job.H, job.x, job.y, mode, seed, job.fit, people);
+        const result = await editExpand(job.src, job.W, job.H, job.x, job.y, mode, seed, job.fit, people, {
+          run,
+          runs: times,
+        });
         exLastRef.current = mode === "blur" ? null : { ...job, result, mode, people };
         const before: Snapshot = prev ?? snapshot();
         commit(before);
@@ -1519,12 +1693,25 @@ export function ImageEditor({
     else setWorking(original);
   };
 
+  /**
+   * "Watermark removed" when that's all that was done (also on top of such a version), so
+   * it counts like the ones of a whole reward. Any other edit: no label.
+   */
+  const versionLabel = async (): Promise<string | undefined> => {
+    if (!wmOnlyRef.current.has(working)) return undefined;
+    if (path === versionKey) return WM_VERSION_LABEL;
+    const base = await listImageVersions(versionKey)
+      .then((r) => r.versions.find((v) => v.filePath === path)?.label)
+      .catch(() => null);
+    return base === WM_VERSION_LABEL ? WM_VERSION_LABEL : undefined;
+  };
+
   // save as VERSION of the original (the original file isn't touched)
   const saveVersion = async () => {
     if (busy || !working) return;
     setBusy(true);
     try {
-      await saveImageVersion(versionKey, working);
+      await saveImageVersion(versionKey, working, await versionLabel());
       onSavedVersion?.();
       requestClose();
     } catch (err) {
@@ -1562,7 +1749,11 @@ export function ImageEditor({
   // straighten preview only with an angle AND a size
   const straightening = tool === "transform" && angle !== 0 && !!dims;
   const hint =
-    tool === "erase" && maskMode === "subtract" ? activeTool.hintSub! : activeTool.hintAdd;
+    paints && maskMode === "subtract"
+      ? activeTool.hintSub!
+      : tool === "watermark" && wmMode === "mark"
+        ? "Draw a frame around the mark → touch it up with the brush → Remove watermark"
+        : activeTool.hintAdd;
 
   return (
     <motion.div
@@ -1673,29 +1864,112 @@ export function ImageEditor({
 
       {/* options bar for the selected tool, its action on the right.
           Always the same height (every control is h-9, it scrolls instead of wrapping). */}
-      <div className="editor-optionsbar flex h-[3.25rem] shrink-0 items-center gap-2 overflow-x-auto border-b border-white/5 bg-zinc-900/40 px-3 [&>*]:shrink-0">
+      <div className="flex h-[3.25rem] shrink-0 items-center gap-2 border-b border-white/5 bg-zinc-900/40 px-3">
+        <div
+          onWheel={(e) => {
+            e.currentTarget.scrollLeft += e.deltaY;
+          }}
+          className="editor-optionsbar flex h-full min-w-0 flex-1 items-center gap-2 overflow-x-auto [&>*]:shrink-0"
+        >
         <div className="flex h-9 items-center gap-1.5 text-sm font-medium text-zinc-200">
           <activeTool.Icon className="h-4 w-4 text-brand-300" />
-          {t(activeTool.label)}
+          <span className={cn(tool === "watermark" && "hidden min-[1500px]:inline")}>{t(activeTool.label)}</span>
         </div>
         <div className="mx-1 h-6 w-px shrink-0 bg-zinc-800" />
 
-        {tool === "erase" && (
+        {tool === "watermark" && (
+          <>
+            {/* the same two ways as for a whole reward */}
+            <div className="flex h-9 items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-900/70 p-1">
+              <ToolBtn
+                active={wmMode === "corner"}
+                onClick={() => setWmMode("corner")}
+                title={t("A line of text (a link, a name) in a corner: it's found by itself")}
+              >
+                {t("Text in a corner")}
+              </ToolBtn>
+              <ToolBtn
+                active={wmMode === "mark"}
+                onClick={() => setWmMode("mark")}
+                title={t("A logo or a signature anywhere: draw a frame around it, its lines are picked out")}
+              >
+                {t("Frame a mark")}
+              </ToolBtn>
+            </div>
+            {wmMode === "corner" && (
+              <>
+                <div className="flex h-9 items-center gap-0.5 rounded-xl border border-zinc-800 bg-zinc-900/70 p-1">
+                  {WM_CORNERS.map((k) => (
+                    <IconToolBtn
+                      key={k.id}
+                      Icon={CORNER_ICONS[k.id]}
+                      label={t(k.label)}
+                      hint={t(k.label)}
+                      active={wmCorners.includes(k.id)}
+                      onClick={() => toggleWmCorner(k.id)}
+                    />
+                  ))}
+                </div>
+                <label
+                  className="viewer-chip flex h-9 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 text-xs text-zinc-300"
+                  title={t("Search sensitivity — raise it to find fainter text")}
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-brand-300" />
+                  <input
+                    type="range"
+                    min={10}
+                    max={100}
+                    value={detectStrength}
+                    onChange={(e) => setDetectStrength(Number(e.target.value))}
+                    className="w-20 accent-brand-500"
+                  />
+                </label>
+                <ActionBtn
+                  onClick={() => void doWmFind()}
+                  disabled={busy || !working || !wmCorners.length}
+                  tone="ghost"
+                  title={t("Look for the text in the chosen corners")}
+                >
+                  <Search className="h-4 w-4" />
+                  {t("Find")}
+                </ActionBtn>
+              </>
+            )}
+            <div className="mx-1 h-6 w-px shrink-0 bg-zinc-800" />
+          </>
+        )}
+
+        {(tool === "erase" || tool === "watermark") && (
           <>
             <div className="flex h-9 items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-900/70 p-1">
+              {tool === "watermark" && wmMode === "mark" && (
+                <IconToolBtn
+                  Icon={SquareDashed}
+                  label={t("Frame")}
+                  hint={t("Frame — draw a box around the mark")}
+                  active={wmFraming}
+                  onClick={() => setWmFrameOn(true)}
+                />
+              )}
               <IconToolBtn
                 Icon={Paintbrush}
                 label={t("Select")}
                 hint={t("Select — paint over the object")}
-                active={maskMode === "add"}
-                onClick={() => setMaskMode("add")}
+                active={maskMode === "add" && paints}
+                onClick={() => {
+                  setMaskMode("add");
+                  setWmFrameOn(false);
+                }}
               />
               <IconToolBtn
                 Icon={Eraser}
                 label={t("Un-select")}
                 hint={t("Un-select — wipe parts of the selection you want to keep")}
-                active={maskMode === "subtract"}
-                onClick={() => setMaskMode("subtract")}
+                active={maskMode === "subtract" && paints}
+                onClick={() => {
+                  setMaskMode("subtract");
+                  setWmFrameOn(false);
+                }}
               />
             </div>
             <label
@@ -1709,7 +1983,7 @@ export function ImageEditor({
                 max={90}
                 value={brush}
                 onChange={(e) => setBrush(Number(e.target.value))}
-                className="accent-brand-500"
+                className={cn("accent-brand-500", tool === "watermark" && "w-20")}
               />
               <span className="w-6 tabular-nums text-zinc-400">{brush}</span>
             </label>
@@ -1717,29 +1991,32 @@ export function ImageEditor({
               onClick={() => {
                 commit();
                 clearMask();
+                setWmFrameOn(true);
               }}
               disabled={!hasMask}
               title={t("Clear the whole selection")}
               className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 text-xs text-zinc-300 transition-colors micoll-hover disabled:opacity-40 disabled:pointer-events-none"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              {t("Clear")}
+              {tool === "erase" && t("Clear")}
             </button>
-            <label
-              className="viewer-chip flex h-9 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 text-xs text-zinc-300"
-              title={t("Detect sensitivity — raise it to catch fainter watermarks / text")}
-            >
-              <Sparkles className="h-3.5 w-3.5 text-brand-300" />
-              <input
-                type="range"
-                min={10}
-                max={100}
-                value={detectStrength}
-                onChange={(e) => setDetectStrength(Number(e.target.value))}
-                className="accent-brand-500"
-              />
-            </label>
           </>
+        )}
+        {tool === "erase" && (
+          <label
+            className="viewer-chip flex h-9 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 text-xs text-zinc-300"
+            title={t("Detect sensitivity — raise it to catch fainter watermarks / text")}
+          >
+            <Sparkles className="h-3.5 w-3.5 text-brand-300" />
+            <input
+              type="range"
+              min={10}
+              max={100}
+              value={detectStrength}
+              onChange={(e) => setDetectStrength(Number(e.target.value))}
+              className="accent-brand-500"
+            />
+          </label>
         )}
 
         {tool === "cutout" && (
@@ -1970,19 +2247,10 @@ export function ImageEditor({
           </>
         )}
 
-        <div className="ml-auto flex h-9 items-center gap-1.5">
+        </div>
+        <div className="ml-auto flex h-9 shrink-0 items-center gap-1.5">
           {tool === "erase" ? (
             <>
-              {/* the same watermark in every picture of the reward, in one go */}
-              <ActionBtn
-                onClick={() => openWatermark({ imagePath: versionKey })}
-                disabled={busy}
-                tone="ghost"
-                title={t("Remove a watermark (a line of text in a corner) from every picture of this reward")}
-              >
-                <Stamp className="h-4 w-4" />
-                {t("Whole reward")}
-              </ActionBtn>
               <ActionBtn onClick={doDetect} disabled={!hasMask || busy} tone="ghost">
                 <Sparkles className="h-4 w-4" />
                 {t("Detect")}
@@ -2018,6 +2286,32 @@ export function ImageEditor({
                 >
                   {removeMode === "ai" ? <Bot className="h-4 w-4" /> : <Wand2 className="h-4 w-4" />}
                   {t("Remove object")}
+                </ActionBtn>
+              )}
+            </>
+          ) : tool === "watermark" ? (
+            <>
+              {/* the same watermark in every picture of the reward, in one go */}
+              <ActionBtn
+                onClick={() => openWatermark({ imagePath: versionKey })}
+                disabled={busy}
+                tone="ghost"
+                title={t("Remove the watermark from every picture of this reward")}
+              >
+                <Layers className="h-4 w-4" />
+                <span className="hidden min-[1700px]:inline">{t("Whole reward")}</span>
+              </ActionBtn>
+              {ready.lama === false ? (
+                <DownloadModelBtn model="lama" label={t("Get AI model (~200 MB)")} />
+              ) : (
+                <ActionBtn
+                  onClick={() => void doWmRemove()}
+                  disabled={!hasMask || busy || ready.lama !== true}
+                  tone="brand"
+                >
+                  <Stamp className="h-4 w-4" />
+                  <span className="min-[1500px]:hidden">{t("Remove")}</span>
+                  <span className="hidden min-[1500px]:inline">{t("Remove watermark")}</span>
                 </ActionBtn>
               )}
             </>
@@ -2290,7 +2584,7 @@ export function ImageEditor({
                 onPointerUp={onPointerUp}
                 className={cn(
                   "absolute inset-0 h-full w-full rounded-lg",
-                  tool === "erase"
+                  paints || wmFraming
                     ? "cursor-crosshair opacity-50"
                     : // crop is handled on the stage (it starts on the black too)
                       "pointer-events-none opacity-0",
@@ -2306,6 +2600,18 @@ export function ImageEditor({
                   <div className="absolute inset-y-0 left-1/3 w-px bg-white/25" />
                   <div className="absolute inset-y-0 left-2/3 w-px bg-white/25" />
                 </div>
+              )}
+              {/* the frame being drawn around a mark */}
+              {wmDrag && dims && (
+                <div
+                  className="pointer-events-none absolute border-2 border-dashed border-brand-400 bg-brand-500/10"
+                  style={{
+                    left: cropPct(Math.min(wmDrag.x0, wmDrag.x1), dims.w),
+                    top: cropPct(Math.min(wmDrag.y0, wmDrag.y1), dims.h),
+                    width: cropPct(Math.abs(wmDrag.x1 - wmDrag.x0), dims.w),
+                    height: cropPct(Math.abs(wmDrag.y1 - wmDrag.y0), dims.h),
+                  }}
+                />
               )}
               {/* crop rectangle */}
               {tool === "crop" && cropRect && dims && (
@@ -2444,7 +2750,7 @@ export function ImageEditor({
           )}
 
           {/* the brush size while the slider moves (on-screen size, like the stroke) */}
-          {brushPeek && tool === "erase" && (
+          {brushPeek && paints && (
             <div
               className="pointer-events-none absolute left-1/2 top-1/2 z-[6] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/90 bg-rose-500/25 shadow-[0_0_0_1px_rgba(0,0,0,0.6),0_0_18px_rgba(0,0,0,0.5)]"
               style={{ width: brush * 2, height: brush * 2 }}
@@ -2599,7 +2905,7 @@ function RailBtn({
       )}
     >
       <Icon className="h-5 w-5" />
-      {label}
+      <span className={cn(label.length > 8 && "text-[9px] leading-3 tracking-tight")}>{label}</span>
     </button>
   );
 }

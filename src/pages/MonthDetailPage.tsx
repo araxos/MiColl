@@ -47,10 +47,13 @@ export function MonthDetailPage({ onLock }: { onLock: () => void }) {
           ? "sak-card rounded-2xl"
           : accent === "corruptruby"
             ? "ruby-bar"
-            : "classic-panel rounded-2xl border border-zinc-800 bg-zinc-900/60";
+            : // the standard themes: the creator page's plate, hanging from the top bar
+              "casual-bar";
+  const casual = headerBox === "casual-bar";
 
-  // iridescent "Add rewards": same iri-lead rim as Create Card (index.css)
-  const iriLeadBtn = irid ? "iri-lead rounded-lg" : undefined;
+  // "Add rewards": the iri-lead rim of Create Card on iridescent, the theme's gradient rim
+  // on the standard themes (index.css)
+  const leadBtn = irid ? "iri-lead rounded-lg" : casual ? "casual-lead" : undefined;
 
   // the two count badges under the title, colored per theme.
   // Owned uses the theme's "collected" color (mint / neon green / blossom),
@@ -183,9 +186,14 @@ export function MonthDetailPage({ onLock }: { onLock: () => void }) {
         data-drop-style={platform.releaseStyle ?? undefined}
       >
         {/* month header (frosted on iridescent): Back + title + badges + actions */}
-        <div className={cn("mb-6 p-4", headerBox)}>
+        <div className={cn(casual ? "relative z-20 mb-4 px-4 pb-2.5 pt-3" : "mb-6 p-4", headerBox)}>
           {/* top row: back on the left, month actions on the right */}
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div
+            className={cn(
+              "flex flex-wrap items-center justify-between gap-2",
+              casual ? "mb-2" : "mb-3",
+            )}
+          >
             <Button
               variant="ghost"
               size="sm"
@@ -219,7 +227,7 @@ export function MonthDetailPage({ onLock }: { onLock: () => void }) {
                     <Sparkles className="h-4 w-4" />
                     {t("Edit total")}
                   </Button>
-                  <Button variant="primary" size="sm" className={iriLeadBtn}>
+                  <Button variant="primary" size="sm" className={leadBtn}>
                     <Plus className="h-4 w-4" />
                     {t("Add rewards")}
                   </Button>
@@ -228,6 +236,7 @@ export function MonthDetailPage({ onLock }: { onLock: () => void }) {
             </div>
           </div>
 
+          {casual && <div aria-hidden className="casual-bar-rule -mx-4 mb-2" />}
           <div className="flex flex-wrap items-center gap-4">
             {tracked &&
               // iridescent shows the progress crystal, sakura a blooming tree (% in the
@@ -242,6 +251,11 @@ export function MonthDetailPage({ onLock }: { onLock: () => void }) {
                   className="h-16 w-16 shrink-0"
                   label={tf("{n}% of this month collected", { n: Math.round(pct * 100) })}
                 />
+              ) : casual ? (
+                // the month cards' ring
+                <ProgressRing value={pct} size={48} stroke={4} glow>
+                  <span className="text-[11px]">{Math.round(pct * 100)}%</span>
+                </ProgressRing>
               ) : (
                 <ProgressRing value={pct} size={64} stroke={6}>
                   <span className="text-xs">{Math.round(pct * 100)}%</span>

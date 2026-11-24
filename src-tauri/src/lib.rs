@@ -4,6 +4,7 @@ mod applog;
 mod audio;
 mod awake;
 mod bridge;
+mod busy;
 mod crypto;
 mod db;
 mod dup;
@@ -23,6 +24,7 @@ mod unlock;
 mod wallsets;
 mod watermark;
 mod wm_motif;
+mod wm_single;
 mod history;
 mod inbox;
 mod siteicon;
@@ -128,10 +130,12 @@ fn webview_dir() -> Option<std::path::PathBuf> {
     portable_root().map(|root| root.join("data").join("webview"))
 }
 
-/// Give a window the portable webview folder (no-op for a normal install).
+/// Give a window the portable webview folder (no-op for a normal install), and hide it
+/// from screen sharing from the first frame on when that's turned on.
 fn own_webview<'a, R: tauri::Runtime, M: Manager<R>>(
     builder: tauri::WebviewWindowBuilder<'a, R, M>,
 ) -> tauri::WebviewWindowBuilder<'a, R, M> {
+    let builder = builder.content_protected(HIDE_FROM_CAPTURE.load(std::sync::atomic::Ordering::SeqCst));
     match webview_dir() {
         Some(dir) => builder.data_directory(dir),
         None => builder,
@@ -974,6 +978,7 @@ fn progress_events<'a>(app: &'a AppHandle, event: &'static str) -> impl Fn(u32, 
             }
         }
         last.set(Some(now));
+        busy::progress(event, done.into(), total.into());
         let _ = app.emit(event, serde_json::json!({ "done": done, "total": total, "item": item }));
     }
 }
@@ -982,7 +987,7 @@ fn progress_events<'a>(app: &'a AppHandle, event: &'static str) -> impl Fn(u32, 
 /// and froze the window)
 #[tauri::command]
 async fn rescan(app: AppHandle, db: State<'_, Db>) -> Result<ScanSummary, String> {
-    let _awake = awake::hold("scanning the library");
+    let _work = busy::hold("scanning the library");
     indexer::reset_scan_cancel();
     let conn = db.conn();
     let roots = db::list_roots(&conn).map_err(map_err)?;
@@ -1023,7 +1028,7 @@ async fn rescan(app: AppHandle, db: State<'_, Db>) -> Result<ScanSummary, String
 /// Useful after changing folders on disk. Keeps ownership/covers/templates.
 #[tauri::command]
 async fn rescan_collection(app: AppHandle, db: State<'_, Db>) -> Result<ScanSummary, String> {
-    let _awake = awake::hold("scanning the library");
+    let _work = busy::hold("scanning the library");
     indexer::reset_scan_cancel();
     let conn = db.conn();
     let root = db::get_setting(&conn, "collection_root")
@@ -1097,7 +1102,7 @@ async fn rescan_artist(
     artist_id: i64,
     period_id: Option<i64>,
 ) -> Result<ScanSummary, String> {
-    let _awake = awake::hold("scanning the library");
+    let _work = busy::hold("scanning the library");
     indexer::reset_scan_cancel();
     let conn = db.conn();
     let name: String = conn
@@ -2146,7 +2151,7 @@ async fn summarize_file_props(paths: Vec<String>) -> Result<MetaSummary, String>
 /// Returns how many were cleared.
 #[tauri::command]
 async fn clear_file_props(paths: Vec<String>, fields: props::PropFields) -> Result<u32, String> {
-    let _awake = awake::hold("clearing file properties");
+    let _work = busy::hold("clearing file properties");
     tauri::async_runtime::spawn_blocking(move || {
         let mut cleared = 0u32;
         for p in &paths {
@@ -2206,7 +2211,7 @@ fn broken_root(path: &str) -> Option<std::path::PathBuf> {
 /// Check every image for a missing file: totals, per artist, and the broken root folders.
 #[tauri::command]
 async fn library_health(db: State<'_, Db>) -> Result<HealthReport, String> {
-    let _awake = awake::hold("checking the library");
+    let _work = busy::hold("checking the library");
     let (rows, sd_paths, broken_collabs, orphan_backups) = {
         let conn = db.conn();
         (
@@ -2467,7 +2472,7 @@ async fn fill_reward(
     // dropped folders that land as a subfolder (with their name), see collect_fill_items
     keep_folders: Option<Vec<String>>,
 ) -> Result<FillReport, String> {
-    let _awake = awake::hold("adding files");
+    let _work = busy::hold("adding files");
     let key = session_key(&dek);
     // the real target folder
     let target: std::path::PathBuf = {
@@ -2484,6 +2489,7 @@ async fn fill_reward(
     let progress = {
         let app = app.clone();
         move |phase: &str, done: u64, total: u64| {
+            busy::progress("fill-progress", done, total);
             let _ = app.emit(
                 "fill-progress",
                 serde_json::json!({ "job": job, "phase": phase, "done": done, "total": total }),
@@ -2990,7 +2996,7 @@ async fn move_rewards(
     reward_ids: Vec<i64>,
     dest_period_id: i64,
 ) -> Result<u32, String> {
-    let _awake = awake::hold("moving rewards");
+    let _work = busy::hold("moving rewards");
     let dest_dir = {
         let conn = db.conn();
         period_month_dir(&conn, dest_period_id)
@@ -3070,7 +3076,7 @@ async fn move_images(
     image_ids: Vec<i64>,
     dest_reward_id: i64,
 ) -> Result<u32, String> {
-    let _awake = awake::hold("moving pictures");
+    let _work = busy::hold("moving pictures");
     // the target reward's real folder
     let dest_dir = {
         let conn = db.conn();
@@ -3176,7 +3182,7 @@ async fn merge_rewards(
     dest_reward_id: i64,
     keep_folder: Option<bool>,
 ) -> Result<u32, String> {
-    let _awake = awake::hold("merging rewards");
+    let _work = busy::hold("merging rewards");
     let keep_folder = keep_folder.unwrap_or(false);
     // the target reward's real folder
     let dest_dir = {
@@ -3435,7 +3441,7 @@ fn period_own_dir(conn: &rusqlite::Connection, period_id: i64) -> Option<std::pa
 /// Delete a period (a break or empty month), optionally trashing its folder.
 #[tauri::command]
 async fn delete_period(db: State<'_, Db>, period_id: i64, also_files: bool) -> Result<(), String> {
-    let _awake = awake::hold("deleting");
+    let _work = busy::hold("deleting");
     let conn = db.conn();
     // for the history, read before anything goes
     let (h_artist, h_place) = period_place(&conn, period_id);
@@ -4841,7 +4847,7 @@ async fn stage_files_for_import(
     db: State<'_, Db>,
     paths: Vec<String>,
 ) -> Result<Option<String>, String> {
-    let _awake = awake::hold("import");
+    let _work = busy::hold("import");
     // read the managed setting here, the frontend doesn't know it yet at this point
     let managed = {
         let conn = db.conn();
@@ -4906,7 +4912,7 @@ async fn stage_files_for_import(
 /// Read-only: look at a folder and suggest a structure (no DB writes).
 #[tauri::command]
 async fn analyze_import(db: State<'_, Db>, path: String) -> Result<ImportPlan, String> {
-    let _awake = awake::hold("import");
+    let _work = busy::hold("import");
     // load the library's platform names first (see indexer::refresh_known_platforms)
     {
         let conn = db.conn();
@@ -4969,7 +4975,7 @@ async fn import_known(
     db: State<'_, Db>,
     rewards: Vec<indexer::ResolvedReward>,
 ) -> Result<Vec<ImportKnown>, String> {
-    let _awake = awake::hold("import");
+    let _work = busy::hold("import");
     use std::collections::HashMap;
     // the library's files by name (lowercase), and where each reward sits
     let (by_name, info) = {
@@ -5252,7 +5258,7 @@ fn commit_import(
     styles: Option<Vec<StyleChoice>>,
     open_as_cards: Option<bool>,
 ) -> Result<ScanSummary, String> {
-    let _awake = awake::hold("import");
+    let _work = busy::hold("import");
     let conn = db.conn();
     // before anything moves
     for r in &rewards {
@@ -5358,7 +5364,7 @@ fn commit_import(
 /// "organize-progress" events, a sync command would hold them until the end
 #[tauri::command]
 async fn organize_collection(app: AppHandle, db: State<'_, Db>) -> Result<OrganizeSummary, String> {
-    let _awake = awake::hold("import");
+    let _work = busy::hold("import");
     let conn = db.conn();
     let enabled = db::get_setting(&conn, "managed_enabled")
         .map_err(map_err)?
@@ -5445,7 +5451,7 @@ fn cancel_move_collection() {
 /// with "collection-move-progress" events, and can be cancelled.
 #[tauri::command]
 async fn move_collection(app: AppHandle, db: State<'_, Db>, new_root: String) -> Result<MoveCollectionSummary, String> {
-    let _awake = awake::hold("moving the collection");
+    let _work = busy::hold("moving the collection");
     let new_root = new_root.trim().to_string();
     if new_root.is_empty() {
         return Err("Pick a destination folder.".into());
@@ -5482,6 +5488,7 @@ async fn move_collection(app: AppHandle, db: State<'_, Db>, new_root: String) ->
         tauri::async_runtime::spawn_blocking(move || {
             use tauri::Emitter;
             let report = |phase: &str, files: u64, total_files: u64, bytes: u64, total_bytes: u64| {
+                busy::progress("collection-move-progress", bytes, total_bytes);
                 let _ = app.emit(
                     "collection-move-progress",
                     serde_json::json!({
@@ -5831,7 +5838,7 @@ async fn delete_platform(
     platform: String,
     also_files: bool,
 ) -> Result<(), String> {
-    let _awake = awake::hold("deleting");
+    let _work = busy::hold("deleting");
     let conn = db.conn();
     let name = db::artist_info(&conn, artist_id).map_err(map_err)?.map(|(n, _)| n);
     // for the history, read before anything goes
@@ -5923,7 +5930,7 @@ async fn delete_rewards(
     reward_ids: Vec<i64>,
     also_files: bool,
 ) -> Result<(), String> {
-    let _awake = awake::hold("deleting");
+    let _work = busy::hold("deleting");
     let conn = db.conn();
     // for the history, read before anything goes
     let (h_artist, h_place) = reward_ids
@@ -5994,7 +6001,7 @@ async fn delete_artist(
     artist_id: i64,
     also_files: bool,
 ) -> Result<(), String> {
-    let _awake = awake::hold("deleting");
+    let _work = busy::hold("deleting");
     let conn = db.conn();
     let name = db::artist_info(&conn, artist_id).map_err(map_err)?.map(|(n, _)| n);
     // for the history, read before anything goes
@@ -6295,7 +6302,7 @@ async fn extract_archive(
     path: String,
     permanent: Option<bool>,
 ) -> Result<String, String> {
-    let _awake = awake::hold("unpacking an archive");
+    let _work = busy::hold("unpacking an archive");
     let managed = {
         let conn = db.conn();
         managed_collection(&conn)
@@ -6318,7 +6325,7 @@ async fn extract_archive(
 /// although they were loose files.
 #[tauri::command]
 async fn trash_imported_originals(db: State<'_, Db>, paths: Vec<String>) -> Result<Vec<String>, String> {
-    let _awake = awake::hold("import");
+    let _work = busy::hold("import");
     let is_archive = |p: &std::path::Path| {
         matches!(
             p.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).as_deref(),
@@ -6537,7 +6544,7 @@ fn undo_history(
     dek: State<DekState>,
     id: Option<i64>,
 ) -> Result<UndoDone, String> {
-    let _awake = awake::hold("undo");
+    let _work = busy::hold("undo");
     let key = session_key(&dek);
     let conn = db.conn();
     let row = match id {
@@ -7076,7 +7083,7 @@ async fn edit_inpaint_ai(
     image_b64: String,
     mask_b64: String,
 ) -> Result<String, String> {
-    let _awake = awake::hold("AI edit");
+    let _work = busy::hold("AI edit");
     let data = app_data(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let mut img = edit::decode_rgba(&image_b64)?;
@@ -7101,6 +7108,7 @@ fn cancel_expand() {
     if EXPAND_RUNNING.load(std::sync::atomic::Ordering::SeqCst) {
         ai::STOP.store(true, std::sync::atomic::Ordering::SeqCst);
     }
+    busy::no_more();
 }
 
 #[tauri::command]
@@ -7117,8 +7125,21 @@ async fn edit_expand(
     fit_w: Option<u32>,
     fit_h: Option<u32>,
     people: Option<bool>,
+    // "Make 5 at once": which try this is and of how many (one bar over all of them)
+    run: Option<u32>,
+    runs: Option<u32>,
 ) -> Result<String, String> {
-    let _awake = awake::hold("AI edit");
+    let mut work = busy::hold("AI expand");
+    let runs = runs.unwrap_or(1).max(1);
+    let run = run.unwrap_or(1).clamp(1, runs);
+    // how far this try is (0 to 1), as a part of all of them
+    let part = move |one: f64| {
+        let all = (f64::from(run - 1) + one) / f64::from(runs);
+        busy::progress("expand-progress", (all * 1000.0) as u64, 1000);
+    };
+    if run > 1 {
+        part(0.0);
+    }
     if width == 0 || height == 0 || width > 16_000 || height > 16_000 {
         return Err("That size is out of range.".into());
     }
@@ -7141,6 +7162,7 @@ async fn edit_expand(
                 // "3 / 8" in the editor's busy note, a big picture takes a while
                 let report = |done: u32, total: u32| {
                     use tauri::Emitter;
+                    part(f64::from(done) / f64::from(total.max(1)));
                     let _ = app.emit("expand-progress", serde_json::json!({ "done": done, "total": total }));
                 };
                 let mut out = ai::outpaint_lama(&data, &img, width, height, x, y, &report)?;
@@ -7155,6 +7177,11 @@ async fn edit_expand(
                 }
                 let report = |phase: &str, done: u32, total: u32| {
                     use tauri::Emitter;
+                    // the layout is the first half, the detail the second (like the editor's bar)
+                    if total > 0 {
+                        let half = f64::from(done) / f64::from(total) / 2.0;
+                        part(if phase == "detail" { 0.5 + half } else { half });
+                    }
                     let _ = app.emit(
                         "expand-progress",
                         serde_json::json!({ "phase": phase, "done": done, "total": total }),
@@ -7203,7 +7230,12 @@ async fn edit_expand(
     .await;
     EXPAND_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
     ai::STOP.store(false, std::sync::atomic::Ordering::SeqCst);
-    res.map_err(|e| e.to_string())?
+    let res = res.map_err(|e| e.to_string())?;
+    // the window comes with the next try (not after a stop or an error)
+    if res.is_ok() && run < runs {
+        work.more_follows();
+    }
+    res
 }
 
 /// Resize to width x height with Lanczos.
@@ -7230,7 +7262,7 @@ async fn edit_upscale(
     width: u32,
     height: u32,
 ) -> Result<String, String> {
-    let _awake = awake::hold("AI edit");
+    let _work = busy::hold("AI edit");
     if width == 0 || height == 0 || width > 16_000 || height > 16_000 {
         return Err("That size is out of range.".into());
     }
@@ -7252,7 +7284,7 @@ async fn edit_cutout(
     image_b64: String,
     feather: Option<u32>,
 ) -> Result<String, String> {
-    let _awake = awake::hold("AI edit");
+    let _work = busy::hold("AI edit");
     let data = app_data(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let img = edit::decode_rgba(&image_b64)?;
@@ -7306,7 +7338,7 @@ fn ai_model_status(app: AppHandle, model: Option<String>) -> Result<AiModelStatu
 /// Download an AI model once, emits ai-model-progress { model, done, total }.
 #[tauri::command]
 async fn ai_model_download(app: AppHandle, model: Option<String>) -> Result<(), String> {
-    let _awake = awake::hold("downloading an AI model");
+    let _work = busy::hold("downloading an AI model");
     let id = model.unwrap_or_else(|| "lama".to_string());
     let m = ai::Model::from_id(&id)?;
     let data = app_data(&app)?;
@@ -7314,6 +7346,7 @@ async fn ai_model_download(app: AppHandle, model: Option<String>) -> Result<(), 
     let id2 = id.clone();
     tauri::async_runtime::spawn_blocking(move || {
         ai::download_model(&data, m, |done, total| {
+            busy::progress("ai-model-progress", done, total);
             let _ = app2.emit(
                 "ai-model-progress",
                 serde_json::json!({ "model": id2, "done": done, "total": total }),
@@ -7518,7 +7551,7 @@ async fn add_reward_alts(
     reward_id: i64,
     paths: Vec<String>,
 ) -> Result<AltsAdded, String> {
-    let _awake = awake::hold("adding alts");
+    let _work = busy::hold("adding alts");
     let key = session_key(&dek);
     let reward_dir = alt_reward_dir(&db, reward_id)?
         .ok_or("This reward's folder isn't on this PC (is it on the MiSD disk?)")?;
@@ -7548,6 +7581,7 @@ async fn add_reward_alts(
             if src.is_dir() {
                 let dest = alts::free_name(&dir, &name);
                 let mut tick = |done: u64, total: u64| {
+                    busy::progress("alt-progress", done, total);
                     let _ = app2.emit("alt-progress", serde_json::json!({ "name": name, "done": done, "total": total }));
                 };
                 match alts::zip_folder(src, &dest, key, &mut tick) {
@@ -7862,8 +7896,44 @@ struct VersionList {
     active_id: Option<i64>,
 }
 
+/// Is this file a JPEG (by its content, also when it's encrypted)? A file that can't be
+/// read (its disk isn't connected): by its name.
+fn is_jpeg_file(path: &str, key: Option<[u8; 32]>) -> bool {
+    use std::io::Read;
+    let p = std::path::Path::new(path);
+    let by_name = || {
+        p.extension().is_some_and(|e| e.eq_ignore_ascii_case("jpg") || e.eq_ignore_ascii_case("jpeg"))
+    };
+    let mut head = Vec::new();
+    if std::fs::File::open(p).and_then(|f| f.take(64).read_to_end(&mut head)).is_err() {
+        return by_name();
+    }
+    if crypto::is_encrypted(&head) {
+        let plain = key.and_then(|k| crypto::Dek::from_bytes(k).decrypt_bytes(&std::fs::read(p).ok()?).ok());
+        return plain.map_or_else(by_name, |b| b.starts_with(&[0xFF, 0xD8, 0xFF]));
+    }
+    head.starts_with(&[0xFF, 0xD8, 0xFF])
+}
+
+/// A version's bytes and file type: a JPEG of a JPEG original (as a PNG it's several
+/// times as big), else a PNG. Anything see-through stays a PNG.
+fn encode_version(img: image::RgbaImage, jpeg: bool) -> Result<(Vec<u8>, &'static str), String> {
+    let mut bytes = Vec::new();
+    if jpeg && img.pixels().all(|p| p[3] == 255) {
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 95)
+            .encode_image(&image::DynamicImage::ImageRgba8(img).to_rgb8())
+            .map_err(|e| format!("encode version: {e}"))?;
+        return Ok((bytes, "jpg"));
+    }
+    image::DynamicImage::ImageRgba8(img)
+        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .map_err(|e| format!("encode version: {e}"))?;
+    Ok((bytes, "png"))
+}
+
 /// Save the edit as a new VERSION of orig_path (the original isn't touched).
-/// Saved in <app_data>/versions/<id>.png (encrypted when unlocked). Becomes active.
+/// Saved in <app_data>/versions/<id>.jpg or .png (encode_version; encrypted when
+/// unlocked). Becomes active.
 #[tauri::command]
 fn save_image_version(
     app: AppHandle,
@@ -7874,12 +7944,7 @@ fn save_image_version(
     label: Option<String>,
 ) -> Result<db::ImageVersion, String> {
     let key = session_key(&dek);
-    // edited RGBA -> PNG bytes
-    let img = edit::decode_rgba(&image_b64)?;
-    let mut bytes = Vec::new();
-    image::DynamicImage::ImageRgba8(img)
-        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
-        .map_err(|e| format!("encode version: {e}"))?;
+    let (bytes, ext) = encode_version(edit::decode_rgba(&image_b64)?, is_jpeg_file(&orig_path, key))?;
 
     let dir = app_data(&app)?.join("versions");
     std::fs::create_dir_all(&dir).map_err(map_err)?;
@@ -7887,12 +7952,15 @@ fn save_image_version(
     let conn = db.conn();
     // insert first to get an id, then name the file after it
     let id = db::add_image_version(&conn, &orig_path, "", label.as_deref()).map_err(map_err)?;
-    let dest = dir.join(format!("{id}.png"));
+    let dest = dir.join(format!("{id}.{ext}"));
     let to_write = match key {
         Some(k) => crypto::Dek::from_bytes(k).encrypt_bytes(&bytes),
         None => bytes,
     };
-    crypto::atomic_write(&dest, &to_write)?;
+    if let Err(e) = crypto::atomic_write(&dest, &to_write) {
+        let _ = conn.execute("DELETE FROM image_versions WHERE id = ?1", [id]);
+        return Err(e);
+    }
     let file_path = dest.to_string_lossy().to_string();
     conn.execute(
         "UPDATE image_versions SET file_path = ?2 WHERE id = ?1",
@@ -8093,7 +8161,7 @@ fn reward_version_count(db: State<Db>, reward_id: i64) -> Result<RewardVersions,
 /// went.
 #[tauri::command]
 fn delete_reward_versions(db: State<Db>, reward_id: i64, only_watermark: bool) -> Result<u32, String> {
-    let _awake = awake::hold("deleting versions");
+    let _work = busy::hold("deleting versions");
     let conn = db.conn();
     let list = reward_versions_of(&conn, reward_id, only_watermark)?;
     if list.is_empty() {
@@ -8189,6 +8257,53 @@ fn restore_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
             None
         }
     }
+}
+
+/* ---- invisible in screen sharing ------------------------------------ */
+/* With this on, MiColl's windows are left out of screen sharing, streams, recordings and
+   screenshots (the user's own too), they look normal on the screen itself. Off by default.
+   Every window gets it when it's made (own_webview), this is for the open ones. */
+const HIDE_FROM_CAPTURE_KEY: &str = "hide_from_capture";
+static HIDE_FROM_CAPTURE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// One window. Not Tauri's set_content_protected: that one can't say when Windows refuses,
+/// and a switch that claims to hide must not.
+#[cfg(windows)]
+fn hide_window_from_capture(w: &tauri::WebviewWindow, on: bool) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE};
+    let hwnd = w.hwnd().map_err(map_err)?;
+    let hwnd = windows::Win32::Foundation::HWND(hwnd.0 as _);
+    unsafe { SetWindowDisplayAffinity(hwnd, if on { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE }) }.map_err(map_err)
+}
+
+#[cfg(not(windows))]
+fn hide_window_from_capture(w: &tauri::WebviewWindow, on: bool) -> Result<(), String> {
+    w.set_content_protected(on).map_err(map_err)
+}
+
+#[tauri::command]
+fn set_hide_from_capture(app: AppHandle, db: State<Db>, on: bool) -> Result<(), String> {
+    use std::sync::atomic::Ordering::SeqCst;
+    let was = HIDE_FROM_CAPTURE.load(SeqCst);
+    let set = |on: bool| -> Result<(), String> {
+        // first the flag: a window opening right now has it or is in the list
+        HIDE_FROM_CAPTURE.store(on, SeqCst);
+        let mut res = Ok(());
+        for w in app.webview_windows().values() {
+            if let Err(e) = hide_window_from_capture(w, on) {
+                res = Err(e);
+            }
+        }
+        res
+    };
+    let saved = set(on).and_then(|_| {
+        let conn = db.conn();
+        db::set_setting(&conn, HIDE_FROM_CAPTURE_KEY, if on { "true" } else { "false" }).map_err(map_err)
+    });
+    if saved.is_err() {
+        let _ = set(was);
+    }
+    saved
 }
 
 /* ---- start with Windows --------------------------------------------- */
@@ -8475,6 +8590,7 @@ fn wm_stopped() -> bool {
 }
 
 fn wm_progress(app: &AppHandle, job: u64, phase: &str, done: usize, total: usize) {
+    busy::progress("wm-progress", done as u64, total as u64);
     let _ = app.emit(
         "wm-progress",
         serde_json::json!({ "job": job, "phase": phase, "done": done, "total": total }),
@@ -8632,7 +8748,7 @@ async fn wm_scan(
     corners: Vec<String>,
     job: u64,
 ) -> Result<WmScan, String> {
-    let _awake = awake::hold("removing watermarks");
+    let _work = busy::hold("removing watermarks");
     let key = session_key(&dek);
     let corners: Vec<watermark::Corner> = corners.iter().filter_map(|c| watermark::Corner::from_id(c)).collect();
     if corners.is_empty() {
@@ -8784,7 +8900,7 @@ async fn wm_scan_mark(
     stroke: f32,
     job: u64,
 ) -> Result<WmScan, String> {
-    let _awake = awake::hold("removing watermarks");
+    let _work = busy::hold("removing watermarks");
     let key = session_key(&dek);
     let mut mask = image::load_from_memory(&edit::decode_data_url(&mask)?).map_err(|e| format!("mask: {e}"))?.to_luma8();
     for p in mask.pixels_mut() {
@@ -8949,7 +9065,7 @@ struct WmPreview {
 /// Before/after of one picture (the spot around the watermark), nothing saved.
 #[tauri::command]
 async fn wm_preview(app: AppHandle, dek: State<'_, DekState>, job: u64, image_id: String) -> Result<WmPreview, String> {
-    let _awake = awake::hold("removing watermarks");
+    let _work = busy::hold("removing watermarks");
     let key = session_key(&dek);
     let data = app_data(&app)?;
     if !ai::model_ready(&data, ai::Model::Lama) {
@@ -9007,7 +9123,7 @@ async fn wm_apply(
     job: u64,
     image_ids: Vec<String>,
 ) -> Result<WmApplied, String> {
-    let _awake = awake::hold("removing watermarks");
+    let _work = busy::hold("removing watermarks");
     let key = session_key(&dek);
     let data = app_data(&app)?;
     if !ai::model_ready(&data, ai::Model::Lama) {
@@ -9039,19 +9155,7 @@ async fn wm_apply(
         let data2 = data.clone();
         let cleaned = tauri::async_runtime::spawn_blocking(move || -> Result<(Vec<u8>, &'static str), String> {
             let (_, clean, _, jpeg) = wm_clean(&data2, &im, key)?;
-            let mut bytes = Vec::new();
-            let ext = if jpeg {
-                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 95)
-                    .encode_image(&image::DynamicImage::ImageRgba8(clean).to_rgb8())
-                    .map_err(|e| format!("encode: {e}"))?;
-                "jpg"
-            } else {
-                image::DynamicImage::ImageRgba8(clean)
-                    .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
-                    .map_err(|e| format!("encode: {e}"))?;
-                "png"
-            };
-            Ok((bytes, ext))
+            encode_version(clean, jpeg)
         })
         .await
         .map_err(|e| e.to_string())?;
@@ -9136,6 +9240,112 @@ fn wm_close(job: u64) {
     if let Ok(mut jobs) = wm_jobs().lock() {
         jobs.remove(&job);
     }
+}
+
+/* ---- the editor's watermark tool (one picture, wm_single.rs) ---------------- */
+
+/// Other pictures of the same reward, from all over it. The originals: a version may
+/// have its watermark off already.
+fn wm_others(conn: &rusqlite::Connection, path: &str, max: usize) -> Vec<String> {
+    let get = || -> rusqlite::Result<Vec<String>> {
+        let reward: i64 = conn.query_row("SELECT reward_id FROM images WHERE file_path = ?1", [path], |r| r.get(0))?;
+        let mut stmt = conn.prepare("SELECT file_path FROM images WHERE reward_id = ?1 ORDER BY sort, id")?;
+        let rows = stmt.query_map([reward], |r| r.get::<_, String>(0))?;
+        Ok(rows.flatten().collect())
+    };
+    let list: Vec<String> = get()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|p| p != path && dup::is_image(p) && !p.to_ascii_lowercase().ends_with(".gif"))
+        .collect();
+    wm_single::spread(list, max)
+}
+
+/// How many of the reward's other pictures the tool looks at: for a line of text (its
+/// first letters can drown in the background on most of them), and for a mark's shadow.
+const WM_OTHERS_TEXT: usize = 24;
+const WM_OTHERS_MARK: usize = 8;
+
+/// "Text in a corner": the line of text as a selection (a rose PNG like Detect's).
+/// path = the original (its reward's pictures help), strength 0..1.
+#[tauri::command]
+async fn edit_wm_text(
+    db: State<'_, Db>,
+    dek: State<'_, DekState>,
+    image_b64: String,
+    path: String,
+    corners: Vec<String>,
+    strength: f32,
+) -> Result<String, String> {
+    let _work = busy::hold("AI edit");
+    let key = session_key(&dek);
+    let corners: Vec<watermark::Corner> = corners.iter().filter_map(|c| watermark::Corner::from_id(c)).collect();
+    if corners.is_empty() {
+        return Err("Pick a corner to search.".into());
+    }
+    let others = wm_others(&db.conn(), &path, WM_OTHERS_TEXT);
+    tauri::async_runtime::spawn_blocking(move || {
+        let img = edit::decode_rgba(&image_b64)?;
+        let load = |p: &str| wm_load(p, key).ok().map(|x| x.0);
+        let mask = wm_single::text_mask(&img, &others, &load, &corners, strength)
+            .ok_or("No watermark found in the chosen corners.")?;
+        edit::encode_mask_rose(&mask)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// "Frame a mark": the mark inside the frame as a selection of the frame's size (rose PNG).
+#[tauri::command]
+async fn edit_wm_mark(image_b64: String, x: u32, y: u32, w: u32, h: u32) -> Result<WmMark, String> {
+    let _work = busy::hold("AI edit");
+    tauri::async_runtime::spawn_blocking(move || {
+        let img = edit::decode_rgba(&image_b64)?;
+        let (mask, stroke) = wm_motif::mark_in_box(&img, x, y, w, h)
+            .ok_or("No mark found in the frame. Draw it a little bigger, or paint it in.")?;
+        Ok(WmMark { mask: edit::encode_mask_rose(&mask)?, stroke })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Take the selected watermark off. kind "text" or "mark" (filled the way that suits
+/// it), stroke = the mark's strokes' width (0: painted by hand, measured).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn edit_wm_remove(
+    app: AppHandle,
+    db: State<'_, Db>,
+    dek: State<'_, DekState>,
+    image_b64: String,
+    mask_b64: String,
+    path: String,
+    kind: String,
+    stroke: f32,
+) -> Result<String, String> {
+    let _work = busy::hold("AI edit");
+    let key = session_key(&dek);
+    let data = app_data(&app)?;
+    if !ai::model_ready(&data, ai::Model::Lama) {
+        return Err("The AI model isn't downloaded yet.".into());
+    }
+    let others = if kind == "mark" { wm_others(&db.conn(), &path, WM_OTHERS_MARK) } else { Vec::new() };
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut img = edit::decode_rgba(&image_b64)?;
+        let mask = edit::decode_mask(&mask_b64, img.width(), img.height())?;
+        if edit::mask_bbox(&mask).is_none() {
+            return Err("The selection is empty.".into());
+        }
+        if kind == "mark" {
+            let load = |p: &str| wm_load(p, key).ok().map(|x| x.0);
+            wm_single::remove_mark(&data, &mut img, &mask, stroke, &others, &load)?;
+        } else {
+            wm_single::remove_text(&data, &mut img, &mask)?;
+        }
+        edit::encode_png_data_url(&img)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// The reward a picture (or one of its versions) belongs to, for the editor's button.
@@ -9677,6 +9887,7 @@ async fn run_sweep(
             }
             done += 1;
             if done.is_multiple_of(8) || done == total {
+                busy::progress("encrypt-progress", done as u64, total as u64);
                 let _ = app2.emit(
                     "encrypt-progress",
                     serde_json::json!({ "done": done, "total": total, "errors": errors, "encrypt": encrypt }),
@@ -9717,7 +9928,7 @@ async fn enable_encryption(
     dek_state: State<'_, DekState>,
     password: String,
 ) -> Result<String, String> {
-    let _awake = awake::hold("encrypting");
+    let _work = busy::hold("encrypting");
     let (dek_raw, files, recovery) = {
         let conn = db.conn();
         if !password_ok(&conn, &password) {
@@ -9768,7 +9979,7 @@ async fn disable_encryption(
     dek_state: State<'_, DekState>,
     password: String,
 ) -> Result<(), String> {
-    let _awake = awake::hold("decrypting");
+    let _work = busy::hold("encrypting");
     let (dek_raw, files) = {
         let conn = db.conn();
         if !enc_enabled(&conn) {
@@ -9808,7 +10019,7 @@ async fn encrypt_collection(
     db: State<'_, Db>,
     dek_state: State<'_, DekState>,
 ) -> Result<(), String> {
-    let _awake = awake::hold("encrypting");
+    let _work = busy::hold("encrypting");
     let (dek_raw, files) = {
         let conn = db.conn();
         if !enc_enabled(&conn) {
@@ -10692,7 +10903,7 @@ async fn share_folder_to_phone(
     srcs: Vec<String>,
     name: String,
 ) -> Result<ShareInfo, String> {
-    let _awake = awake::hold("packing for the phone");
+    let _work = busy::hold("packing for the phone");
     let key = session_key(&dek);
     let cache = app_cache(&app)?;
     let app2 = app.clone();
@@ -10796,7 +11007,7 @@ async fn export_files(
     dest_dir: String,
     name: String,
 ) -> Result<u32, String> {
-    let _awake = awake::hold("exporting");
+    let _work = busy::hold("exporting");
     let key = session_key(&dek);
     tauri::async_runtime::spawn_blocking(move || -> Result<u32, String> {
         let target = std::path::Path::new(&dest_dir).join(sanitize_name(&name));
@@ -10833,7 +11044,7 @@ async fn copy_files_to_clipboard(
     dek: State<'_, DekState>,
     srcs: Vec<String>,
 ) -> Result<u32, String> {
-    let _awake = awake::hold("copying");
+    let _work = busy::hold("copying");
     let key = session_key(&dek);
     let dir = share_stage_dir(&app)?;
     tauri::async_runtime::spawn_blocking(move || -> Result<u32, String> {
@@ -11177,7 +11388,7 @@ async fn mega_upload(
     src: String,
     folder: String,
 ) -> Result<(), String> {
-    let _awake = awake::hold("uploading");
+    let _work = busy::hold("uploading");
     let key = session_key(&dek);
     let cache = app_cache(&app)?;
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
@@ -11251,7 +11462,7 @@ async fn mega_upload_files(
     folder: String,
     name: String,
 ) -> Result<(), String> {
-    let _awake = awake::hold("uploading");
+    let _work = busy::hold("uploading");
     let key = session_key(&dek);
     let cache = app_cache(&app)?;
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
@@ -11424,7 +11635,7 @@ async fn mega_upload_media(
     // Only the uploaded copies are renamed.
     names: Option<Vec<String>>,
 ) -> Result<MegaUploadSummary, String> {
-    let _awake = awake::hold("uploading");
+    let _work = busy::hold("uploading");
     let key = session_key(&dek);
     let cache = app_cache(&app)?;
     let app2 = app.clone();
@@ -11437,6 +11648,7 @@ async fn mega_upload_media(
         }
         let total = srcs.len();
         let emit = |phase: &str, done: usize| {
+            busy::progress("mega-progress", done as u64, total as u64);
             let _ = app2.emit(
                 "mega-progress",
                 serde_json::json!({ "phase": phase, "done": done, "total": total }),
@@ -11985,7 +12197,7 @@ fn is_portable() -> bool {
 /// Update a portable copy: swap in the new MiColl.exe, start it, quit this one.
 #[tauri::command]
 async fn portable_update(app: AppHandle, db: State<'_, Db>, version: String) -> Result<(), String> {
-    let _awake = awake::hold("updating");
+    let _work = busy::hold("updating");
     if portable_root().is_none() {
         return Err("This isn't a portable copy.".into());
     }
@@ -12146,6 +12358,7 @@ fn sd_queued_creators(db: State<Db>) -> Result<Vec<sd::QueuedCreator>, String> {
 /// sd-progress { phase, done, total, item } for the progress bar.
 fn sd_progress<'a>(app: &'a AppHandle, phase: &'static str) -> impl Fn(u32, u32, &str) + 'a {
     move |done, total, item| {
+        busy::progress("sd-progress", done.into(), total.into());
         let _ = app.emit(
             "sd-progress",
             serde_json::json!({ "phase": phase, "done": done, "total": total, "item": item }),
@@ -12162,7 +12375,7 @@ async fn sd_transport(
     db: State<'_, Db>,
     dek: State<'_, DekState>,
 ) -> Result<sd::SdSummary, String> {
-    let _awake = awake::hold("MiSD transport");
+    let _work = busy::hold("MiSD transport");
     let thumbs_dir = app_cache(&app)?.join("thumbs");
     let key = session_key(&dek);
     let conn = db.conn();
@@ -12176,7 +12389,7 @@ async fn sd_return(
     db: State<'_, Db>,
     reward_ids: Option<Vec<i64>>,
 ) -> Result<sd::SdSummary, String> {
-    let _awake = awake::hold("MiSD transport");
+    let _work = busy::hold("MiSD transport");
     let conn = db.conn();
     sd::bring_back(&conn, reward_ids.as_deref(), &sd_progress(&app, "return"))
 }
@@ -12184,7 +12397,7 @@ async fn sd_return(
 /// Copy every reward queued for backup to the disk (same check), nothing deleted locally.
 #[tauri::command]
 async fn sd_backup_now(app: AppHandle, db: State<'_, Db>) -> Result<sd::SdSummary, String> {
-    let _awake = awake::hold("MiSD backup");
+    let _work = busy::hold("MiSD transport");
     let conn = db.conn();
     sd::backup(&conn, &sd_progress(&app, "backup"))
 }
@@ -12263,7 +12476,7 @@ fn sd_cancel() {
 /// Remove MiSD backups (local files stay). reward_ids None = all.
 #[tauri::command]
 fn sd_backup_drop(db: State<Db>, reward_ids: Option<Vec<i64>>) -> Result<sd::SdSummary, String> {
-    let _awake = awake::hold("MiSD backup");
+    let _work = busy::hold("MiSD transport");
     let conn = db.conn();
     sd::drop_backup(&conn, reward_ids.as_deref())
 }
@@ -12415,7 +12628,7 @@ async fn apply_template(
     create_folders: bool,
     base_dir: Option<String>,
 ) -> Result<ScanSummary, String> {
-    let _awake = awake::hold("applying a template");
+    let _work = busy::hold("applying a template");
     let conn = db.conn();
     let t = template::parse(&json)?;
     // refuse before changing anything if a month is listed twice
@@ -12541,6 +12754,7 @@ impl DupProgress {
         }
         self.last = std::time::Instant::now();
         use tauri::Emitter;
+        busy::progress("dup-progress", done, total);
         let _ = self.app.emit(
             "dup-progress",
             serde_json::json!({ "scan": self.scan, "phase": phase, "done": done, "total": total }),
@@ -12576,7 +12790,7 @@ async fn find_duplicates(
     similar: Option<bool>,
     scan_id: Option<u64>,
 ) -> Result<Vec<Vec<DupImage>>, String> {
-    let _awake = awake::hold("finding duplicates");
+    let _work = busy::hold("finding duplicates");
     use std::collections::HashMap;
     let key = session_key(&dek);
     let scan = scan_id.unwrap_or(0);
@@ -12942,9 +13156,15 @@ pub fn run() {
             // the main window is made here and not by Tauri from the config ("create":
             // false), so it opens where it was last time without visibly jumping there
             app.manage(winstate::WinState::new(&dir));
+            busy::watch(app.handle());
             let autostarted = std::env::args().skip(1).any(|a| a == AUTOSTART_ARG);
             let mut main_window = None;
             prepare_webview_dir(app);
+            // before the first window
+            HIDE_FROM_CAPTURE.store(
+                setting_is_true(&dir.join("micoll.db"), HIDE_FROM_CAPTURE_KEY),
+                std::sync::atomic::Ordering::SeqCst,
+            );
             if let Some(config) = app.config().app.windows.first().cloned() {
                 let main = own_webview(tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?)
                     .visible(false)
@@ -13305,6 +13525,9 @@ pub fn run() {
             ai_warm,
             ai_model_download,
             edit_detect,
+            edit_wm_text,
+            edit_wm_mark,
+            edit_wm_remove,
             edit_save,
             save_cover_crop,
             index_added_image,
@@ -13371,6 +13594,7 @@ pub fn run() {
             undo_history,
             locate_reward,
             set_close_to_tray,
+            set_hide_from_capture,
             thumb_cache_info,
             set_thumb_cache_limit,
             sync_tray,
@@ -14239,6 +14463,53 @@ mod tests {
         assert!(extras.contains(&"Lumi - Starfall"), "got {:?}", extras);
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod version_format_tests {
+    use super::*;
+
+    fn img(alpha: u8) -> image::RgbaImage {
+        image::RgbaImage::from_fn(64, 48, |x, y| image::Rgba([(x * 4) as u8, (y * 5) as u8, 90, if x == 3 && y == 3 { alpha } else { 255 }]))
+    }
+
+    #[test]
+    fn a_version_of_a_jpeg_is_a_jpeg_unless_it_is_see_through() {
+        let (b, ext) = encode_version(img(255), true).unwrap();
+        assert_eq!((ext, image::guess_format(&b).unwrap()), ("jpg", image::ImageFormat::Jpeg));
+        let back = image::load_from_memory(&b).unwrap().to_rgba8();
+        assert_eq!(back.dimensions(), (64, 48));
+        assert!(back.get_pixel(40, 20).0.iter().zip(img(255).get_pixel(40, 20).0).all(|(a, b)| a.abs_diff(b) < 8));
+        // one pixel is enough: it would turn black
+        let (b, ext) = encode_version(img(254), true).unwrap();
+        assert_eq!((ext, image::guess_format(&b).unwrap()), ("png", image::ImageFormat::Png));
+        assert_eq!(encode_version(img(255), false).unwrap().1, "png");
+    }
+
+    #[test]
+    fn the_original_counts_by_what_it_is() {
+        let dir = std::env::temp_dir().join(format!("micoll-jpeg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let jpeg = encode_version(img(255), true).unwrap().0;
+        let png = encode_version(img(255), false).unwrap().0;
+        let dek = crypto::generate_dek();
+        let put = |n: &str, b: &[u8]| {
+            let p = dir.join(n);
+            std::fs::write(&p, b).unwrap();
+            p.to_string_lossy().into_owned()
+        };
+        assert!(is_jpeg_file(&put("a.jpg", &jpeg), None));
+        // the name doesn't decide
+        assert!(!is_jpeg_file(&put("b.jpg", &png), None));
+        assert!(is_jpeg_file(&put("c.png", &jpeg), None));
+        // encrypted
+        assert!(is_jpeg_file(&put("d.bin", &dek.encrypt_bytes(&jpeg)), Some(dek.raw())));
+        assert!(!is_jpeg_file(&put("e.jpg", &dek.encrypt_bytes(&png)), Some(dek.raw())));
+        // not there (its disk isn't connected): by its name
+        assert!(is_jpeg_file(&dir.join("gone.JPEG").to_string_lossy(), None));
+        assert!(!is_jpeg_file(&dir.join("gone.webp").to_string_lossy(), None));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

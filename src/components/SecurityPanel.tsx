@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { KeyRound, Lock, Moon, ShieldCheck, Check, Trash2, ShieldAlert, Copy, Loader2, Image, RotateCcw, VenetianMask } from "lucide-react";
+import { KeyRound, Lock, Moon, ShieldCheck, Check, Trash2, ShieldAlert, Copy, Loader2, Image, RotateCcw, ScreenShareOff, VenetianMask } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useData } from "@/store";
 import * as api from "@/api/library";
@@ -33,6 +33,9 @@ export function SecurityPanel({ backed }: { backed: boolean }) {
   const [pw2, setPw2] = useState("");
   const [autoMinutes, setAutoMinutes] = useState(0);
   const [sleepLock, setSleepLock] = useState(false);
+  // left out of screen sharing and recordings
+  const [hidden, setHidden] = useState(false);
+  const [hiddenNote, setHiddenNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   // decoy password (opens safe mode)
@@ -56,18 +59,20 @@ export function SecurityPanel({ backed }: { backed: boolean }) {
 
   const load = useCallback(async () => {
     if (!backed) return;
-    const [has, a, s, enc, bg, decoy] = await Promise.all([
+    const [has, a, s, enc, bg, decoy, hide] = await Promise.all([
       api.hasPassword(),
       api.getSetting("lock_auto_minutes"),
       api.getSetting("lock_on_sleep"),
       api.encryptionState(),
       api.getSetting("lock_bg"),
       api.hasDecoyPassword(),
+      api.getSetting(api.HIDE_FROM_CAPTURE_KEY),
     ]);
     setPwSet(has);
     setDecoySet(decoy);
     setAutoMinutes(Number(a ?? "0") || 0);
     setSleepLock(s === "true");
+    setHidden(hide === "true");
     setEncEnabled(enc.enabled);
     setHasLockBg(!!bg);
   }, [backed]);
@@ -211,6 +216,17 @@ export function SecurityPanel({ backed }: { backed: boolean }) {
     setSleepLock(on);
     await api.setSetting("lock_on_sleep", on ? "true" : "false");
     notifyApp();
+  };
+
+  const toggleHidden = async (on: boolean) => {
+    setHidden(on);
+    setHiddenNote(null);
+    try {
+      await api.setHideFromCapture(on);
+    } catch (e) {
+      setHidden(!on); // Windows refused: don't claim it's hidden
+      setHiddenNote(tf("Couldn’t change it, Windows said: {error}", { error: String(e) }));
+    }
   };
 
   // clear the custom lock image
@@ -474,6 +490,23 @@ export function SecurityPanel({ backed }: { backed: boolean }) {
                 </p>
               </div>
               <Toggle checked={sleepLock} onChange={(v) => void toggleSleep(v)} />
+            </div>
+          </div>
+
+          {/* invisible in screen sharing */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+            <div className="flex items-center gap-3">
+              <ScreenShareOff className="h-4 w-4 shrink-0 text-zinc-400" />
+              <div className="min-w-0 flex-1">
+                <h2 className="text-base font-semibold text-zinc-100">{t("Invisible in screen sharing")}</h2>
+                <p className="settings-desc mt-0.5 text-sm text-zinc-400">
+                  {t(
+                    "MiColl’s windows are left out of screen sharing, streams and recordings (Discord, OBS, Teams…), you still see them as usual. Your own screenshots don’t show MiColl either. Windows’ file dialogs, tooltips and notifications can still be seen.",
+                  )}
+                </p>
+                {hiddenNote && <p className="mt-2 text-xs text-rose-300">{hiddenNote}</p>}
+              </div>
+              <Toggle checked={hidden} onChange={(v) => void toggleHidden(v)} />
             </div>
           </div>
 

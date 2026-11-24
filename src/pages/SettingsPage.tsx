@@ -225,7 +225,8 @@ const SECTIONS: NavSection[] = [
     id: "security",
     label: "Security & lock",
     Icon: Lock,
-    keywords: "password lock unlock auto-lock encryption encrypt decrypt recovery code key privacy",
+    keywords:
+      "password lock unlock auto-lock encryption encrypt decrypt recovery code key privacy screen share sharing stream record recording screenshot capture discord obs hide invisible",
     desktopOnly: true,
   },
   {

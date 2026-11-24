@@ -169,7 +169,7 @@ export function MegaUploadModal({
     [files, vers, pick],
   );
   // the file read from disk and its upload name.
-  // a version is saved as <id>.png, so "pic.jpg" edited becomes "pic.png"
+  // a version has its own file type: "pic.webp" edited becomes "pic.png"
   const uploadSrcs = useMemo(
     () => files.map((f, i) => chosen[i]?.filePath ?? f),
     [files, chosen],
@@ -552,7 +552,7 @@ export function MegaUploadModal({
                             n: withVersions,
                             total: files.length,
                           })
-                        : t("Edited versions upload as PNG, under the original’s name.")}
+                        : t("Edited versions upload under the original’s name.")}
                     </span>
                   </p>
                 </>

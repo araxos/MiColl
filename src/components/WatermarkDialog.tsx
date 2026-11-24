@@ -11,42 +11,21 @@ import { useAccent } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { useT, useTf } from "@/lib/i18n";
 import { isTauri } from "@/lib/tauri";
-import { WATERMARK_EVENT, type WatermarkTarget } from "@/lib/watermark";
+import {
+  WATERMARK_EVENT,
+  WM_CORNERS as CORNERS,
+  savedWmCorners,
+  savedWmMode,
+  saveWmCorners,
+  saveWmMode,
+  type WatermarkTarget,
+  type WmMode as Mode,
+} from "@/lib/watermark";
 import { useData } from "@/store";
 import * as api from "@/api/library";
 
-/** The corners to search, as chips. */
-const CORNERS: { id: string; label: string }[] = [
-  { id: "tl", label: "Top left" },
-  { id: "tr", label: "Top right" },
-  { id: "bl", label: "Bottom left" },
-  { id: "bc", label: "Bottom middle" },
-  { id: "br", label: "Bottom right" },
-];
-const CORNERS_KEY = "micoll.wmCorners";
-/** "corner" = a line of text in a corner, "mark" = the same mark anywhere. */
-const MODE_KEY = "micoll.wmMode";
-type Mode = "corner" | "mark";
-
-function savedMode(): Mode {
-  try {
-    return localStorage.getItem(MODE_KEY) === "mark" ? "mark" : "corner";
-  } catch {
-    return "corner";
-  }
-}
 /** How many pictures the preview shows. */
 const PREVIEW_N = 6;
-
-function savedCorners(): string[] {
-  try {
-    const v = JSON.parse(localStorage.getItem(CORNERS_KEY) ?? "null");
-    if (Array.isArray(v) && v.length && v.every((c) => CORNERS.some((k) => k.id === c))) return v;
-  } catch {
-    /* default */
-  }
-  return ["br"];
-}
 
 /** 3:05 / 1:02:05 */
 function clock(sec: number): string {
@@ -119,17 +98,13 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
   const dlg = useDialogTheme();
   const { refresh } = useData();
   const [step, setStep] = useState<Step>("setup");
-  const [corners, setCorners] = useState<string[]>(savedCorners);
-  const [mode, setModeState] = useState<Mode>(savedMode);
+  const [corners, setCorners] = useState<string[]>(savedWmCorners);
+  const [mode, setModeState] = useState<Mode>(savedWmMode);
   // mode "mark": the mark as framed and touched up
   const [mark, setMark] = useState<MarkState | null>(null);
   const setMode = (m: Mode) => {
     setModeState(m);
-    try {
-      localStorage.setItem(MODE_KEY, m);
-    } catch {
-      /* not remembered */
-    }
+    saveWmMode(m);
   };
   const [model, setModel] = useState<api.AiModelStatus | null>(null);
   const [askModel, setAskModel] = useState(false);
@@ -207,11 +182,7 @@ export function WatermarkDialog({ rewardId, label, onClose }: { rewardId: number
   const toggleCorner = (id: string) =>
     setCorners((c) => {
       const next = c.includes(id) ? c.filter((x) => x !== id) : [...c, id];
-      try {
-        if (next.length) localStorage.setItem(CORNERS_KEY, JSON.stringify(next));
-      } catch {
-        /* not remembered */
-      }
+      saveWmCorners(next);
       return next;
     });
 
