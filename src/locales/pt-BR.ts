@@ -2170,6 +2170,7 @@ export const dict: Dict = {
   "Cover changed": "Capa alterada",
   "None yet — when you change the cover, the old one shows up here.": "Nenhuma ainda — quando você trocar a capa, a antiga aparece aqui.",
   "Use this cover again": "Usar esta capa de novo",
+  "Remove from the transport": "Remover do transporte",
   "Go to this reward": "Ir para esta recompensa",
   "Move to the disk": "Mover para o disco",
   "Copy to the disk (backup)": "Copiar para o disco (backup)",

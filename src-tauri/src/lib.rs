@@ -8582,13 +8582,20 @@ async fn wm_scan(
                     .into_iter()
                     .filter_map(|pi| {
                         let (img, _) = wm_load(&pics[pi].2, key).ok()?;
-                        Some((pi, watermark::Template::from_hit(finds[pi][ci].as_ref()?, &img, *corner)))
+                        let mut t = watermark::Template::from_hit(finds[pi][ci].as_ref()?, &img, *corner);
+                        // letters its picture missed, from the others of its size
+                        let others: Vec<&watermark::Hit> = (0..pics.len())
+                            .filter(|k| *k != pi && sizes[*k] == sizes[pi])
+                            .filter_map(|k| finds[k][ci].as_ref())
+                            .collect();
+                        t.fill_in(&img, &others);
+                        Some((pi, t))
                     })
                     .collect()
             })
             .collect();
         // 3. every picture: the template where it fits (only the text, the same on all),
-        // its own find where none does
+        // or where it fits nearly all of its size; its own find where none does
         let mut images: Vec<WmImage> = pics
             .iter()
             .map(|(id, orig, shown, before)| WmImage {
@@ -8615,26 +8622,26 @@ async fn wm_scan(
         let template_from = (!names.is_empty()).then(|| names.join(", "));
         let templates: Vec<Vec<watermark::Template>> =
             templates.into_iter().map(|ts| ts.into_iter().map(|(_, t)| t).collect()).collect();
+        let mut tried: Vec<Vec<watermark::Tried>> = corners.iter().map(|_| Vec::new()).collect();
         for (pi, (_, _, shown, _)) in pics.iter().enumerate() {
             if wm_stopped() {
                 return Err(ai::STOPPED.to_string());
             }
             wm_progress(&app2, job, "check", pi, total);
             let img = if any_template && sizes[pi].0 > 0 { wm_load(shown, key).ok().map(|x| x.0) } else { None };
-            for ci in 0..corners.len() {
-                let placed = img.as_ref().and_then(|img| watermark::place_best(img, &templates[ci])).map(|x| x.0);
-                let fits = placed.as_ref().is_some_and(|p| p.score >= watermark::PLACE_MIN);
-                match (placed, &finds[pi][ci]) {
-                    (Some(p), own) if fits => {
-                        if let Some(hit) = watermark::hit_from_mask(&p.mask) {
-                            if own.is_none() {
-                                images[pi].guessed = true;
-                            }
-                            images[pi].own.push(hit);
-                        }
-                    }
-                    (_, Some(own)) => images[pi].own.push(own.clone()),
-                    _ => {}
+            for (ci, list) in tried.iter_mut().enumerate() {
+                list.push(match &img {
+                    Some(img) => watermark::try_templates(img, &templates[ci]),
+                    None => watermark::Tried { fit: None, reserve: None },
+                });
+            }
+        }
+        for (ci, list) in tried.into_iter().enumerate() {
+            let own: Vec<Option<&watermark::Hit>> = finds.iter().map(|f| f[ci].as_ref()).collect();
+            for (pi, got) in watermark::choose(&sizes, &own, list).into_iter().enumerate() {
+                if let Some((hit, guessed)) = got {
+                    images[pi].guessed |= guessed;
+                    images[pi].own.push(hit);
                 }
             }
         }

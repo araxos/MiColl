@@ -2138,6 +2138,7 @@ export const dict: Dict = {
   "Cover changed": "カバーを変更しました",
   "None yet — when you change the cover, the old one shows up here.": "まだありません。カバーを変更すると、前のカバーがここに表示されます。",
   "Use this cover again": "このカバーをもう一度使う",
+  "Remove from the transport": "転送から外す",
   "Go to this reward": "このリワードへ移動",
   "Move to the disk": "ディスクへ移動",
   "Copy to the disk (backup)": "ディスクへコピー（バックアップ）",

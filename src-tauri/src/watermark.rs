@@ -540,11 +540,76 @@ impl Template {
         let look = image::imageops::crop_imm(img, x0, y0, bw, bh).to_image();
         Template { corner, w: img.width(), h: img.height(), x0, y0, mask, look }
     }
+
+    /// Letters its own picture missed at the ends of the line (they sat on a busy
+    /// background there), taken from the other pictures of the same size: where enough
+    /// of them reach further (line_ends), the strokes enough of them share there are
+    /// added (specks of one picture aren't). Inside its own box it stays as it is.
+    /// img = its own picture (for the look).
+    pub fn fill_in(&mut self, img: &RgbaImage, others: &[&Hit]) {
+        if others.len() < 2 || img.dimensions() != (self.w, self.h) {
+            return;
+        }
+        let (tw, th) = self.mask.dimensions();
+        let (tx0, tx1) = (self.x0, self.x0 + tw - 1);
+        let Some((ex0, ex1)) = line_ends(others, (th as f32 * 0.3).max(3.0)) else { return };
+        let nx0 = (ex0.max(0.0) as u32).min(tx0);
+        let nx1 = (ex1.max(0.0) as u32).max(tx1).min(self.w - 1);
+        if nx0 == tx0 && nx1 == tx1 {
+            return;
+        }
+        let nw = nx1 - nx0 + 1;
+        let mut votes = vec![0u32; (nw * th) as usize];
+        for h in others {
+            // a px of slack: the same letters land a touch apart from picture to picture
+            let m = crate::edit::dilate_mask(&h.mask, 1);
+            for (x, y, p) in m.enumerate_pixels() {
+                let (gx, gy) = (h.region.x + x, h.region.y + y);
+                if p[0] == 0 || gx < nx0 || gx > nx1 || (tx0..=tx1).contains(&gx) || gy < self.y0 || gy >= self.y0 + th {
+                    continue;
+                }
+                votes[((gy - self.y0) * nw + gx - nx0) as usize] += 1;
+            }
+        }
+        let need = support_needed(others.len()) as u32;
+        let mut mask = GrayImage::new(nw, th);
+        image::imageops::overlay(&mut mask, &self.mask, (tx0 - nx0) as i64, 0);
+        for (i, v) in votes.iter().enumerate() {
+            if *v >= need {
+                mask.put_pixel(i as u32 % nw, i as u32 / nw, Luma([255]));
+            }
+        }
+        self.mask = mask;
+        self.x0 = nx0;
+        self.look = image::imageops::crop_imm(img, nx0, self.y0, nw, th).to_image();
+    }
 }
 
-/// Which find to make the template from (finds on pictures of one size): of those whose
-/// box agrees with most of the others (a find that ran out along the picture, or got
-/// only part of the line, doesn't), the clearest.
+/// How many finds must agree on an end of the line: a fifth of them, at least 3.
+fn support_needed(n: usize) -> usize {
+    ((n as f32 * 0.2).ceil() as usize).max(3).min(n)
+}
+
+/// Where the line really starts and ends over a set of finds (pictures of one size): the
+/// outermost ends that enough of them share (within tol px), each as the middle of the
+/// finds that share it. Many finds stop short where the text crosses a busy background,
+/// a few run out along the picture; neither end is shared by many.
+fn line_ends(finds: &[&Hit], tol: f32) -> Option<(f32, f32)> {
+    let need = support_needed(finds.len());
+    let x0s: Vec<f32> = finds.iter().map(|h| h.bbox.0 as f32).collect();
+    let x1s: Vec<f32> = finds.iter().map(|h| h.bbox.2 as f32).collect();
+    let near = |v: &[f32], x: f32| -> Vec<f32> { v.iter().copied().filter(|o| (*o - x).abs() <= tol).collect() };
+    let middle = |mut v: Vec<f32>| {
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        v[v.len() / 2]
+    };
+    let x0 = x0s.iter().copied().filter(|x| near(&x0s, *x).len() >= need).fold(f32::MAX, f32::min);
+    let x1 = x1s.iter().copied().filter(|x| near(&x1s, *x).len() >= need).fold(f32::MIN, f32::max);
+    (x0 < f32::MAX && x1 > f32::MIN).then(|| (middle(near(&x0s, x0)), middle(near(&x1s, x1))))
+}
+
+/// Which find to make the template from (finds on pictures of one size): of those that
+/// reach the line's real ends (see line_ends), the clearest.
 pub fn best_find(finds: &[&Hit]) -> Option<usize> {
     let median = |mut v: Vec<f32>| {
         v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -552,11 +617,14 @@ pub fn best_find(finds: &[&Hit]) -> Option<usize> {
     };
     let side = |k: usize| median(finds.iter().map(|h| [h.bbox.0, h.bbox.1, h.bbox.2, h.bbox.3][k] as f32).collect());
     let (mx0, my0, mx1, my1) = (side(0), side(1), side(2), side(3));
-    let (tx, ty) = (((mx1 - mx0) * 0.08).max(4.0), ((my1 - my0) * 0.3).max(3.0));
+    let lh = median(finds.iter().map(|h| (h.bbox.3 - h.bbox.1 + 1) as f32).collect());
+    let tol = (lh * 0.3).max(3.0);
+    let ty = ((my1 - my0) * 0.3).max(3.0);
+    let (ex0, ex1) = line_ends(finds, tol).unwrap_or((mx0, mx1));
     let agrees = |h: &Hit| {
         let (x0, y0, x1, y1) = h.bbox;
-        (x0 as f32 - mx0).abs() <= tx
-            && (x1 as f32 - mx1).abs() <= tx
+        (x0 as f32 - ex0).abs() <= tol
+            && (x1 as f32 - ex1).abs() <= tol
             && (y0 as f32 - my0).abs() <= ty
             && (y1 as f32 - my1).abs() <= ty
     };
@@ -641,6 +709,10 @@ pub const NEAR: Search = Search {
     coarse: 2,
     cap: 2500,
 };
+
+/// Only right where it sat in its own picture (same size, a px of slack): for a picture
+/// of that size where the search didn't find it clearly.
+pub const HERE: Search = Search { margin_x: 0.0, margin_y: 0.0, scales: &[1.0], coarse: 1, cap: 2500 };
 
 /// A template laid onto a picture: the mask (picture size) and how well it fits.
 pub struct Placed {
@@ -905,6 +977,71 @@ fn snap(img: &RgbaImage, mask: &GrayImage, f: f32) -> GrayImage {
         }
     }
     crate::edit::dilate_mask(&out, 1)
+}
+
+/// What trying the templates on one picture (one corner) gave.
+pub struct Tried {
+    /// A template fits (PLACE_MIN or better): its letters there.
+    pub fit: Option<Hit>,
+    /// None does, but there's one of this picture's size: its letters right where they
+    /// sat (HERE), in case the rest of its size says the watermark is there.
+    pub reserve: Option<Hit>,
+}
+
+/// Try the templates on one picture (one corner).
+pub fn try_templates(img: &RgbaImage, templates: &[Template]) -> Tried {
+    if let Some((p, _)) = place_best(img, templates) {
+        if p.score >= PLACE_MIN {
+            return Tried { fit: hit_from_mask(&p.mask), reserve: None };
+        }
+    }
+    let reserve = templates
+        .iter()
+        .find(|t| (t.w, t.h) == img.dimensions())
+        .and_then(|t| place(img, t, &HERE))
+        .and_then(|p| hit_from_mask(&p.mask));
+    Tried { fit: None, reserve }
+}
+
+/// The share of a size's pictures the template has to fit before it's laid onto the
+/// rest of them too.
+const GROUP_SURE: f32 = 0.75;
+
+/// What comes off each picture (one corner): (find, guessed = not its own find).
+/// - the template where it fits;
+/// - where it doesn't, on a size where it fits nearly all (GROUP_SURE, 4 pictures or
+///   more): the template at its own spot. The watermark is on all of them; on a busy
+///   background (sequins, grain) it just can't be told apart. Not when the picture's own
+///   find is something else (it reaches outside the template: another watermark);
+/// - else its own find.
+pub fn choose(sizes: &[(u32, u32)], own: &[Option<&Hit>], tried: Vec<Tried>) -> Vec<Option<(Hit, bool)>> {
+    let mut count: std::collections::HashMap<(u32, u32), (u32, u32)> = std::collections::HashMap::new();
+    for (i, t) in tried.iter().enumerate() {
+        let e = count.entry(sizes[i]).or_default();
+        e.0 += 1;
+        e.1 += t.fit.is_some() as u32;
+    }
+    let inside = |a: (u32, u32, u32, u32), b: (u32, u32, u32, u32)| {
+        let tol = ((b.3 - b.1 + 1) as f32 * 0.3) as u32;
+        a.0 + tol >= b.0 && a.2 <= b.2 + tol && a.1 + tol >= b.1 && a.3 <= b.3 + tol
+    };
+    tried
+        .into_iter()
+        .enumerate()
+        .map(|(i, t)| {
+            if let Some(h) = t.fit {
+                return Some((h, own[i].is_none()));
+            }
+            if let Some(r) = t.reserve {
+                let (n, fits) = count[&sizes[i]];
+                let sure = n >= 4 && fits as f32 >= n as f32 * GROUP_SURE;
+                if sure && own[i].map_or(true, |o| inside(o.bbox, r.bbox)) {
+                    return Some((r, true));
+                }
+            }
+            own[i].map(|o| (o.clone(), false))
+        })
+        .collect()
 }
 
 /// A full-size mask as a find (its box and the mask cut to it).
@@ -1253,27 +1390,54 @@ mod tests {
         let sources = template_sources(&refs);
         let templates: Vec<Template> = sources
             .iter()
-            .map(|i| Template::from_hit(finds[*i].1.as_ref().unwrap(), &load(&names[*i]), Corner::BottomRight))
+            .map(|i| {
+                let img = load(&names[*i]);
+                let mut t = Template::from_hit(finds[*i].1.as_ref().unwrap(), &img, Corner::BottomRight);
+                let others: Vec<&Hit> = finds
+                    .iter()
+                    .enumerate()
+                    .filter(|(k, (s, _))| k != i && *s == finds[*i].0)
+                    .filter_map(|(_, (_, h))| h.as_ref())
+                    .collect();
+                t.fill_in(&img, &others);
+                t
+            })
             .collect();
         for (i, t) in sources.iter().zip(&templates) {
             eprintln!("template from {} ({}x{}) box {:?}", names[*i], t.w, t.h, t.mask.dimensions());
         }
         std::fs::create_dir_all(dir.join("out")).unwrap();
-        for (k, n) in names.iter().enumerate() {
-            let img = load(n);
-            let t1 = std::time::Instant::now();
-            let best = place_best(&img, &templates);
-            let took = t1.elapsed();
-            let own = finds[k].1.is_some();
-            let Some((pl, ti)) = best else {
-                eprintln!("{n}: nothing (own {own})");
+        let tried: Vec<Tried> = names
+            .iter()
+            .map(|n| {
+                let img = load(n);
+                let t1 = std::time::Instant::now();
+                let tr = try_templates(&img, &templates);
+                let score = place_best(&img, &templates).map(|p| p.0.score).unwrap_or(-1.0);
+                eprintln!("{n}: score {score:.2} fit {} reserve {} {:?}", tr.fit.is_some(), tr.reserve.is_some(), t1.elapsed());
+                tr
+            })
+            .collect();
+        let sizes: Vec<(u32, u32)> = finds.iter().map(|f| f.0).collect();
+        let own: Vec<Option<&Hit>> = finds.iter().map(|f| f.1.as_ref()).collect();
+        let chosen = choose(&sizes, &own, tried);
+        for (n, ch) in names.iter().zip(chosen) {
+            let Some((hit, guessed)) = ch else {
+                eprintln!("{n}: SKIPPED");
                 continue;
             };
-            eprintln!("{n}: template {ti} score {:.2} own {own} box {:?} {:?}", pl.score, crate::edit::mask_bbox(&pl.mask), took);
+            eprintln!("{n}: box {:?} guessed {guessed}", hit.bbox);
+            let img = load(n);
             let (w, h) = img.dimensions();
+            let mut full = GrayImage::new(w, h);
+            for (x, y, m) in hit.mask.enumerate_pixels() {
+                if m[0] > 0 {
+                    full.put_pixel(hit.region.x + x, hit.region.y + y, Luma([255]));
+                }
+            }
             let (cx, cy) = (w.saturating_sub(1000), h.saturating_sub(260));
             let mut view = img.clone();
-            for (x, y, m) in pl.mask.enumerate_pixels() {
+            for (x, y, m) in full.enumerate_pixels() {
                 if m[0] > 0 {
                     let v = view.get_pixel_mut(x, y);
                     v[0] = ((v[0] as u32 + 255) / 2) as u8;
@@ -1283,17 +1447,43 @@ mod tests {
             }
             image::imageops::crop_imm(&view, cx, cy, w - cx, h - cy).to_image().save(dir.join("out").join(format!("{n}.png"))).unwrap();
             if let Ok(ad) = std::env::var("WM_APPDATA") {
-                if pl.score >= PLACE_MIN {
-                    let mut out = img.clone();
-                    if remove_in_pieces(std::path::Path::new(&ad), &mut out, &pl.mask, &|| false).is_ok() {
-                        image::imageops::crop_imm(&out, cx, cy, w - cx, h - cy)
-                            .to_image()
-                            .save(dir.join("out").join(format!("after_{n}.png")))
-                            .unwrap();
-                    }
+                let mut out = img.clone();
+                if remove_in_pieces(std::path::Path::new(&ad), &mut out, &full, &|| false).is_ok() {
+                    image::imageops::crop_imm(&out, cx, cy, w - cx, h - cy)
+                        .to_image()
+                        .save(dir.join("out").join(format!("after_{n}.png")))
+                        .unwrap();
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_template_that_fits_nearly_all_of_a_size_goes_onto_the_rest() {
+        let hit = |x0: u32, x1: u32| {
+            let region = Rect { x: x0, y: 100, w: x1 - x0 + 1, h: 20 };
+            let mut mask = GrayImage::new(region.w, region.h);
+            mask.put_pixel(0, 0, Luma([255]));
+            Hit { region, mask, bbox: (x0, 100, x1, 119), contrast: 1.0 }
+        };
+        let fit = || Tried { fit: Some(hit(100, 300)), reserve: None };
+        let unsure = || Tried { fit: None, reserve: Some(hit(100, 300)) };
+        let size = (400, 200);
+        // 10 fit, 1 doesn't (no own find), 1 doesn't (its own find is part of the line),
+        // 1 doesn't (its own find is another, wider text)
+        let (part, other) = (hit(150, 250), hit(20, 300));
+        let mut tried: Vec<Tried> = (0..10).map(|_| fit()).collect();
+        tried.extend([unsure(), unsure(), unsure()]);
+        let mut own: Vec<Option<&Hit>> = vec![None; 11];
+        own.extend([Some(&part), Some(&other)]);
+        let out = choose(&[size; 13], &own, tried);
+        assert!(out[10].as_ref().is_some_and(|(h, g)| h.bbox.0 == 100 && *g), "laid on, marked guessed");
+        assert!(out[11].as_ref().is_some_and(|(h, _)| h.bbox.0 == 100), "the whole line, not its part");
+        assert!(out[12].as_ref().is_some_and(|(h, g)| h.bbox.0 == 20 && !*g), "its own, other text");
+        // fewer fit: no laying on
+        let tried: Vec<Tried> = vec![fit(), fit(), unsure(), unsure()];
+        let out = choose(&[size; 4], &[None; 4], tried);
+        assert!(out[2].is_none() && out[3].is_none());
     }
 
     #[test]
@@ -1393,6 +1583,49 @@ mod tests {
         let c = backdrop(1800, 1200);
         let q = place(&c, &t, &NEAR).map(|q| q.score).unwrap_or(0.0);
         assert!(q < PLACE_MIN, "fits where there's nothing: {q}");
+    }
+
+    #[test]
+    fn letters_the_template_missed_come_from_the_other_pictures() {
+        // a "line" of 5 blocks; the template's picture missed the first one, three of four
+        // others have it, one has a speck further left (not taken)
+        let (w, h) = (400u32, 200u32);
+        let hit = |from: u32, speck: bool| {
+            let region = Rect { x: 200, y: 100, w: 200, h: 100 };
+            let mut mask = GrayImage::new(region.w, region.h);
+            let mut x0 = u32::MAX;
+            for k in 0..5u32 {
+                let bx = 20 + k * 30;
+                if bx < from {
+                    continue;
+                }
+                x0 = x0.min(region.x + bx);
+                for y in 40..60 {
+                    for x in bx..bx + 20 {
+                        mask.put_pixel(x, y, Luma([255]));
+                    }
+                }
+            }
+            if speck {
+                for y in 45..50 {
+                    for x in 2..6 {
+                        mask.put_pixel(x, y, Luma([255]));
+                    }
+                }
+            }
+            Hit { region, mask, bbox: (x0, 140, 200 + 159, 159), contrast: 1.0 }
+        };
+        let img = RgbaImage::new(w, h);
+        let own = hit(50, false);
+        let mut t = Template::from_hit(&own, &img, Corner::BottomRight);
+        assert_eq!(t.x0, 250);
+        let (a, b, c, d) = (hit(0, false), hit(0, true), hit(0, false), hit(50, false));
+        t.fill_in(&img, &[&a, &b, &c, &d]);
+        assert_eq!(t.x0, 220, "the line starts where most of the others start");
+        let on = |x: u32, y: u32| t.mask.get_pixel(x - t.x0, y - t.y0)[0] > 0;
+        assert!(on(230, 150), "the missed block");
+        assert!(on(260, 150), "its own block");
+        assert_eq!(t.look.dimensions(), t.mask.dimensions());
     }
 
     #[test]

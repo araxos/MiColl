@@ -19,7 +19,6 @@ import { RubyCheckMark, RubyEmbers } from "@/components/RubyCardFrame";
 import { MonthMosaic } from "@/components/MonthMosaic";
 import { Cover } from "@/components/Cover";
 import { ProgressRing } from "@/components/ui/ProgressRing";
-import { Badge } from "@/components/ui/Badge";
 import { useActions } from "@/actions";
 import { useAccent } from "@/lib/theme";
 import { setVerifiedMark, useVerifiedMark } from "@/lib/verifiedMark";
@@ -43,11 +42,6 @@ import { cn } from "@/lib/utils";
 import { useT, useTf, useTp } from "@/lib/i18n";
 import { type Month, monthCompleteness, monthOwnedCount, ownRewards } from "@/types";
 
-const ringColor: Record<string, string> = {
-  complete: "stroke-emerald-500",
-  partial: "stroke-amber-500",
-  empty: "stroke-zinc-600",
-};
 
 /** The month tier dialog, with the creator's tiers on the month's platform. */
 function MonthTierDialog({ month, artistId, onClose }: { month: Month; artistId?: string; onClose: () => void }) {
@@ -1349,21 +1343,20 @@ function MonthCardBase({
       </div>
 
       {/* classic-month-foot: hook for the classic "Premium look" (index.css) */}
-      <div className="classic-month-foot flex items-center justify-between gap-2 px-3 py-2.5">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-zinc-100">{label}</div>
-          <div className="mt-0.5">
-            <Badge tone={!tracked ? "zinc" : state === "complete" ? "green" : state === "partial" ? "amber" : "zinc"}>
-              {tracked
-                ? tf("{owned}/{total} owned", { owned, total: month.officialTotal ?? 0 })
-                : owned}
-            </Badge>
-          </div>
-        </div>
-        {tracked && (
-          <ProgressRing value={pct} className={ringColor[state]}>
-            {Math.round(pct * 100)}%
-          </ProgressRing>
+      {/* one compact line like the premium themes: month left, right the ring (template,
+          it already says how many) or the count. h-10 so all cards in a row match. */}
+      <div className="classic-month-foot flex h-10 items-center justify-between gap-2 px-3">
+        <div className="min-w-0 truncate text-sm font-semibold text-zinc-100">{label}</div>
+        {tracked ? (
+          <span title={tf("{owned}/{total} owned", { owned, total: month.officialTotal ?? 0 })} className="shrink-0">
+            <ProgressRing value={pct} size={32} stroke={3} glow>
+              <span className="text-[9px] font-bold tabular-nums">{Math.round(pct * 100)}%</span>
+            </ProgressRing>
+          </span>
+        ) : (
+          <span className="shrink-0 rounded-md border border-brand-500/25 bg-brand-500/10 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-brand-200">
+            {owned}
+          </span>
         )}
       </div>
       {/* free / paid / leaked: a thin line along the bottom */}

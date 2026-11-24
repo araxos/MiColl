@@ -2138,6 +2138,7 @@ export const dict: Dict = {
   "Cover changed": "封面已更改",
   "None yet — when you change the cover, the old one shows up here.": "还没有——更换封面后，旧封面会显示在这里。",
   "Use this cover again": "再次使用此封面",
+  "Remove from the transport": "从传输中移除",
   "Go to this reward": "前往此奖励",
   "Move to the disk": "移动到磁盘",
   "Copy to the disk (backup)": "复制到磁盘（备份）",

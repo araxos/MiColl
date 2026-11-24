@@ -2091,6 +2091,94 @@ html[data-holo-freq="2"] :is(.ruby-run i, .ruby-frame-glow, .ruby-frame-sheen, .
   }
 }
 
+/* casual themes: the creator page's top box (back, chips, Details / platform tabs) as a
+   glass plate tinted in the theme's colours. It hangs from the top bar like a drawer:
+   pulled up over the page's top padding (py-6), open at the top, round at the bottom,
+   and its top corners curve out into the top bar (::before / ::after, filled with the
+   plate's colour at that end). The two rows are split by .casual-bar-rule, a line that
+   fades out at both ends. */
+.casual-bar {
+  --cb-line: color-mix(in srgb, var(--color-brand-500) 28%, transparent);
+  --cb-left: color-mix(in srgb, var(--color-brand-500) 13%, transparent);
+  --cb-right: rgba(255, 255, 255, 0.02);
+  margin-top: -24px;
+  border: 1px solid var(--cb-line);
+  border-top: 0;
+  border-radius: 0 0 16px 16px;
+  background: linear-gradient(
+    110deg,
+    var(--cb-left),
+    color-mix(in srgb, var(--color-accent2-500) 5%, transparent) 60%,
+    var(--cb-right)
+  );
+  box-shadow: 0 20px 40px -24px rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(10px);
+}
+.casual-bar::before,
+.casual-bar::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+.casual-bar::before {
+  left: -17px;
+  background: radial-gradient(
+    circle at 0 100%,
+    transparent 15px,
+    var(--cb-line) 15.5px,
+    var(--cb-line) 16.3px,
+    var(--cb-left) 16.8px
+  );
+}
+.casual-bar::after {
+  right: -17px;
+  background: radial-gradient(
+    circle at 100% 100%,
+    transparent 15px,
+    var(--cb-line) 15.5px,
+    var(--cb-line) 16.3px,
+    var(--cb-right) 16.8px
+  );
+}
+.casual-bar-rule {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-brand-400) 45%, transparent),
+    transparent
+  );
+}
+
+/* casual themes: the line next to a year / Misc in a creator (ArtistPage, no template).
+   In the theme's colour, fading out to the right, a small glowing diamond at its start. */
+.casual-rule {
+  position: relative;
+  margin-left: 6px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-brand-300) 85%, transparent),
+    color-mix(in srgb, var(--color-brand-500) 45%, transparent) 35%,
+    color-mix(in srgb, var(--color-accent2-500) 18%, transparent) 70%,
+    transparent
+  );
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--color-brand-500) 60%, transparent));
+}
+.casual-rule::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  transform: translateY(-50%) rotate(45deg);
+  background: var(--color-brand-300);
+  box-shadow: 0 0 6px 1px color-mix(in srgb, var(--color-brand-400) 75%, transparent);
+}
+
 /* right-click menus: a dark plate in a chrome line with two corners cut. Plate and line
    are pseudo elements, a clip on the menu itself would cut its glow and its submenus */
 [data-accent="corruptruby"] .ctx-menu.ruby-panel {

@@ -70,6 +70,8 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
   const sakura = accent === "sakura";
   const cyber = accent === "cyberpunk";
   const ruby = accent === "corruptruby";
+  // the standard (non premium) accents
+  const casual = !irid && !sakura && !cyber && !ruby;
   // iridescent: frosted pills instead of a dark border
   const iriOutline = irid
     ? "border-white/20 bg-white/10 text-zinc-100 hover:bg-white/20"
@@ -958,13 +960,15 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
           className={cn(
             "relative z-20",
             // no bottom gap when the collection tabs follow
-            showTabs ? "mb-0" : dateless ? "mb-3" : "mb-6",
+            showTabs ? "mb-0" : dateless ? "mb-3" : casual ? "mb-4" : "mb-6",
             irid && glassBox,
             accent === "cyberpunk" && "p-4",
             // sakura: the dashboard's rose glass bar (index.css .sak-dash-bar)
             sakura && "sak-dash-bar p-4",
             // corruptruby: the dashboard's neon bar (index.css .ruby-bar)
             accent === "corruptruby" && "ruby-bar p-4",
+            // casual themes: a glass plate tinted in the theme's colours (index.css .casual-bar)
+            casual && "casual-bar px-4 pb-2.5 pt-3",
           )}
         >
         {/* cyberpunk: a HUD plate behind the block (index.css .cp-artist-plate). A layer
@@ -973,7 +977,7 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
         {accent === "cyberpunk" && (
           <div aria-hidden className="cp-artist-plate pointer-events-none absolute inset-0 -z-10" />
         )}
-        <div className="mb-4 flex flex-wrap items-center gap-y-2">
+        <div className={cn("flex flex-wrap items-center gap-y-2", casual ? "mb-2" : "mb-4")}>
           <Button
             variant="ghost"
             size="sm"
@@ -1132,6 +1136,8 @@ export function ArtistPage({ onLock }: { onLock: () => void }) {
           </div>
         </div>
 
+        {/* casual themes: a fading line between the two rows, edge to edge */}
+        {casual && <div aria-hidden className="casual-bar-rule -mx-4 mb-2" />}
         {/* platform tabs */}
         <div className="flex flex-wrap items-center gap-2">
           {orderedPlatforms.map((p) => {
@@ -1972,7 +1978,7 @@ function YearSection({
                     ? "sak-rule"
                     : ruby
                       ? "ruby-rule"
-                      : "bg-zinc-800",
+                      : "casual-rule",
             )}
           />
         )}

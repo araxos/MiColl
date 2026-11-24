@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { ArrowUpRight, Copy, Loader2, MoveRight, Truck, X } from "lucide-react";
+import { ArrowUpRight, Copy, Loader2, MoveRight, Trash2, Truck, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { fmtBytes } from "@/components/RewardDetails";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { cn } from "@/lib/utils";
 import { useT, useTf, useTp } from "@/lib/i18n";
 import * as api from "@/api/library";
+import { useData } from "@/store";
 
 /**
  * The MiSD truck's window: what waits to go to the disk, how (moved or copied) and how
@@ -37,6 +38,29 @@ export function SdTransportDialog({
   const navigate = useNavigate();
   const [rows, setRows] = useState<api.SdQueuedReward[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const { refresh } = useData();
+  // the rewards being taken off the queue right now
+  const [removing, setRemoving] = useState<Set<number>>(new Set());
+
+  /** Take a reward off the queue (it stays where it is). The list is measured again
+   *  after it: a reward inside its folder no longer "goes along" with it. */
+  const unqueue = async (r: api.SdQueuedReward) => {
+    setRemoving((s) => new Set(s).add(r.id));
+    try {
+      await api.sdMark({ rewardIds: [r.id], marked: false, mode: r.mode === "copy" ? "backup" : "move" });
+      setRows((list) => list?.filter((x) => x.id !== r.id) ?? null);
+      void refresh();
+      void api.sdQueuedRewards().then(setRows).catch(() => {});
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setRemoving((s) => {
+        const n = new Set(s);
+        n.delete(r.id);
+        return n;
+      });
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -124,6 +148,22 @@ export function SdTransportDialog({
                         className={cn("shrink-0 rounded p-0.5 text-zinc-500 transition-colors hover:text-zinc-100", dlg.menuRow)}
                       >
                         <ArrowUpRight className="h-3.5 w-3.5" />
+                      </button>
+                      {/* off the queue after all: neither moved nor backed up */}
+                      <button
+                        onClick={() => void unqueue(r)}
+                        disabled={busy || removing.has(r.id)}
+                        title={t("Remove from the transport")}
+                        className={cn(
+                          "shrink-0 rounded p-0.5 text-zinc-500 transition-colors hover:text-rose-300 disabled:opacity-40",
+                          dlg.menuRow,
+                        )}
+                      >
+                        {removing.has(r.id) ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
                       </button>
                     </div>
                     <div className="truncate text-xs text-zinc-500">

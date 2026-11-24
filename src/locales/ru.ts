@@ -2248,6 +2248,7 @@ export const dict: Dict = {
   "Cover changed": "Обложка изменена",
   "None yet — when you change the cover, the old one shows up here.": "Пока нет — когда вы смените обложку, старая появится здесь.",
   "Use this cover again": "Снова использовать эту обложку",
+  "Remove from the transport": "Убрать из переноса",
   "Go to this reward": "Перейти к этой награде",
   "Move to the disk": "Переместить на диск",
   "Copy to the disk (backup)": "Скопировать на диск (резерв)",
