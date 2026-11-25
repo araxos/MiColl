@@ -582,7 +582,7 @@
 .ruby-logo {
   filter: drop-shadow(0 0 3px rgba(255, 20, 100, 0.55));
 }
-[data-accent="corruptruby"] .app-header .ruby-logo {
+[data-accent="corruptruby"] :is(.app-header, .side-rail) .ruby-logo {
   animation: ruby-logo-beat 6s steps(90) infinite;
 }
 @keyframes ruby-logo-beat {
@@ -591,11 +591,11 @@
   15% { filter: drop-shadow(0 0 4px rgba(255, 20, 100, 0.62)); }
   23% { filter: drop-shadow(0 0 10px rgba(255, 45, 122, 0.95)); }
 }
-[data-animations="off"] .app-header .ruby-logo {
+[data-animations="off"] :is(.app-header, .side-rail) .ruby-logo {
   animation: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  [data-accent="corruptruby"] .app-header .ruby-logo {
+  [data-accent="corruptruby"] :is(.app-header, .side-rail) .ruby-logo {
     animation: none;
   }
 }
@@ -1424,221 +1424,355 @@ html[data-holo-freq="2"] :is(.ruby-run i, .ruby-frame-glow, .ruby-frame-sheen, .
   box-shadow: 0 0 6px #ff2d7a;
 }
 
-/* Wallpaper Hub cards on the casual themes: the theme's color, dark, a lit top edge
-   and a soft glow below, instead of the dialogs' grey box */
-.hub-card {
-  border: 1px solid color-mix(in srgb, var(--color-brand-400) 28%, transparent);
+/* ---- the bar on the left (SideBar) ----
+   the rail is the top bar's glass, its panel opens over the page with the mouse on a button
+   (opaque then). The current page has a dark face in a rim in the theme's gradient. */
+.side-rail {
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
   background: linear-gradient(
-    160deg,
-    color-mix(in srgb, var(--color-brand-500) 17%, #0b0a0f) 0%,
-    color-mix(in srgb, var(--color-brand-700) 9%, #08080b) 100%
+    180deg,
+    color-mix(in srgb, var(--color-brand-900) 35%, transparent),
+    rgba(9, 9, 11, 0.55) 45%,
+    color-mix(in srgb, var(--color-brand-900) 22%, rgba(9, 9, 11, 0.55))
   );
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--color-brand-300) 16%, transparent),
-    0 14px 30px -18px color-mix(in srgb, var(--color-brand-500) 70%, transparent);
-  transition: border-color 0.18s ease;
+  backdrop-filter: blur(8px);
 }
-.hub-card:hover {
-  border-color: color-mix(in srgb, var(--color-brand-400) 45%, transparent);
+:is(.side-panel, .side-drop, .side-pop) {
+  --side-face: color-mix(in srgb, var(--color-brand-500) 9%, #0b0a0f);
+  --side-edge: color-mix(in srgb, var(--color-brand-400) 45%, transparent);
 }
-
-/* casual themes: the page menu in the theme's color, dark, instead of the grey menu */
-.ps-panel--tint {
-  border-color: color-mix(in srgb, var(--color-brand-400) 30%, transparent);
-  background: linear-gradient(
-    160deg,
-    color-mix(in srgb, var(--color-brand-500) 16%, #0c0b10),
-    color-mix(in srgb, var(--color-brand-700) 8%, #09090b)
-  );
+.side-panel {
+  border-right: 1px solid transparent;
+  transition:
+    transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
-/* the main menu behind the page name (PageSwitcher): a tile per page in the theme's
-   gradient, a lit line along the top, the current page ringed with a glowing dot */
-.ps-line {
+/* slides in as a transition, the idle pause would freeze an animation outside the window */
+@starting-style {
+  .side-panel {
+    transform: translateX(-100%);
+  }
+}
+[data-text] .side-panel:has(.side-list:hover) {
+  width: 196px;
+  border-right-color: var(--side-edge);
+  background-color: var(--side-face);
+  box-shadow: 14px 0 30px -8px rgba(0, 0, 0, 0.6);
+  /* the mouse only passing by doesn't open it */
+  transition-delay: 0.12s;
+}
+.side-label {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+[data-text] :is(.side-panel, .side-drop):has(.side-list:hover) .side-label {
+  opacity: 1;
+  transition-delay: 0.16s;
+}
+.side-item {
+  border: 1px solid transparent;
+  color: #d4d4d8;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.side-item:not([data-current]):hover {
+  color: #fff;
+  background-color: color-mix(in srgb, var(--color-brand-500) 16%, transparent);
+}
+.side-item[data-current] {
+  color: var(--color-brand-50);
+  background:
+    linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--color-brand-500) 34%, #120d10),
+        color-mix(in srgb, var(--color-brand-500) 17%, #120d10)
+      )
+      padding-box,
+    linear-gradient(
+        120deg,
+        var(--color-brand-200),
+        var(--color-brand-500) 50%,
+        var(--color-accent2-500)
+      )
+      border-box;
+  box-shadow: 0 0 12px -3px color-mix(in srgb, var(--color-brand-500) 70%, transparent);
+}
+.side-item[data-current] svg {
+  color: var(--color-brand-300);
+}
+/* hidden bar (LogoMenu): the same buttons slide down from under the top bar, one after
+   the other, with the mouse on the logo. The strip below the logo belongs to it, so the
+   way down to the buttons doesn't close them. */
+.side-peek::after {
+  content: "";
   position: absolute;
-  left: 14px;
-  right: 14px;
-  top: 0;
-  height: 1px;
+  left: -8px;
+  top: 100%;
+  width: 48px;
+  height: 18px;
+}
+.side-drop-clip {
+  left: -6px;
+  top: calc(100% + 10px);
+  padding-top: 7px;
+  z-index: 1;
   pointer-events: none;
-  background: linear-gradient(90deg, transparent, var(--color-brand-400), var(--color-accent2-500), transparent);
+  /* nothing shows above the top bar's edge, the glow may go out the other sides */
+  clip-path: inset(0 -40px -40px -40px);
 }
-.ps-head {
-  color: color-mix(in srgb, var(--color-brand-300) 70%, #a1a1aa);
+.side-drop {
+  border: 1px solid var(--side-edge);
+  border-radius: 12px;
+  background-color: var(--side-face);
+  box-shadow: 0 14px 30px -8px rgba(0, 0, 0, 0.7);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(calc(-100% - 8px));
+  transition:
+    transform 0.2s cubic-bezier(0.4, 0, 1, 1),
+    opacity 0.2s ease,
+    width 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    visibility 0s 0.2s;
 }
-.ps-row {
+.side-peek[data-armed]:hover .side-drop {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: none;
+  transition:
+    transform 0.34s cubic-bezier(0.16, 1, 0.3, 1) 0.06s,
+    opacity 0.2s ease 0.06s,
+    width 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) 0.12s,
+    visibility 0s;
+}
+.side-peek[data-text] .side-drop:has(.side-list:hover) {
+  width: 192px;
+}
+.side-drop .side-item {
+  opacity: 0;
+  transform: translateY(-14px);
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.side-peek[data-armed]:hover .side-drop .side-item {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 0.26s ease var(--side-wait),
+    transform 0.34s cubic-bezier(0.16, 1, 0.3, 1) var(--side-wait),
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.side-drop .side-item {
+  --side-wait: 0.12s;
+}
+.side-drop .side-item + .side-item {
+  --side-wait: 0.2s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .side-peek .side-drop,
+  .side-peek .side-drop .side-item {
+    transform: none;
+  }
+}
+/* the gear at the bar's bottom and its panel (SideSettings), the list's look */
+.side-gear svg {
+  transition: rotate 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.side-gear:is(:hover, [aria-expanded="true"]) svg {
+  rotate: 60deg;
+}
+.side-gear[aria-expanded="true"] {
+  color: #fff;
+  background-color: color-mix(in srgb, var(--color-brand-500) 20%, transparent);
+}
+.side-pop {
+  border: 1px solid var(--side-edge);
+  border-radius: 12px;
+  background-color: var(--side-face);
+  box-shadow: 0 14px 30px -8px rgba(0, 0, 0, 0.7);
   color: #f4f4f5;
-  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    opacity 0.16s ease,
+    transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.ps-row:hover {
+@starting-style {
+  .side-pop {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+.side-pop-row {
+  border-radius: 8px;
+  transition: background-color 0.15s ease;
+}
+.side-pop-row:hover {
   background-color: color-mix(in srgb, var(--color-brand-500) 14%, transparent);
 }
-.ps-row[data-current] {
-  background-color: color-mix(in srgb, var(--color-brand-500) 16%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-brand-400) 38%, transparent);
-}
-.ps-tile {
-  color: #fff;
-  background: linear-gradient(135deg, var(--color-brand-500), var(--color-accent2-500));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.25),
-    0 6px 16px -6px color-mix(in srgb, var(--color-brand-500) 80%, transparent);
-  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-.ps-row:hover .ps-tile {
-  transform: scale(1.06) rotate(-3deg);
-}
-.ps-go {
-  color: #71717a;
-  transition: transform 0.18s ease, color 0.18s ease;
-}
-.ps-row:hover .ps-go {
-  color: var(--color-brand-300);
-  transform: translateX(3px);
-}
-.ps-dot {
-  width: 7px;
-  height: 7px;
-  flex: none;
-  margin-right: 4px;
-  border-radius: 999px;
-  background: var(--color-brand-400);
-  box-shadow: 0 0 8px var(--color-brand-400);
+html[data-classic-luxe="1"] .side-rail {
+  border-right-color: color-mix(in srgb, var(--color-brand-400) 26%, transparent);
+  backdrop-filter: blur(20px) saturate(1.3);
 }
 
-/* iridescent: the pastel spectrum on the tile, dark ink, a white ring */
-[data-accent="iridescent"] .ps-line {
-  background: linear-gradient(90deg, transparent, #c4b5fd, #f5c2ff, #a7f3d0, #bae6fd, transparent);
+/* iridescent: smoky glass, the foil rim, a pearl icon */
+[data-accent="iridescent"] .side-rail {
+  border-right-color: rgba(255, 255, 255, 0.1);
+  background: rgba(24, 24, 27, 0.45);
+  backdrop-filter: blur(24px);
 }
-[data-accent="iridescent"] .ps-head {
-  color: #c7f1ff;
+[data-accent="iridescent"] :is(.side-panel, .side-drop, .side-pop) {
+  --side-face: #1b1a2b;
+  --side-edge: rgba(225, 217, 255, 0.55);
 }
-[data-accent="iridescent"] .ps-tile {
-  color: #18181b;
-  background: linear-gradient(135deg, #c4b5fd, #f5c2ff 40%, #a7f3d0 75%, #bae6fd);
+/* the list under the logo in the foil rim */
+[data-accent="iridescent"] :is(.side-drop, .side-pop) {
+  border-color: transparent;
+  background:
+    linear-gradient(var(--side-face), var(--side-face)) padding-box,
+    linear-gradient(120deg, #c4b5fd, #f5c2ff 40%, #a7f3d0 75%, #bae6fd) border-box;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    0 6px 16px -6px rgba(196, 181, 253, 0.7);
+    0 0 14px rgba(245, 194, 255, 0.3),
+    0 14px 30px -8px rgba(0, 0, 0, 0.7);
 }
-[data-accent="iridescent"] .ps-row:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+[data-accent="iridescent"] .side-item {
+  color: #e9e8f4;
 }
-[data-accent="iridescent"] .ps-row[data-current] {
+[data-accent="iridescent"] :is(.side-item:not([data-current]):hover, .side-gear[aria-expanded="true"], .side-pop-row:hover) {
   background-color: rgba(255, 255, 255, 0.12);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
 }
-[data-accent="iridescent"] .ps-dot,
-[data-accent="iridescent"] .ps-row:hover .ps-go {
+[data-accent="iridescent"] .side-item[data-current] {
+  border-width: 1.5px;
+  padding-inline: 7.5px;
   color: #fff;
-  background: #fff;
-  box-shadow: 0 0 8px #f5c2ff;
+  background:
+    linear-gradient(90deg, #3e3662, #3a3e60) padding-box,
+    linear-gradient(120deg, #c4b5fd, #f5c2ff 40%, #a7f3d0 75%, #bae6fd) border-box;
+  box-shadow: 0 0 12px rgba(245, 194, 255, 0.4);
 }
-[data-accent="iridescent"] .ps-row:hover .ps-go {
-  background: none;
-  box-shadow: none;
+[data-accent="iridescent"] .side-item[data-current] svg {
+  color: #f7dcff;
+  filter: drop-shadow(0 0 4px rgba(245, 194, 255, 0.8));
 }
 
-/* cyberpunk: square, a yellow tile with the cut corner, a yellow bar on the current */
-[data-accent="cyberpunk"] .ps-line {
-  left: 0;
-  right: 0;
-  background: linear-gradient(90deg, #fcee0a, #00e5ff 60%, transparent);
+/* cyberpunk: a HUD rail, square keys with a cut corner, the current one lit in yellow
+   with a bar at its side */
+[data-accent="cyberpunk"] .side-rail {
+  border-right-color: rgba(252, 238, 10, 0.28);
 }
-[data-accent="cyberpunk"] .ps-head {
+[data-accent="cyberpunk"] :is(.side-panel, .side-drop, .side-pop) {
+  --side-face: #0b0b0e;
+  --side-edge: #fcee0a;
+}
+[data-accent="cyberpunk"] :is(.side-drop, .side-pop, .side-pop-row) {
+  border-radius: 0;
+}
+[data-accent="cyberpunk"] .side-item {
+  border-radius: 0;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%);
+}
+[data-accent="cyberpunk"] .side-item:not([data-current]):hover {
   color: #00e5ff;
+  background-color: rgba(0, 229, 255, 0.12);
 }
-[data-accent="cyberpunk"] .ps-row {
-  border-radius: 0;
+[data-accent="cyberpunk"] .side-item[data-current] {
+  color: #fcee0a;
+  background: linear-gradient(90deg, rgba(252, 238, 10, 0.26), rgba(252, 238, 10, 0.1));
+  box-shadow: inset 3px 0 0 #fcee0a;
 }
-[data-accent="cyberpunk"] .ps-row:hover {
-  background-color: rgba(252, 238, 10, 0.1);
-}
-[data-accent="cyberpunk"] .ps-row[data-current] {
-  background-color: rgba(252, 238, 10, 0.12);
-  box-shadow: inset 2px 0 0 #fcee0a;
-}
-[data-accent="cyberpunk"] .ps-tile {
-  border-radius: 0;
-  color: #09090b;
-  background: #fcee0a;
-  box-shadow: none;
-  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%);
-}
-[data-accent="cyberpunk"] .ps-row:hover .ps-tile {
-  transform: none;
-  background: #fff35c;
-}
-[data-accent="cyberpunk"] .ps-row:hover .ps-go {
+[data-accent="cyberpunk"] .side-item[data-current] svg {
   color: #fcee0a;
 }
-[data-accent="cyberpunk"] .ps-dot {
-  border-radius: 0;
-  background: #fcee0a;
-  box-shadow: 0 0 8px #fcee0a;
+
+/* sakura: rose glass, petal-cut keys in a blossom rim */
+[data-accent="sakura"] .side-rail {
+  border-right-color: rgba(249, 168, 212, 0.28);
+  background:
+    radial-gradient(160% 30% at 0% 0%, rgba(255, 193, 218, 0.13), transparent 70%),
+    rgba(27, 16, 22, 0.62);
+  backdrop-filter: blur(16px) saturate(1.2);
+}
+[data-accent="sakura"] :is(.side-panel, .side-drop, .side-pop) {
+  --side-face: #21131b;
+  --side-edge: rgba(249, 168, 212, 0.6);
+}
+[data-accent="sakura"] :is(.side-drop, .side-pop) {
+  border-radius: 0.5rem 1.1rem 0.5rem 1.1rem;
+}
+[data-accent="sakura"] .side-item {
+  border-radius: 0.35rem 0.9rem 0.35rem 0.9rem;
+  color: #f5d3e3;
+}
+[data-accent="sakura"] .side-item:not([data-current]):hover {
+  background-color: rgba(244, 114, 182, 0.16);
+}
+[data-accent="sakura"] .side-item[data-current] {
+  color: #fff0f6;
+  background:
+    linear-gradient(#3a1f2d, #2c1722) padding-box,
+    linear-gradient(135deg, #ffe1ee, #f9a8d4 38%, #f472b6 68%, #ffd0e3) border-box;
+  box-shadow: 0 0 12px rgba(244, 114, 182, 0.4);
+}
+[data-accent="sakura"] .side-item[data-current] svg {
+  color: #ffc1da;
 }
 
-/* sakura: the blossom gradient, a petal-round tile */
-[data-accent="sakura"] .ps-line {
-  background: linear-gradient(90deg, transparent, #f9a8d4, #f472b6, transparent);
+/* pyre: the top bar's neon line down the side, the current page a lit tube */
+[data-accent="corruptruby"] .side-rail {
+  border-right-color: transparent;
+  background: rgba(8, 2, 6, 0.6);
+  box-shadow:
+    1px 0 0 #ff1464,
+    6px 0 18px -6px rgba(255, 20, 100, 0.75);
 }
-[data-accent="sakura"] .ps-tile {
-  border-radius: 10px 3px 10px 3px;
-  background: linear-gradient(135deg, #f9a8d4, #ec4899);
+[data-accent="corruptruby"] :is(.side-panel, .side-drop, .side-pop) {
+  --side-face: #0e040a;
+  --side-edge: #ff1464;
 }
-[data-accent="sakura"] .ps-row:hover .ps-tile {
-  transform: scale(1.06) rotate(6deg);
+[data-accent="corruptruby"] :is(.side-drop, .side-pop) {
+  border-radius: 4px;
+  box-shadow:
+    0 0 10px rgba(255, 20, 100, 0.6),
+    0 14px 30px -8px rgba(0, 0, 0, 0.7);
 }
-
-/* pyre: the right-click plate and lit row (ctx-menu / ctx-row) carry it; the tile is a
-   dark key in a chrome rim with a white neon icon, the dot a ruby */
-[data-accent="corruptruby"] .ps-line {
-  display: none;
+[data-accent="corruptruby"] .side-item {
+  border-radius: 3px;
+  color: #ecc9d6;
 }
-[data-accent="corruptruby"] .ps-head {
-  padding-left: 20px;
-  font-family: "Pyre Display", var(--ruby-display);
-  font-size: 12px;
-  font-weight: 400;
-  letter-spacing: 0.16em;
-  color: #ff7aa8;
-  text-shadow: 0 0 6px rgba(255, 45, 122, 0.6);
+[data-accent="corruptruby"] .side-item:not([data-current]):hover {
+  color: #fff1f6;
+  background-color: rgba(255, 20, 100, 0.14);
 }
-[data-accent="corruptruby"] .ps-row {
-  border-radius: 0;
+[data-accent="corruptruby"] .side-item[data-current] {
+  border-color: #ff7aa8;
+  color: #fff1f6;
+  background: rgba(60, 6, 28, 0.6);
+  box-shadow:
+    0 0 7px #ff1464,
+    inset 0 0 6px rgba(255, 20, 100, 0.7);
 }
-[data-accent="corruptruby"] .ps-row[data-current] {
-  box-shadow: none;
+[data-accent="corruptruby"] .side-item svg {
+  color: #e6e9ef;
+  filter: drop-shadow(0.7px 0.7px 0 #ff1464);
 }
-[data-accent="corruptruby"] .ps-title {
+[data-accent="corruptruby"] .side-item[data-current] svg {
+  color: #fff;
+  filter: drop-shadow(0 0 4px #ff1464);
+}
+[data-accent="corruptruby"] .side-pop-row {
+  border-radius: 3px;
+}
+[data-accent="corruptruby"] .side-label {
   font-family: "Pyre Display", var(--ruby-display);
   font-size: 15px;
   font-weight: 400;
   letter-spacing: 0.06em;
-}
-[data-accent="corruptruby"] .ps-tile {
-  border-radius: 0;
-  background: linear-gradient(160deg, #1a0510, #0a0206);
-  box-shadow:
-    inset 0 0 0 1px rgba(233, 237, 242, 0.55),
-    0 0 10px rgba(255, 20, 100, 0.35);
-  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
-}
-[data-accent="corruptruby"] .ps-tile svg {
-  filter: drop-shadow(0 0 3px #ff2d7a) drop-shadow(0 0 7px rgba(255, 45, 122, 0.7));
-}
-[data-accent="corruptruby"] .ps-row:hover .ps-tile {
-  transform: none;
-}
-[data-accent="corruptruby"] .ps-row:hover .ps-go {
-  color: #ff7aa8;
-}
-[data-accent="corruptruby"] .ps-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 0;
-  background: linear-gradient(135deg, #ffb3cc, #e0115f 55%, #6e0424);
-  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
-  box-shadow: none;
-  filter: drop-shadow(0 0 4px #ff1464);
 }
 
 /* Import review on pyre: a backstage pass. Every creator is a ticket with a perforated
@@ -1864,15 +1998,962 @@ html[data-holo-freq="2"] :is(.ruby-run i, .ruby-frame-glow, .ruby-frame-sheen, .
   box-shadow: 0 0 16px rgba(255, 225, 77, 0.45);
 }
 
-/* Wallpaper Hub: every slideshow a monitor of one size, the running one big on top.
-   Theme colors come through the brand variables */
-.hub-monitor {
+/* Wallpaper Hub on the standard themes (CasualOverview): monitors that light the wall in
+   their picture's colours */
+.cas-hub-plate {
+  position: relative;
+  border: 1px solid color-mix(in srgb, var(--color-brand-500) 32%, transparent);
+  border-radius: 16px;
+  background:
+    linear-gradient(
+      110deg,
+      color-mix(in srgb, var(--color-brand-500) 17%, transparent),
+      color-mix(in srgb, var(--color-accent2-500) 7%, transparent) 60%,
+      rgba(255, 255, 255, 0.03)
+    ),
+    rgba(14, 11, 14, 0.6);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-brand-200) 16%, transparent),
+    0 14px 28px -14px rgba(0, 0, 0, 0.8);
+  transition: border-color 0.2s;
+}
+.cas-hub-plate:hover {
+  border-color: color-mix(in srgb, var(--color-brand-400) 60%, transparent);
+}
+.cas-hub-new {
   display: flex;
-  width: 100%;
+  min-height: 250px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-brand-400) 55%, transparent);
+  color: var(--color-brand-300);
+}
+.cas-hub-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-brand-300);
+}
+.cas-hub-live::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-brand-500);
+  box-shadow: 0 0 10px var(--color-brand-500);
+}
+.cas-hub-name {
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 2.35rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.cas-hub-name span {
+  background: linear-gradient(90deg, var(--color-brand-50), var(--color-brand-300) 60%, var(--color-accent2-400));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.cas-hub-tag {
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-brand-400) 35%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-brand-500) 12%, transparent);
+  font-size: 0.75rem;
+  color: var(--color-brand-100);
+}
+/* the desk the monitors stand on */
+.cas-desk {
+  position: absolute;
+  inset: auto 0 0;
+  height: 36px;
+  border-top: 1px solid color-mix(in srgb, var(--color-brand-300) 45%, transparent);
+  background: linear-gradient(
+    color-mix(in srgb, var(--color-brand-500) 20%, transparent),
+    color-mix(in srgb, var(--color-brand-500) 4%, transparent)
+  );
+}
+.cas-hub-scene {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 44px;
+  padding: 24px 28px 20px 12px;
+}
+.cas-hub-rest {
+  display: flex;
+  width: 112px;
+  flex: none;
+  flex-direction: column;
+  align-self: center;
+  gap: 10px;
+  padding-bottom: 22px;
+}
+.cas-hub-thumb {
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--color-brand-300) 60%, transparent);
+}
+.cas-hub-rest b {
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--color-brand-200);
+}
+.cas-hub-small {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding: 24px 0 8px;
+}
+.cas-hub-small .cas-desk {
+  height: 24px;
+  border-top-color: color-mix(in srgb, var(--color-brand-300) 35%, transparent);
+}
+.cas-mon {
+  position: relative;
+  display: flex;
+  width: 190px;
   flex-direction: column;
   align-items: center;
 }
-.hub-screen {
+.cas-mon--big {
+  width: 460px;
+  max-width: 100%;
+  min-width: 0;
+}
+/* the picture again, blurred behind the monitor */
+.cas-mon-light {
+  position: absolute;
+  inset: -2% -5% 8%;
+  filter: blur(14px) saturate(1.6);
+  opacity: 0.8;
+  transition: opacity 0.25s;
+}
+.cas-mon--big .cas-mon-light {
+  filter: blur(30px) saturate(1.6);
+}
+:is(.group:hover, .cas-hub-scene:hover) .cas-mon-light {
+  opacity: 1;
+}
+.cas-mon-frame {
+  position: relative;
+  width: 100%;
+  padding: 3px;
+  border-radius: 6px;
+  background: #120f11;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-brand-300) 75%, transparent),
+    0 14px 30px rgba(0, 0, 0, 0.6);
+}
+.cas-mon--big .cas-mon-frame {
+  padding: 5px;
+  border-radius: 10px;
+}
+.cas-mon--off .cas-mon-frame {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 14px 30px rgba(0, 0, 0, 0.6);
+}
+.cas-mon-screen {
+  display: grid;
+  aspect-ratio: 16 / 9;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #0d0a0b;
+}
+.cas-mon--big .cas-mon-screen {
+  border-radius: 6px;
+}
+.cas-mon-screen > :is(img, div) {
+  min-height: 0;
+}
+.cas-mon-neck {
+  position: relative;
+  width: 12%;
+  height: 14px;
+  background: linear-gradient(90deg, #1d1a1c, #3b3638, #1d1a1c);
+}
+.cas-mon--big .cas-mon-neck {
+  height: 24px;
+}
+.cas-mon-foot {
+  position: relative;
+  width: 40%;
+  height: 5px;
+  border-radius: 6px;
+  background: linear-gradient(#4a4446, #1d1a1c);
+}
+.cas-mon--big .cas-mon-foot {
+  height: 8px;
+}
+/* Wallpaper Hub on Pyre (PyreOverview): sarcophagi among candles and roses, drawn in
+   PyreCoffin.tsx */
+.ruby-hub-plate {
+  position: relative;
+  border: 1px solid rgba(255, 122, 168, 0.6);
+  border-radius: 4px;
+  background:
+    radial-gradient(60% 80% at 68% 30%, rgba(120, 40, 60, 0.5), transparent 70%),
+    linear-gradient(rgba(21, 5, 9, 0.94), rgba(12, 3, 6, 0.96));
+  box-shadow:
+    0 0 12px rgba(255, 20, 100, 0.4),
+    inset 0 0 14px rgba(255, 20, 100, 0.08);
+}
+.ruby-hub-line {
+  height: 2px;
+  flex: 1;
+  background: linear-gradient(90deg, #ffd6e4, #ff1464 40%, transparent);
+  box-shadow: 0 0 8px rgba(255, 20, 100, 0.8);
+}
+.ruby-hub-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #ffd6e4;
+}
+.ruby-hub-live::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  rotate: 45deg;
+  background: linear-gradient(135deg, #ffb3cc, #e0115f);
+  box-shadow: 0 0 10px #ff1464;
+}
+.ruby-hub-name {
+  overflow: hidden;
+  /* room for the glow, the clipping would cut it to a box */
+  margin: -14px -20px;
+  padding: 14px 20px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "Pyre Display", var(--ruby-display);
+  font-size: 2.5rem;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow:
+    0 0 4px #ff7aa8,
+    0 0 14px #ff1464;
+}
+.ruby-hub-tag {
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 122, 168, 0.45);
+  border-radius: 3px;
+  background: rgba(255, 20, 100, 0.1);
+  font-size: 0.72rem;
+  color: #ffd6e4;
+}
+.ruby-hub-new {
+  display: flex;
+  min-height: 320px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  border-style: dashed;
+  color: #ffc1d4;
+  transition: box-shadow 0.18s ease;
+}
+.ruby-hub-new:hover {
+  box-shadow: 0 0 20px rgba(255, 20, 100, 0.65);
+}
+/* the stage: steps over the full width, the sarcophagi in the middle of them */
+.ruby-crypt {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: flex-end;
+  justify-content: center;
+  container-type: inline-size;
+}
+.ruby-crypt-steps {
+  position: absolute;
+  inset: auto 0 0;
+  height: 58px;
+  background:
+    repeating-linear-gradient(rgba(170, 120, 136, 0.55) 0 1px, transparent 1px 14.5px),
+    linear-gradient(#241016 25%, #1b0b11 25% 50%, #12070b 50% 75%, #0c0408 75%);
+}
+.ruby-crypt-row {
+  position: relative;
+  display: flex;
+  gap: 24px;
+  padding: 0 98px;
+  margin-bottom: 56px;
+  transform-origin: 50% 100%;
+}
+/* a narrow window: the whole group smaller */
+@container (max-width: 785px) {
+  .ruby-crypt-row {
+    scale: 0.84;
+  }
+}
+@container (max-width: 655px) {
+  .ruby-crypt-row {
+    scale: 0.66;
+  }
+}
+@container (max-width: 515px) {
+  .ruby-crypt-row {
+    scale: 0.5;
+  }
+}
+.ruby-crypt-roses {
+  position: absolute;
+  bottom: -18px;
+  left: 50%;
+  translate: -50% 0;
+}
+.ruby-crypt-candles {
+  position: absolute;
+  bottom: -30px;
+  left: 0;
+}
+.ruby-crypt-candles--r {
+  right: 0;
+  left: auto;
+  scale: -1 1;
+}
+.ruby-crypt-one {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding: 26px 0 8px;
+  border-bottom: 1px solid #6d4a55;
+}
+.ruby-crypt-one-roses {
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  translate: -50% 0;
+}
+.ruby-crypt-one-candles {
+  position: absolute;
+  bottom: 2px;
+  left: calc(50% - 112px);
+}
+.ruby-crypt-one-candles--r {
+  right: calc(50% - 112px);
+  left: auto;
+  scale: -1 1;
+}
+.ruby-coffin {
+  position: relative;
+  flex: none;
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 10px 12px rgba(0, 0, 0, 0.75)) drop-shadow(0 0 6px rgba(255, 60, 100, 0.45));
+  transition: translate 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.ruby-coffin--dim {
+  filter: drop-shadow(0 10px 12px rgba(0, 0, 0, 0.75));
+}
+.group:hover .ruby-coffin {
+  translate: 0 -4px;
+}
+.ruby-coffin-pic {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.ruby-coffin-pic > * {
+  object-position: 50% 25%;
+}
+/* a faint wine tint, gone on hover */
+.ruby-coffin-pic::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(40, 4, 16, 0.16);
+  transition: opacity 0.3s;
+}
+.group:hover .ruby-coffin-pic::after {
+  opacity: 0;
+}
+.ruby-coffin-mark {
+  filter: drop-shadow(0 0 3px rgba(255, 220, 230, 0.7));
+}
+.ruby-coffin-text {
+  font-weight: 600;
+  fill: #f6ecf1;
+}
+/* the flames flicker a little */
+.ruby-candle {
+  animation: ruby-candle 2.4s steps(12) infinite;
+}
+@keyframes ruby-candle {
+  0%, 100% { opacity: 1; }
+  22% { opacity: 0.82; }
+  38% { opacity: 0.97; }
+  61% { opacity: 0.76; }
+  80% { opacity: 0.94; }
+}
+.ruby-hub-tile {
+  border: 1px solid rgba(255, 122, 168, 0.5);
+  border-radius: 3px;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.ruby-hub-tile:hover {
+  border-color: #ffd6e4;
+  box-shadow: 0 0 12px rgba(255, 20, 100, 0.7);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ruby-candle {
+    animation: none;
+  }
+  .ruby-coffin {
+    transition: none;
+  }
+}
+/* Wallpaper Hub on sakura (SakuraOverview): an unrolled hand scroll, hanging scrolls */
+.sak-hub-type,
+.sak-hub-name {
+  font-family: "Kaisei Decol", var(--font-sans);
+  font-weight: 700;
+}
+.sak-hub-plate {
+  position: relative;
+  border: 1px solid rgba(249, 168, 212, 0.36);
+  border-radius: 0.6rem 1.6rem 0.6rem 1.6rem;
+  background:
+    radial-gradient(60% 90% at 0% 0%, rgba(255, 193, 218, 0.14), transparent 70%),
+    rgba(34, 17, 26, 0.82);
+  box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.7);
+}
+.sak-hub-new {
+  display: flex;
+  min-height: 250px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-style: dashed;
+  color: #ffc1da;
+  background: rgba(34, 17, 26, 0.5);
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease;
+}
+.sak-hub-new:hover {
+  border-color: #ffc4dd;
+  background-color: rgba(70, 30, 50, 0.6);
+}
+.sak-hub-line {
+  height: 2px;
+  flex: 1;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #ffd0e3, #f472b6 50%, transparent);
+}
+.sak-hub-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #ffb8d6;
+}
+.sak-hub-bloom {
+  width: 18px;
+  height: 18px;
+  background: linear-gradient(135deg, #ffe1ee, #f472b6);
+  -webkit-mask: var(--sak-blossom) center / contain no-repeat;
+  mask: var(--sak-blossom) center / contain no-repeat;
+}
+.sak-hub-name {
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* room for the glow, the clipping would cut it to a box */
+  margin: -14px -20px;
+  padding: 14px 20px;
+  font-size: 2.25rem;
+  line-height: 1.2;
+  color: #fff;
+  text-shadow: 0 0 18px rgba(244, 114, 182, 0.55);
+}
+.sak-hub-tag {
+  padding: 4px 10px;
+  border: 1px solid rgba(249, 168, 212, 0.4);
+  border-radius: 0.3rem 0.7rem 0.3rem 0.7rem;
+  background: rgba(249, 168, 212, 0.1);
+  font-size: 0.75rem;
+  color: #ffe1ee;
+}
+/* the hand scroll: brocade, paper with the pictures, a roller on each end. It unrolls
+   from the middle (a transition, the idle pause would freeze an animation) */
+.sak-scroll {
+  --unroll: 0.9s cubic-bezier(0.3, 0.9, 0.3, 1);
+  position: relative;
+  min-width: 0;
+  flex: 1;
+  margin: 18px 24px 18px 0;
+}
+.sak-scroll-cloth {
+  position: absolute;
+  inset: 12px;
+  padding: 16px 0;
+  background:
+    radial-gradient(circle at 6px 6px, rgba(255, 215, 232, 0.5) 1.6px, transparent 2px) 0 0 / 12px 12px,
+    linear-gradient(#7e2f55, #5e2140);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+  clip-path: inset(0);
+  transition: clip-path var(--unroll);
+}
+.sak-scroll-paper {
+  display: flex;
+  height: 100%;
+  gap: 10px;
+  padding: 10px 24px;
+  background: linear-gradient(#fdeef2, #f6dbe4);
+}
+.sak-scroll-pic {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  border: 2px solid #fff6f0;
+  box-shadow: 0 0 0 1px rgba(150, 80, 105, 0.5);
+}
+.sak-scroll-pic > * {
+  object-position: 50% 25%;
+  transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.sak-scroll:hover .sak-scroll-pic > * {
+  transform: scale(1.04);
+}
+.sak-scroll-more {
+  display: grid;
+  width: 84px;
+  flex: none;
+  place-items: center;
+  border: 1.5px dashed rgba(160, 80, 110, 0.55);
+  font-family: "Kaisei Decol", var(--font-sans);
+  font-size: 1.4rem;
+  color: #a0506e;
+}
+.sak-roller {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 24px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #3a1726, #b76a8a 35%, #e7b6c9 48%, #8a4562 70%, #2d1019);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.55);
+  transition: left var(--unroll);
+}
+.sak-roller--r {
+  left: calc(100% - 24px);
+}
+.sak-roller::before,
+.sak-roller::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: -11px;
+  width: 14px;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #8c6a2d, #f3dca0 45%, #9a7431);
+}
+.sak-roller::after {
+  top: auto;
+  bottom: -11px;
+}
+@starting-style {
+  .sak-scroll-cloth {
+    clip-path: inset(0 50% 0 50%);
+  }
+  .sak-roller {
+    left: calc(50% - 24px);
+  }
+  .sak-roller--r {
+    left: 50%;
+  }
+}
+/* a hanging scroll: cord, rod, brocade with the picture on paper, rod with knobs */
+.sak-kake {
+  display: flex;
+  width: 100%;
+  max-width: 260px;
+  flex-direction: column;
+  align-items: center;
+  align-self: center;
+  transform-origin: 50% 0;
+  transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.group:hover > .sak-kake {
+  transform: rotate(1.2deg);
+}
+.sak-kake-cord {
+  width: 100px;
+  height: 24px;
+}
+.sak-kake-rod {
+  position: relative;
+  width: 80%;
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(#e7b6c9, #5e2140);
+}
+.sak-kake-cloth {
+  width: 74%;
+  padding: 8px;
+  background:
+    radial-gradient(circle at 6px 6px, rgba(255, 215, 232, 0.5) 1.6px, transparent 2px) 0 0 / 12px 12px,
+    linear-gradient(#7e2f55, #5e2140);
+}
+.sak-kake-pic {
+  display: block;
+  overflow: hidden;
+  aspect-ratio: 16 / 10;
+  border: 6px solid #f9e4ea;
+  background: linear-gradient(#fdeef2, #f6dbe4);
+}
+.sak-kake-pic > * {
+  object-position: 50% 25%;
+}
+.sak-kake-pic--empty {
+  display: grid;
+  place-items: center;
+  outline: 1.5px dashed rgba(160, 80, 110, 0.5);
+  outline-offset: -4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #a0506e;
+}
+.sak-kake-rod--b {
+  width: 86%;
+  height: 10px;
+}
+.sak-kake-rod--b::before,
+.sak-kake-rod--b::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: -8px;
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(#f3dca0, #8c6a2d);
+}
+.sak-kake-rod--b::after {
+  right: -8px;
+  left: auto;
+}
+.sak-hub-tile {
+  border: 1px solid rgba(249, 168, 212, 0.4);
+  border-radius: 0.35rem 1rem 0.35rem 1rem;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.sak-hub-tile:hover {
+  border-color: #ffc4dd;
+  box-shadow: 0 0 12px rgba(244, 114, 182, 0.5);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sak-scroll-cloth,
+  .sak-roller,
+  .sak-kake {
+    transition: none;
+  }
+}
+/* Wallpaper Hub on cyberpunk (CyberOverview): data chips in a reader */
+.cp-hub-title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+  color: #fcee0a;
+  text-shadow:
+    1px 1px 0 #00e5ff,
+    2px 2px 0 #0a0a0a;
+}
+.cp-hub-count {
+  padding: 2px 8px;
+  border: 1px solid #00e5ff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #00e5ff;
+}
+.cp-hub-line {
+  height: 1px;
+  flex: 1;
+  background: linear-gradient(90deg, #fcee0a, rgba(0, 229, 255, 0.5), transparent);
+}
+.cp-hub-sub {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #fcee0a;
+}
+.cp-hub-sub::before {
+  content: "";
+  width: 21px;
+  height: 8px;
+  background: repeating-linear-gradient(90deg, #00e5ff 0 5px, transparent 5px 8px);
+}
+[data-accent="cyberpunk"] .cp-hub-stage {
+  --cut-a: 16px;
+  --cut-b: 20px;
+  position: relative;
+  display: flex;
+  min-height: 270px;
+}
+.cp-hub-live {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #fcee0a;
+}
+.cp-hub-live::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  background: #fcee0a;
+  box-shadow: 0 0 10px #fcee0a;
+}
+.cp-hub-name {
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 2.1rem;
+  font-weight: 800;
+  line-height: 1.15;
+  color: #fff;
+  text-shadow:
+    2px 0 0 rgba(255, 43, 214, 0.6),
+    -2px 0 0 rgba(0, 229, 255, 0.6);
+}
+.cp-hub-tag {
+  padding: 5px 9px;
+  border: 1px solid rgba(0, 229, 255, 0.45);
+  background: rgba(0, 229, 255, 0.07);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #cdf6ff;
+}
+.cp-hub-open {
+  height: 2rem;
+  padding: 0 12px;
+  border: 1px solid rgba(0, 229, 255, 0.6);
+  background: rgba(0, 229, 255, 0.08);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #00e5ff;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.cp-hub-open:hover {
+  background: #00e5ff;
+  color: #09090b;
+}
+/* the reader: five slots, a light under each one that holds a chip */
+.cp-hub-reader {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 18px 14px 0;
+  padding: 10px 14px 10px 22px;
+  border-left: 1px solid rgba(252, 238, 10, 0.5);
+  background: linear-gradient(90deg, #000, rgba(0, 0, 0, 0.45));
+}
+.cp-hub-slots {
+  display: grid;
+  height: 150px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+/* a chip: notched top right, gold contacts at its foot */
+.cp-hub-chip {
+  --notch: 22px;
+  position: relative;
+  min-width: 0;
+  padding: 1.5px;
+  background: linear-gradient(170deg, rgba(0, 229, 255, 0.85), rgba(0, 229, 255, 0.3));
+  clip-path: polygon(0 0, calc(100% - var(--notch)) 0, 100% var(--notch), 100% 100%, 0 100%);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1) calc(var(--i) * 35ms);
+}
+.cp-hub-slots .cp-hub-chip {
+  --notch: 14px;
+}
+/* the first one in yellow */
+.cp-hub-chip:first-child:not(.cp-hub-chip--gap) {
+  background: linear-gradient(170deg, #fcee0a, rgba(252, 238, 10, 0.5) 60%, rgba(0, 229, 255, 0.7));
+}
+.cp-hub-chip--gap {
+  background: rgba(252, 238, 10, 0.18);
+}
+.group:hover .cp-hub-chip:not(.cp-hub-chip--gap) {
+  transform: translateY(-4px);
+}
+.cp-hub-chip-in {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  padding: 4px;
+  background: #0b0b10;
+  clip-path: polygon(0 0, calc(100% - var(--notch) + 0.6px) 0, 100% calc(var(--notch) - 0.6px), 100% 100%, 0 100%);
+}
+.cp-hub-chip-pic {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.cp-hub-chip-pic > :is(img, div) {
+  min-height: 0;
+  object-position: 50% 25%;
+}
+/* scan lines, gone on hover */
+.cp-hub-chip-pic::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.26) 0 1px, transparent 1px 3px);
+  transition: opacity 0.2s;
+}
+.group:hover .cp-hub-chip-pic::after {
+  opacity: 0;
+}
+.cp-hub-chip--gap .cp-hub-chip-pic {
+  place-items: center;
+  color: #fcee0a;
+  background: repeating-linear-gradient(45deg, rgba(252, 238, 10, 0.13) 0 9px, rgba(252, 238, 10, 0.03) 9px 18px);
+}
+.cp-hub-chip-pic b {
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+.cp-hub-chip-foot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 3px 2px;
+}
+.cp-hub-slots .cp-hub-chip-foot {
+  padding: 5px 1px 0;
+}
+.cp-hub-chip-foot em {
+  font-size: 0.65rem;
+  font-style: normal;
+  font-weight: 600;
+  color: #00e5ff;
+}
+.cp-hub-chip:first-child .cp-hub-chip-foot em {
+  color: #fcee0a;
+}
+.cp-hub-chip-foot i {
+  width: 52px;
+  max-width: 100%;
+  height: 13px;
+  margin-left: auto;
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.4), transparent 4px),
+    repeating-linear-gradient(90deg, #d9b44a 0 7px, transparent 7px 11px);
+}
+.cp-hub-slots .cp-hub-chip-foot i {
+  width: 100%;
+  height: 9px;
+}
+.cp-hub-chip--gap .cp-hub-chip-foot i {
+  opacity: 0.25;
+}
+.cp-hub-tile {
+  border: 1px solid rgba(252, 238, 10, 0.35);
+  transition: border-color 0.15s ease;
+}
+.cp-hub-tile:hover {
+  border-color: #fcee0a;
+}
+/* Wallpaper Hub on iridescent (IriOverview): square glass, foil rims, slanted strips */
+.iri-hub-panel {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(16, 14, 28, 0.5);
+  box-shadow: 0 10px 26px -10px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(20px);
+}
+.iri-hub-stage {
+  display: flex;
+  min-height: 250px;
+  overflow: hidden;
+}
+/* the strips run out of the stage on the right, the text's dark side under the first one */
+.iri-prism.iri-hub-strips {
+  --k: 64px;
+  width: auto;
+  min-width: 0;
+  flex: 1;
+}
+.iri-hub-strips .iri-prism-pic > * {
+  opacity: 0.94;
+  object-position: 50% 25%;
+  transition:
+    opacity 0.2s,
+    transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.iri-hub-strips:hover .iri-prism-pic > * {
+  opacity: 1;
+  transform: scale(1.04);
+}
+.iri-hub-live {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #1c1636;
+  background: linear-gradient(100deg, #c4b5fd, #f5c2ff 45%, #a7f3d0 80%, #bae6fd);
+  box-shadow: 0 0 14px rgba(245, 194, 255, 0.5);
+}
+.iri-hub-card {
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.iri-hub-card:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 18px rgba(245, 194, 255, 0.35);
+}
+.iri-hub-pics {
   display: grid;
   width: 100%;
   aspect-ratio: 16 / 10;
@@ -1880,54 +2961,59 @@ html[data-holo-freq="2"] :is(.ruby-run i, .ruby-frame-glow, .ruby-frame-sheen, .
   grid-template-rows: 1fr 1fr;
   gap: 2px;
   overflow: hidden;
-  border: 3px solid color-mix(in srgb, var(--color-brand-500) 14%, #17141f);
-  border-radius: 8px;
-  background: #0b0a10;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-brand-400) 30%, transparent),
-    0 12px 26px -14px rgba(0, 0, 0, 0.8);
+  background: rgba(225, 217, 255, 0.35);
+}
+/* no pictures yet: a dark face with a pearl sheen from two corners */
+.iri-hub-empty {
+  display: flex;
+  grid-column: span 2;
+  grid-row: span 2;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #efe6ff;
+  background:
+    radial-gradient(70% 90% at 0% 0%, rgba(196, 181, 253, 0.34), transparent 70%),
+    radial-gradient(70% 90% at 100% 100%, rgba(167, 243, 208, 0.24), transparent 70%),
+    radial-gradient(60% 70% at 100% 0%, rgba(245, 194, 255, 0.24), transparent 70%),
+    #14122a;
+}
+.iri-hub-empty svg {
+  color: #f5c2ff;
+  filter: drop-shadow(0 0 6px rgba(245, 194, 255, 0.7));
+}
+.iri-hub-new {
+  display: flex;
+  min-height: 200px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1.5px dashed rgba(225, 217, 255, 0.55);
+  color: #fff;
+  background: rgba(16, 14, 28, 0.45);
   transition:
-    box-shadow 0.18s ease,
-    transform 0.18s ease;
+    border-color 0.18s ease,
+    background-color 0.18s ease;
 }
-.hub-monitor:hover .hub-screen,
-.hub-monitor:focus-visible .hub-screen,
-.group:hover > .hub-monitor .hub-screen {
-  transform: translateY(-2px);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-brand-300) 70%, transparent),
-    0 0 20px -4px color-mix(in srgb, var(--color-brand-500) 60%, transparent);
+.iri-hub-new:hover {
+  border-color: #f5c2ff;
+  background: rgba(58, 48, 96, 0.55);
 }
-.hub-screen--new {
-  grid-template-columns: 1fr;
-  grid-template-rows: 1fr;
-  place-items: center;
-  border: 2px dashed color-mix(in srgb, var(--color-brand-400) 40%, transparent);
-  background: color-mix(in srgb, var(--color-brand-500) 6%, transparent);
-  box-shadow: none;
+.iri-hub-new svg {
+  color: #f5c2ff;
+  filter: drop-shadow(0 0 6px rgba(245, 194, 255, 0.7));
 }
-.hub-stand {
-  width: 30px;
-  height: 9px;
-  background: linear-gradient(color-mix(in srgb, var(--color-brand-500) 18%, #2a2535), #15121c);
-  clip-path: polygon(25% 0, 75% 0, 100% 100%, 0 100%);
+.iri-hub-tile {
+  border: 1px solid rgba(225, 217, 255, 0.5);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
-.hub-feature-screen {
-  border-radius: 10px;
-  background: #0b0a10;
-  box-shadow:
-    0 0 0 5px color-mix(in srgb, var(--color-brand-500) 10%, #141119),
-    0 0 0 6px color-mix(in srgb, var(--color-brand-400) 30%, transparent),
-    0 16px 36px -14px rgba(0, 0, 0, 0.8);
-}
-.hub-strip {
-  border-radius: 4px;
-}
-[data-accent="cyberpunk"] :is(.hub-screen, .hub-feature-screen, .hub-strip) {
-  border-radius: 0;
-}
-[data-accent="corruptruby"] :is(.hub-screen, .hub-feature-screen, .hub-strip) {
-  border-radius: 2px;
+.iri-hub-tile:hover {
+  border-color: #f5c2ff;
+  box-shadow: 0 0 12px rgba(245, 194, 255, 0.45);
 }
 
 /* Steel veil (IriSteelVeil): iridescent's default background, moving. A veil of light
@@ -2841,6 +3927,173 @@ html[data-holo-freq="2"] :is(.ruby-run i, .ruby-frame-glow, .ruby-frame-sheen, .
   [data-accent="iridescent"] :is(.drop-frame, .drop-label, .drop-box)::after {
     animation: none;
   }
+}
+
+/* ---- Wallpaper Hub: the Desktop / Lock screen switch, in each theme's look ---- */
+.hub-target {
+  display: inline-flex;
+  flex: none;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--color-brand-400) 35%, transparent);
+  border-radius: 11px;
+  background: rgba(9, 9, 11, 0.6);
+}
+.hub-target-btn {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-zinc-300);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.hub-target-btn:hover {
+  background: color-mix(in srgb, var(--color-brand-500) 14%, transparent);
+  color: #fff;
+}
+.hub-target-btn--on,
+.hub-target-btn--on:hover {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-brand-500) 50%, #120d10),
+    color-mix(in srgb, var(--color-brand-500) 28%, #120d10)
+  );
+  color: var(--color-brand-50);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-brand-200) 30%, transparent);
+}
+[data-accent="cyberpunk"] .hub-target {
+  gap: 0;
+  padding: 0;
+  border: 1px solid rgba(252, 238, 10, 0.6);
+  border-radius: 0;
+  background: rgba(9, 9, 11, 0.8);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%);
+}
+[data-accent="cyberpunk"] .hub-target-btn {
+  height: 34px;
+  border-radius: 0;
+  color: #cdf6ff;
+}
+[data-accent="cyberpunk"] .hub-target-btn:hover {
+  background: rgba(252, 238, 10, 0.12);
+  color: #fcee0a;
+}
+[data-accent="cyberpunk"] :is(.hub-target-btn--on, .hub-target-btn--on:hover) {
+  background: #fcee0a;
+  box-shadow: none;
+  color: #09090b;
+}
+[data-accent="sakura"] .hub-target {
+  border-color: rgba(249, 168, 212, 0.45);
+  border-radius: 0.4rem 1rem 0.4rem 1rem;
+  background: rgba(27, 16, 22, 0.6);
+}
+[data-accent="sakura"] .hub-target-btn {
+  border-radius: 0.25rem 0.75rem 0.25rem 0.75rem;
+  color: #ffe1ee;
+}
+[data-accent="sakura"] .hub-target-btn:hover {
+  background: rgba(249, 168, 212, 0.16);
+}
+[data-accent="sakura"] :is(.hub-target-btn--on, .hub-target-btn--on:hover) {
+  background: linear-gradient(135deg, #ffe1ee, #f9a8d4 55%, #f472b6);
+  box-shadow: 0 0 12px rgba(244, 114, 182, 0.45);
+  color: #4a0d2b;
+}
+[data-accent="iridescent"] .hub-target {
+  border-color: rgba(255, 255, 255, 0.2);
+  border-radius: 0;
+  background: rgba(14, 12, 24, 0.6);
+}
+[data-accent="iridescent"] .hub-target-btn {
+  border-radius: 0;
+  color: #ece7ff;
+}
+[data-accent="iridescent"] .hub-target-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+[data-accent="iridescent"] :is(.hub-target-btn--on, .hub-target-btn--on:hover) {
+  background: linear-gradient(100deg, #c4b5fd, #f5c2ff 45%, #a7f3d0 80%, #bae6fd);
+  box-shadow: 0 0 14px rgba(245, 194, 255, 0.45);
+  color: #1c1636;
+}
+[data-accent="corruptruby"] .hub-target {
+  border-color: rgba(255, 122, 168, 0.55);
+  border-radius: 3px;
+  background: rgba(24, 4, 12, 0.7);
+}
+[data-accent="corruptruby"] .hub-target-btn {
+  border-radius: 2px;
+  color: #ffd6e4;
+}
+[data-accent="corruptruby"] .hub-target-btn:hover {
+  background: rgba(255, 20, 100, 0.18);
+}
+[data-accent="corruptruby"] :is(.hub-target-btn--on, .hub-target-btn--on:hover) {
+  background: linear-gradient(180deg, #ff3d80, #b3083f);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 214, 228, 0.5),
+    0 0 14px rgba(255, 20, 100, 0.6);
+  color: #fff;
+}
+
+/* ---- Wallpaper Hub: the badges of the places a slideshow runs on ---- */
+.hub-runs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.hub-run {
+  display: inline-flex;
+  min-width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-brand-300) 70%, transparent);
+  border-radius: 8px;
+  background: rgba(14, 10, 12, 0.82);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-brand-200);
+}
+.hub-run--named {
+  padding: 0 9px;
+}
+[data-accent="cyberpunk"] .hub-run {
+  border-color: #fcee0a;
+  border-radius: 0;
+  background: rgba(9, 9, 11, 0.9);
+  color: #fcee0a;
+}
+[data-accent="sakura"] .hub-run {
+  border-color: rgba(249, 168, 212, 0.75);
+  border-radius: 0.3rem 0.7rem 0.3rem 0.7rem;
+  background: rgba(34, 17, 26, 0.88);
+  color: #ffd0e3;
+}
+[data-accent="iridescent"] .hub-run {
+  border-color: transparent;
+  border-radius: 0;
+  background: linear-gradient(100deg, #c4b5fd, #f5c2ff 45%, #a7f3d0 80%, #bae6fd);
+  box-shadow: 0 0 12px rgba(245, 194, 255, 0.45);
+  color: #1c1636;
+}
+[data-accent="corruptruby"] .hub-run {
+  border-color: #ff7aa8;
+  border-radius: 3px;
+  background: rgba(30, 4, 14, 0.9);
+  box-shadow: 0 0 10px rgba(255, 20, 100, 0.55);
+  color: #ffd6e4;
 }
 
 /* right-click menus: a dark plate in a chrome line with two corners cut. Plate and line

@@ -2,23 +2,20 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import { cn } from "@/lib/utils";
 import { OverlayScrollbar } from "@/components/OverlayScrollbar";
 import { Button } from "@/components/ui/Button";
-import { Lock, Search, Settings, Tv, TvMinimal, Gift, Eye, EyeOff, History, Inbox, X, ChevronDown } from "lucide-react";
-import { PageSwitcher } from "@/components/PageSwitcher";
+import { Lock, Search, Settings, Tv, TvMinimal, Gift, Eye, EyeOff, History, Inbox, X } from "lucide-react";
+import { LogoMenu } from "@/components/SideBar";
 import { GlobeSearchIcon } from "@/lib/globeSearchIcon";
-import { BrandMark } from "@/components/BrandMark";
-import { CyberLogo } from "@/components/CyberLogo";
 import { WindowControls } from "@/components/WindowControls";
 import { SdTransportButton } from "@/components/SdTransportButton";
 import { UpdateButton } from "@/components/UpdateButton";
 import { HistoryDrawer } from "@/components/HistoryDrawer";
 import { AnimatePresence } from "framer-motion";
-import { SakuraMark } from "@/components/SakuraMark";
-import { KdaMark } from "@/components/KdaMark";
-import { useIriAltIcon } from "@/lib/iriAltIcon";
+import { registerPageScroll, scrollPageToTop } from "@/lib/pageScroll";
+import { useSidebar } from "@/lib/sidebar";
 import { useNavigate, useLocation } from "react-router-dom";
 import { isTauri } from "@/lib/tauri";
 import { useAccent } from "@/lib/theme";
-import { useSfwMode, toggleSfwMode, getHomeDblToggle } from "@/lib/contentMode";
+import { toggleSfwMode, getHomeDblToggle } from "@/lib/contentMode";
 import { useT, useTf, useTp } from "@/lib/i18n";
 import { useSafeMode } from "@/lib/safeMode";
 import { useMinimal, toggleMinimal } from "@/lib/minimal";
@@ -87,16 +84,6 @@ function useTopbarSlots(): TopbarSlots {
     () => slots,
   );
 }
-/** The current page's scroll area (Home on the dashboard scrolls it to the top). */
-let activeMain: HTMLElement | null = null;
-
-/** Scroll the current page back to the top, smoothly like Home (e.g. the platform crumb). */
-export function scrollPageToTop(): void {
-  const main = activeMain;
-  if (!main || main.scrollTop === 0) return;
-  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  main.scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" });
-}
 
 /** The top bar, mounted once in App. */
 export function TopBar({ onLock }: { onLock?: () => void }) {
@@ -109,7 +96,6 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
   }, [search?.value]);
   const location = useLocation();
   const accent = useAccent();
-  const sfw = useSfwMode();
   const t = useT();
   const tf = useTf();
   const tp = useTp();
@@ -121,18 +107,13 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
   const passwordSet = usePasswordSet();
   const onDashboard = location.pathname === "/";
   const onWallpapers = location.pathname.startsWith("/wallpapers");
-  const sakura = accent === "sakura";
-  const cyber = accent === "cyberpunk";
   const irid = accent === "iridescent";
-  // iridescent alternate logo (right-click the swatch): the holo outline M
-  const iriAlt = useIriAltIcon();
   // no OS title bar (decorations off), the header is the drag region
   const customChrome = true;
   const tauri = isTauri();
 
   const { openMenu } = useActions();
-  // the main menu behind the page name: where it opens, null = closed
-  const [pageMenu, setPageMenu] = useState<{ x: number; y: number } | null>(null);
+  const sidebar = useSidebar();
   const { artists, backed } = useData();
   const showHidden = useShowHidden();
   const hiddenCount = artists.filter((a) => a.hidden).length;
@@ -162,14 +143,8 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
 
   // Home button: on the dashboard already -> scroll to the top instead
   const goHome = () => {
-    if (location.pathname !== "/") {
-      navigate("/");
-      return;
-    }
-    const main = activeMain;
-    if (!main || main.scrollTop === 0) return;
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    main.scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" });
+    if (location.pathname !== "/") navigate("/");
+    else scrollPageToTop();
   };
 
   return (
@@ -178,7 +153,7 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
         {...(customChrome && tauri ? { "data-tauri-drag-region": true } : {})}
         className={cn(
           // z-30 so the header stays above the dashboard's Creators bar (z-20)
-          "app-header relative z-30 flex h-[52px] shrink-0 items-center gap-3 px-4",
+          "app-header relative z-30 flex h-[52px] shrink-0 items-center gap-3 pl-2 pr-4",
           irid
             ? // Iridescent: a translucent dark glass bar so the title/search stay
               // readable over the shader, translateZ(0) so the blur doesn't flicker
@@ -186,95 +161,25 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
             : "border-b border-white/5 bg-gradient-to-r from-brand-900/35 via-zinc-950/55 to-brand-900/30 backdrop-blur",
         )}
       >
-        <div className="flex items-center gap-2">
+        {/* the logo is in the left bar while that's open */}
+        {!sidebar && <LogoMenu />}
+        {/* the page's name is the home button: the dashboard, or the top of the page when
+            already there. Only the text dims on hover */}
         <button
-          onClick={goHome}
+          onClick={onWallpapers ? scrollPageToTop : goHome}
           onDoubleClick={() => {
             if (getHomeDblToggle()) toggleSfwMode();
           }}
-          title={
-            getHomeDblToggle() ? t("Home (double-click: switch SFW/NSFW)") : t("Home")
-          }
-          className="flex items-center"
-        >
-          {sakura ? (
-            // sakura: the theme icon next to "Dashboard" morphs into a blossom (SakuraMark)
-            <span className="relative inline-flex h-8 w-8 items-center justify-center">
-              <SakuraMark className="absolute inset-0 h-8 w-8" />
-              {sfw && (
-                <span
-                  title={t("SFW mode is on")}
-                  className="sfw-dot absolute -right-0.5 -top-0.5"
-                />
-              )}
-            </span>
-          ) : cyber ? (
-            // cyberpunk: the MiColl mark cycling yellow / cyan / magenta (CyberLogo).
-            // the SFW dot sits outside the plate clip so its glow isn't cut off
-            <span className="relative inline-flex h-8 w-8 items-center justify-center">
-              {/* the app icon with animations off, else the colour-glitching plate */}
-              <CyberLogo />
-              {sfw && (
-                <span
-                  title={t("SFW mode is on")}
-                  className="sfw-dot absolute -right-0.5 -top-0.5"
-                />
-              )}
-            </span>
-          ) : irid && iriAlt ? (
-            // iridescent alternate logo: the holo outline M with its colours running
-            // through it, glowing (same as MiColl Mobile's "Alt. icon")
-            <span className="kda-glow relative -my-1 inline-flex">
-              <KdaMark className="h-10 w-10" />
-              {sfw && (
-                <span
-                  title={t("SFW mode is on")}
-                  className="sfw-dot absolute right-0.5 top-0.5"
-                />
-              )}
-            </span>
-          ) : (
-            // iridescent + standard accents: the M mark next to "Dashboard"
-            <span className="relative inline-flex h-8 w-8 items-center justify-center">
-              <BrandMark className="h-8 w-8" />
-              {sfw && (
-                <span
-                  title={t("SFW mode is on")}
-                  className="sfw-dot absolute -right-0.5 -top-0.5"
-                />
-              )}
-            </span>
+          title={getHomeDblToggle() ? t("Home (double-click: switch SFW/NSFW)") : t("Home")}
+          className={cn(
+            "shrink-0 transition-opacity hover:opacity-80",
+            // the same spot with and without the bar
+            !sidebar && "ml-1",
+            accent === "corruptruby" ? "ruby-title" : "text-base font-semibold text-zinc-100",
           )}
-        </button>
-        {/* the page's name opens the page menu (Dashboard, Wallpaper Hub). The mark next
-            to it stays the home button. Only the text dims on hover */}
-        <button
-          // the main menu gets its own panel, not the right-click menu (PageSwitcher)
-          onClick={(e) => {
-            const r = e.currentTarget.getBoundingClientRect();
-            setPageMenu({ x: r.left - 6, y: r.bottom + 8 });
-          }}
-          title={t("Open another page")}
-          className="group/home flex items-center gap-1"
         >
-          <span
-            className={cn(
-              "transition-opacity group-hover/home:opacity-80",
-              accent === "corruptruby"
-                ? "ruby-title"
-                : "text-base font-semibold text-zinc-100",
-            )}
-          >
-            {onWallpapers ? t("Wallpaper Hub") : t("Dashboard")}
-          </span>
-          <ChevronDown
-            className={cn(
-              "h-4 w-4 transition-opacity group-hover/home:opacity-80",
-              irid ? "text-zinc-200" : "text-zinc-400",
-            )}
-          />
+          {onWallpapers ? t("Wallpaper Hub") : t("Dashboard")}
         </button>
-        </div>
 
         {titleSlot && (
           <>
@@ -640,14 +545,6 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
             />
           )}
         </AnimatePresence>
-        {pageMenu && (
-          <PageSwitcher
-            x={pageMenu.x}
-            y={pageMenu.y}
-            current={onDashboard ? "dashboard" : onWallpapers ? "wallpapers" : null}
-            onClose={() => setPageMenu(null)}
-          />
-        )}
       </header>
   );
 }
@@ -665,12 +562,7 @@ export function Layout({ children, search, titleSlot, toolbar, overlay }: Layout
 
   // scroll restore: save the scroll all the time, restore it on Back
   const mainRef = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    activeMain = mainRef.current;
-    return () => {
-      if (activeMain === mainRef.current) activeMain = null;
-    };
-  }, []);
+  useEffect(() => registerPageScroll(mainRef.current), []);
   const scrollKey = location.key;
   /** True while we are restoring the scroll. */
   const restoringRef = useRef(false);

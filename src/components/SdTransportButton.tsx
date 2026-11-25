@@ -107,7 +107,7 @@ export function SdTransportButton() {
       let stopped = false;
       if (moves > 0) {
         setProg({ phase: "transport", done: 0, total: moves, item: "" });
-        const s = await api.sdTransport();
+        const s = await api.sdTransport(backups > 0);
         stopped = s.cancelled;
         summarize(
           "transported",

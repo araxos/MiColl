@@ -9,6 +9,9 @@ use serde::Serialize;
 
 pub const ACTIVE_KEY: &str = "wallset_active";
 
+/// The places a slideshow can be for.
+pub const PLACES: [&str; 3] = ["desktop", "lock", "saver"];
+
 /// What Windows can show as a wallpaper (the rest is left out when a slideshow starts).
 const WALL_EXTS: &[&str] = &["jpg", "jpeg", "jfif", "png", "bmp", "gif", "tif", "tiff", "webp"];
 
@@ -27,14 +30,20 @@ pub struct WallSet {
     pub preview: Vec<String>,
     /// running on the desktop right now (set by the command)
     pub active: bool,
+    /// running on the lock screen (lockscreen.rs, set by the command)
+    pub lock: bool,
+    /// the screen saver (screensaver.rs, set by the command)
+    pub saver: bool,
     /// when it last got pictures (None = never), for the menu's recent ones
     pub last_added: Option<String>,
+    /// the places (PLACES) the hub doesn't show it for
+    pub hidden_in: Vec<String>,
 }
 
 pub fn list(conn: &Connection) -> rusqlite::Result<Vec<WallSet>> {
     let mut stmt = conn.prepare(
         "SELECT s.id, s.name, s.minutes, s.fit, s.shuffle,
-                (SELECT COUNT(*) FROM wall_set_items i WHERE i.set_id = s.id), s.last_added
+                (SELECT COUNT(*) FROM wall_set_items i WHERE i.set_id = s.id), s.last_added, s.hidden_in
          FROM wall_sets s ORDER BY s.sort, s.id",
     )?;
     let mut sets = stmt
@@ -48,7 +57,10 @@ pub fn list(conn: &Connection) -> rusqlite::Result<Vec<WallSet>> {
                 count: r.get(5)?,
                 preview: Vec::new(),
                 active: false,
+                lock: false,
+                saver: false,
                 last_added: r.get(6)?,
+                hidden_in: places(&r.get::<_, String>(7)?),
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -90,6 +102,35 @@ pub fn update(
     if let Some(s) = shuffle {
         conn.execute("UPDATE wall_sets SET shuffle = ?2 WHERE id = ?1", params![id, s as i64])?;
     }
+    Ok(())
+}
+
+/// The places in a saved list.
+fn places(list: &str) -> Vec<String> {
+    PLACES.iter().filter(|p| list.split(',').any(|x| x == **p)).map(|p| p.to_string()).collect()
+}
+
+/// Where the hub shows a slideshow. how: "show" or "hide" it for this place, "only" for
+/// this one, "all" for every one. It can't be hidden everywhere.
+pub fn show_in(conn: &Connection, id: i64, place: &str, how: &str) -> Result<(), String> {
+    let err = |e: rusqlite::Error| e.to_string();
+    if !PLACES.contains(&place) {
+        return Err("unknown place".into());
+    }
+    let mut hidden: Vec<String> =
+        places(&conn.query_row("SELECT hidden_in FROM wall_sets WHERE id = ?1", [id], |r| r.get::<_, String>(0)).map_err(err)?);
+    match how {
+        "show" => hidden.retain(|p| p != place),
+        "hide" if !hidden.iter().any(|p| p == place) => hidden.push(place.to_string()),
+        "hide" => {}
+        "only" => hidden = PLACES.iter().filter(|p| **p != place).map(|p| p.to_string()).collect(),
+        "all" => hidden.clear(),
+        _ => return Err("unknown".into()),
+    }
+    if hidden.len() == PLACES.len() {
+        return Err("It has to be shown somewhere.".into());
+    }
+    conn.execute("UPDATE wall_sets SET hidden_in = ?2 WHERE id = ?1", params![id, hidden.join(",")]).map_err(err)?;
     Ok(())
 }
 
@@ -200,14 +241,27 @@ pub fn get(conn: &Connection, id: i64) -> rusqlite::Result<Option<(i64, String, 
 /// The files Windows gets: each picture as it's shown in MiColl (its active edit
 /// version, else the original), only ones that exist and Windows can show.
 pub fn shown_files(conn: &Connection, id: i64) -> rusqlite::Result<Vec<String>> {
+    showable(conn, id, false)
+}
+
+/// The same, with `no_nsfw` without the pictures of creators tagged nsfw (the screen saver
+/// in SFW mode: it comes by itself).
+pub fn showable(conn: &Connection, id: i64, no_nsfw: bool) -> rusqlite::Result<Vec<String>> {
     let mut stmt = conn.prepare(
         "SELECT COALESCE(v.file_path, i.file_path)
          FROM wall_set_items i
          LEFT JOIN image_active_version a ON a.orig_path = i.file_path
          LEFT JOIN image_versions v ON v.id = a.version_id
-         WHERE i.set_id = ?1 ORDER BY i.sort, i.rowid",
+         WHERE i.set_id = ?1
+           AND (?2 = 0 OR NOT EXISTS (
+                SELECT 1 FROM images im
+                JOIN rewards r ON r.id = im.reward_id
+                JOIN periods p ON p.id = r.period_id
+                JOIN artists a ON a.id = p.artist_id
+                WHERE im.file_path = i.file_path AND LOWER(COALESCE(a.tags, '')) LIKE '%nsfw%'))
+         ORDER BY i.sort, i.rowid",
     )?;
-    let all = stmt.query_map(params![id], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    let all = stmt.query_map(params![id, no_nsfw], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(all
         .into_iter()
         .filter(|p| {
@@ -254,6 +308,28 @@ mod tests {
     }
 
     #[test]
+    fn a_slideshow_is_hidden_per_place_but_never_everywhere() {
+        let (c, dir) = conn();
+        let id = create(&c, "Mix").unwrap();
+        let hidden = || list(&c).unwrap()[0].hidden_in.join(",");
+        assert_eq!(hidden(), "", "a new one is for every place");
+        show_in(&c, id, "lock", "hide").unwrap();
+        show_in(&c, id, "lock", "hide").unwrap();
+        show_in(&c, id, "desktop", "hide").unwrap();
+        assert_eq!(hidden(), "desktop,lock");
+        assert!(show_in(&c, id, "saver", "hide").is_err());
+        assert_eq!(hidden(), "desktop,lock", "it stays somewhere");
+        show_in(&c, id, "desktop", "show").unwrap();
+        assert_eq!(hidden(), "lock");
+        show_in(&c, id, "lock", "only").unwrap();
+        assert_eq!(hidden(), "desktop,saver");
+        show_in(&c, id, "lock", "all").unwrap();
+        assert_eq!(hidden(), "");
+        assert!(show_in(&c, id, "kitchen", "hide").is_err() && show_in(&c, id, "lock", "eat").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_move_in_micoll_carries_the_paths_along() {
         let (c, dir) = conn();
         let id = create(&c, "Mix").unwrap();
@@ -274,6 +350,16 @@ mod tests {
         let p = |x: &std::path::Path| x.to_string_lossy().into_owned();
         add(&c, id, &[p(&pic), p(&clip), p(&dir.join("gone.png"))]).unwrap();
         assert_eq!(shown_files(&c, id).unwrap(), vec![p(&pic)]);
+        // SFW: not the ones of a creator tagged nsfw
+        c.execute_batch("INSERT INTO artists(id, name, tags) VALUES(1, 'A', '[\"NSFW \",\"x\"]');
+             INSERT INTO periods(id, artist_id, label, folder_path) VALUES(1, 1, 'M', 'k');
+             INSERT INTO rewards(id, period_id, title, folder_path, image_count) VALUES(1, 1, 'R', 'f', 1);")
+            .unwrap();
+        c.execute("INSERT INTO images(reward_id, file_path) VALUES(1, ?1)", params![p(&pic)]).unwrap();
+        assert!(showable(&c, id, true).unwrap().is_empty());
+        assert_eq!(showable(&c, id, false).unwrap(), vec![p(&pic)]);
+        c.execute("UPDATE artists SET tags = '[\"sfw\"]'", []).unwrap();
+        assert_eq!(showable(&c, id, true).unwrap(), vec![p(&pic)]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

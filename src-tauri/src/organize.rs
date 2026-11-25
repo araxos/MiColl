@@ -229,6 +229,93 @@ fn target_dir(row: &Row, managed_root: &Path) -> PathBuf {
     reward_dir
 }
 
+/// Every reward with files on disk (not the ones on the MiSD disk).
+fn rows(conn: &Connection) -> Result<Vec<Row>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT r.id, r.folder_path, r.title, r.category, r.cover_image,
+                    p.year, p.month, p.number, p.platform, a.name,
+                    COALESCE(
+                        pnd.release_style,
+                        CASE WHEN pnd.no_dates = 1 THEN 'none' END,
+                        a.release_style,
+                        CASE WHEN a.no_dates = 1 THEN 'none' ELSE 'monthly' END
+                    ) AS style,
+                    r.is_root, a.graveyard,
+                    (SELECT c.name FROM custom_names c
+                      WHERE c.artist_id = a.id AND c.platform = COALESCE(p.platform, 'Unsorted')
+                        AND c.year = p.year AND c.month = 0),
+                    (SELECT c.name FROM custom_names c
+                      WHERE c.artist_id = a.id AND c.platform = COALESCE(p.platform, 'Unsorted')
+                        AND c.year = p.year AND c.month = p.month)
+             FROM rewards r
+             JOIN periods p ON r.period_id = p.id
+             JOIN artists a ON p.artist_id = a.id
+             LEFT JOIN platform_no_dates pnd
+                    ON pnd.artist_id = a.id
+                   AND pnd.platform = COALESCE(p.platform, 'Unsorted')
+             WHERE r.image_count > 0 AND r.sd_volume IS NULL",
+        )
+        .map_err(|e| e.to_string())?;
+    let mapped = stmt
+        .query_map([], |r| {
+            Ok(Row {
+                reward_id: r.get(0)?,
+                folder: r.get(1)?,
+                title: r.get(2)?,
+                category: r.get(3)?,
+                cover: r.get(4)?,
+                year: r.get(5)?,
+                month: r.get(6)?,
+                number: r.get(7)?,
+                platform: r.get(8)?,
+                artist: r.get(9)?,
+                style: r.get(10)?,
+                year_name: r.get(13)?,
+                month_name: r.get(14)?,
+                is_root: r.get::<_, i64>(11)? != 0,
+                graveyard: r.get::<_, i64>(12)? != 0,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for row in mapped {
+        out.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(out)
+}
+
+/// Already in the right place (case-insensitive), or the target is inside the current
+/// folder (would copy forever): nothing to move.
+fn stays(old: &Path, dest: &Path) -> bool {
+    ci_key(old) == ci_key(dest) || is_same_or_under(dest, old)
+}
+
+/// What Organize is going to write, with `more` folders that aren't in the library yet
+/// (an import).
+pub fn plan(conn: &Connection, collection_root: &str, more: &[String]) -> Result<crate::space::Plan, String> {
+    let managed_root = Path::new(collection_root).join("MiColl");
+    let mut list: Vec<(PathBuf, PathBuf)> = rows(conn)?
+        .iter()
+        .map(|r| (PathBuf::from(&r.folder), target_dir(r, &managed_root)))
+        .filter(|(old, dest)| old.is_dir() && !stays(old, dest))
+        .collect();
+    for f in more {
+        let old = PathBuf::from(f);
+        // where exactly doesn't matter here, a name that isn't there yet
+        let dest = managed_root.join(".new").join(old.file_name().unwrap_or_default());
+        if old.is_dir() && !is_same_or_under(&old, &managed_root) {
+            list.push((old, dest));
+        }
+    }
+    list.sort_by_key(|(old, _)| old.as_os_str().len());
+    let mut p = crate::space::Plan::default();
+    for (old, dest) in list {
+        p.rename(&old, &dest);
+    }
+    Ok(p)
+}
+
 /// Move every reward (with files on disk) into the managed collection and update the DB.
 /// Reports (done, total, reward title) while it moves; total counts only the rewards
 /// that really move, the ones already in place don't.
@@ -240,69 +327,16 @@ pub fn organize_collection(
     let root = Path::new(collection_root);
     std::fs::create_dir_all(root).map_err(|e| format!("create collection root: {e}"))?;
 
+    // another drive that's too full says so before the first one moves (an import asked
+    // already, with more to spare)
+    plan(conn, collection_root, &[])?.fits(crate::space::KEEP_FREE / 2)?;
     // read the rows first (so the statement is done before we change things)
-    let rows: Vec<Row> = {
-        let mut stmt = conn
-            .prepare(
-                "SELECT r.id, r.folder_path, r.title, r.category, r.cover_image,
-                        p.year, p.month, p.number, p.platform, a.name,
-                        COALESCE(
-                            pnd.release_style,
-                            CASE WHEN pnd.no_dates = 1 THEN 'none' END,
-                            a.release_style,
-                            CASE WHEN a.no_dates = 1 THEN 'none' ELSE 'monthly' END
-                        ) AS style,
-                        r.is_root, a.graveyard,
-                        (SELECT c.name FROM custom_names c
-                          WHERE c.artist_id = a.id AND c.platform = COALESCE(p.platform, 'Unsorted')
-                            AND c.year = p.year AND c.month = 0),
-                        (SELECT c.name FROM custom_names c
-                          WHERE c.artist_id = a.id AND c.platform = COALESCE(p.platform, 'Unsorted')
-                            AND c.year = p.year AND c.month = p.month)
-                 FROM rewards r
-                 JOIN periods p ON r.period_id = p.id
-                 JOIN artists a ON p.artist_id = a.id
-                 LEFT JOIN platform_no_dates pnd
-                        ON pnd.artist_id = a.id
-                       AND pnd.platform = COALESCE(p.platform, 'Unsorted')
-                 WHERE r.image_count > 0 AND r.sd_volume IS NULL",
-            )
-            .map_err(|e| e.to_string())?;
-        let mapped = stmt
-            .query_map([], |r| {
-                Ok(Row {
-                    reward_id: r.get(0)?,
-                    folder: r.get(1)?,
-                    title: r.get(2)?,
-                    category: r.get(3)?,
-                    cover: r.get(4)?,
-                    year: r.get(5)?,
-                    month: r.get(6)?,
-                    number: r.get(7)?,
-                    platform: r.get(8)?,
-                    artist: r.get(9)?,
-                    style: r.get(10)?,
-                    year_name: r.get(13)?,
-                    month_name: r.get(14)?,
-                    is_root: r.get::<_, i64>(11)? != 0,
-                    graveyard: r.get::<_, i64>(12)? != 0,
-                })
-            })
-            .map_err(|e| e.to_string())?;
-        let mut out = Vec::new();
-        for row in mapped {
-            out.push(row.map_err(|e| e.to_string())?);
-        }
-        out
-    };
+    let rows = rows(conn)?;
 
     let mut sum = OrganizeSummary::default();
 
     let managed_root = root.join("MiColl");
 
-    // already in the right place (case-insensitive), or the target is inside the current
-    // folder (would copy forever) -> nothing to move
-    let stays = |old: &Path, dest: &Path| ci_key(old) == ci_key(dest) || is_same_or_under(dest, old);
     let todo = rows
         .iter()
         .filter(|r| {
@@ -467,6 +501,55 @@ mod tests {
         // a sibling is neither
         let sib = Path::new(r"E:\Coll\MiColl\somecreator\OnlyFans\other");
         assert!(!is_same_or_under(sib, a));
+    }
+
+    /// The collection on another drive that's too full: said before anything moves.
+    #[test]
+    fn a_full_collection_drive_moves_nothing() {
+        let base = std::env::temp_dir().join(format!("micoll_org_full_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let src = base.join("src");
+        let coll = base.join("collection");
+        std::fs::create_dir_all(&coll).unwrap();
+        let month = src.join("ArtistX_2025-01").join("2025-01");
+        touch(&month.join("RewardA").join("01.jpg"));
+        touch(&month.join("RewardB").join("01.jpg"));
+        let conn = db::open(&base.join("t.db")).unwrap();
+        let root = db::Root {
+            id: 1,
+            path: src.to_string_lossy().to_string(),
+            label: None,
+            default_platform: Some("Patreon".into()),
+        };
+        indexer::scan_root(&conn, &root).unwrap();
+        let one = b"not-a-real-image".len() as u64;
+        let free = |n: u64| crate::space::FAKE.with(|f| *f.borrow_mut() = Some((coll.clone(), n)));
+        let keep = crate::space::KEEP_FREE / 2;
+        let coll_s = coll.to_string_lossy().to_string();
+
+        free(keep + 2 * one - 1);
+        let err = organize_collection(&conn, &coll_s, |_, _, _| {}).err().unwrap();
+        assert!(err.starts_with("Not enough space on "), "{err}");
+        assert!(month.join("RewardA/01.jpg").exists() && month.join("RewardB/01.jpg").exists());
+        assert!(!coll.join("MiColl").exists());
+
+        // an import brings its own folders on top (one inside another counts once, one
+        // that's in the collection already doesn't)
+        let new = base.join("drop").join("New");
+        touch(&new.join("01.jpg"));
+        touch(&new.join("sub").join("02.jpg"));
+        let more = [new.join("sub"), new.clone(), coll.join("MiColl").join("Old")]
+            .map(|p| p.to_string_lossy().to_string());
+        let fits = |n: u64| {
+            free(n);
+            plan(&conn, &coll_s, &more).unwrap().fits(0).is_ok()
+        };
+        assert!(fits(4 * one) && !fits(4 * one - 1));
+
+        free(keep + 2 * one);
+        let sum = organize_collection(&conn, &coll_s, |_, _, _| {}).unwrap();
+        assert_eq!((sum.moved, sum.failed), (2, 0), "{:?}", sum.errors);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

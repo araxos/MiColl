@@ -739,6 +739,52 @@ fn backup_dest_for(row: &PendingRow, sd_root: &str, managed_base: Option<&str>) 
     dest_for(row, &backup_root(sd_root).to_string_lossy(), managed_base)
 }
 
+/// The rewards in one queue with their old backup path (stale if the local folder was
+/// renamed), outer folders first so nested rewards go with their parent.
+fn queued(conn: &Connection, mode: SdMode) -> Result<Vec<(PendingRow, Option<String>)>, String> {
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT r.id, r.folder_path, a.name, r.sd_backup_path FROM rewards r \
+             JOIN periods p ON r.period_id = p.id \
+             JOIN artists a ON p.artist_id = a.id \
+             WHERE r.sd_marked = ?1 AND r.sd_volume IS NULL AND {TRANSPORTABLE_R}"
+        ))
+        .map_err(|e| e.to_string())?;
+    let it = stmt
+        .query_map([mode.value()], |r| {
+            Ok((
+                PendingRow { id: r.get(0)?, folder: r.get(1)?, artist: r.get(2)? },
+                r.get::<_, Option<String>>(3)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    let mut rows = it.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?;
+    rows.sort_by_key(|(r, _)| r.folder.len());
+    Ok(rows)
+}
+
+/// The queues fit on the disk. Asked before the first reward goes.
+fn room_for(
+    conn: &Connection,
+    root: &str,
+    managed_base: Option<&str>,
+    moves: bool,
+    backups: bool,
+) -> Result<(), String> {
+    let mut plan = crate::space::Plan::default();
+    if moves {
+        for (row, _) in queued(conn, SdMode::Move)? {
+            plan.copy_then_remove(Path::new(&row.folder), &dest_for(&row, root, managed_base));
+        }
+    }
+    if backups {
+        for (row, _) in queued(conn, SdMode::Backup)? {
+            plan.copy(Path::new(&row.folder), &backup_dest_for(&row, root, managed_base));
+        }
+    }
+    plan.fits(crate::space::KEEP_LITTLE)
+}
+
 /// Progress (done, total, current) for the progress bar. () ignores it.
 pub type Progress<'a> = &'a dyn Fn(u32, u32, &str);
 
@@ -752,10 +798,13 @@ fn leaf(folder: &str) -> String {
 
 /// Move every marked reward to the disk (checked), update the DB and flags.
 /// Rewards inside a moved folder come along. One failure doesn't stop the rest.
+/// A disk that's too full is refused first (then_backup: the backup queue runs right after
+/// and has to fit too).
 pub fn transport(
     conn: &Connection,
     thumbs_dir: &Path,
     key: Option<[u8; 32]>,
+    then_backup: bool,
     progress: Progress<'_>,
 ) -> Result<SdSummary, String> {
     begin_job();
@@ -789,24 +838,8 @@ pub fn transport(
         it.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?
     };
 
-    let mut rows: Vec<PendingRow> = {
-        let mut stmt = conn
-            .prepare(&format!(
-                "SELECT r.id, r.folder_path, a.name FROM rewards r \
-                 JOIN periods p ON r.period_id = p.id \
-                 JOIN artists a ON p.artist_id = a.id \
-                 WHERE r.sd_marked = 1 AND r.sd_volume IS NULL AND {TRANSPORTABLE_R}"
-            ))
-            .map_err(|e| e.to_string())?;
-        let it = stmt
-            .query_map([], |r| {
-                Ok(PendingRow { id: r.get(0)?, folder: r.get(1)?, artist: r.get(2)? })
-            })
-            .map_err(|e| e.to_string())?;
-        it.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?
-    };
-    // outer folders first, so nested rewards move with their parent
-    rows.sort_by_key(|r| r.folder.len());
+    room_for(conn, &root, managed_base.as_deref(), true, then_backup)?;
+    let rows: Vec<PendingRow> = queued(conn, SdMode::Move)?.into_iter().map(|(r, _)| r).collect();
 
     let total = rows.len() as u32;
     let mut done = 0u32;
@@ -905,28 +938,8 @@ pub fn backup(conn: &Connection, progress: Progress<'_>) -> Result<SdSummary, St
     let managed_base: Option<String> = setting(conn, "collection_root")
         .map(|r| Path::new(&r).join("MiColl").to_string_lossy().into_owned());
 
-    // (row, old backup path - stale if the local folder was renamed)
-    let mut rows: Vec<(PendingRow, Option<String>)> = {
-        let mut stmt = conn
-            .prepare(&format!(
-                "SELECT r.id, r.folder_path, a.name, r.sd_backup_path FROM rewards r \
-                 JOIN periods p ON r.period_id = p.id \
-                 JOIN artists a ON p.artist_id = a.id \
-                 WHERE r.sd_marked = 2 AND r.sd_volume IS NULL AND {TRANSPORTABLE_R}"
-            ))
-            .map_err(|e| e.to_string())?;
-        let it = stmt
-            .query_map([], |r| {
-                Ok((
-                    PendingRow { id: r.get(0)?, folder: r.get(1)?, artist: r.get(2)? },
-                    r.get::<_, Option<String>>(3)?,
-                ))
-            })
-            .map_err(|e| e.to_string())?;
-        it.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?
-    };
-    // outer first so nested rewards use their parent's copy
-    rows.sort_by_key(|(r, _)| r.folder.len());
+    room_for(conn, &root, managed_base.as_deref(), false, true)?;
+    let rows = queued(conn, SdMode::Backup)?;
 
     let total = rows.len() as u32;
     let mut done = 0u32;
@@ -1175,6 +1188,11 @@ pub fn bring_back(
         rows.retain(|(id, _, _)| want.contains(id));
     }
     rows.sort_by_key(|(_, folder, _)| folder.len());
+    let mut plan = crate::space::Plan::default();
+    for (_, folder, origin) in &rows {
+        plan.copy_then_remove(Path::new(folder), Path::new(origin));
+    }
+    plan.fits(crate::space::KEEP_FREE)?;
 
     let total = rows.len() as u32;
     let mut done = 0u32;
@@ -1452,6 +1470,9 @@ fn verified_copy_dir(
     dest: &Path,
     prune_extras: bool,
 ) -> Result<(Vec<PathBuf>, Vec<PathBuf>), String> {
+    // a disk that's too full gets nothing of it
+    crate::space::room(src, dest, &|_| false, crate::space::KEEP_LITTLE)?;
+
     // pass 0: list files and folders (so empty folders survive)
     let mut files: Vec<PathBuf> = Vec::new();
     let mut dirs: Vec<PathBuf> = Vec::new();
@@ -1915,7 +1936,7 @@ mod tests {
         setup(&conn, &sd_root.to_string_lossy(), "TestDisk").unwrap();
         assert_eq!(mark_rewards(&conn, &[rid], SdMode::Move, true).unwrap(), 1);
         let thumbs = base.join("thumbs");
-        let sum = transport(&conn, &thumbs, None, &|_, _, _| {}).unwrap();
+        let sum = transport(&conn, &thumbs, None, false, &|_, _, _| {}).unwrap();
         assert_eq!((sum.moved, sum.failed), (1, 0), "{:?}", sum.errors);
 
         let sd_folder: String = conn
@@ -2033,7 +2054,7 @@ mod tests {
         let thumbs = base.join("thumbs");
         setup(&conn, &base.join("sd").to_string_lossy(), "TestDisk").unwrap();
         mark_rewards(&conn, &[rid], SdMode::Move, true).unwrap();
-        let sum = transport(&conn, &thumbs, None, &|_, _, _| {}).unwrap();
+        let sum = transport(&conn, &thumbs, None, false, &|_, _, _| {}).unwrap();
         assert_eq!((sum.moved, sum.failed), (1, 0), "{:?}", sum.errors);
 
         let cover: String = conn
@@ -2100,7 +2121,7 @@ mod tests {
         let thumbs = base.join("thumbs");
         setup(&conn, &base.join("sd").to_string_lossy(), "TestDisk").unwrap();
         mark_rewards(&conn, &[pack_id], SdMode::Move, true).unwrap();
-        let sum = transport(&conn, &thumbs, None, &|_, _, _| {}).unwrap();
+        let sum = transport(&conn, &thumbs, None, false, &|_, _, _| {}).unwrap();
         assert_eq!(sum.failed, 0, "{:?}", sum.errors);
         let cover = |id: i64| -> String {
             conn.query_row("SELECT cover_image FROM rewards WHERE id=?1", params![id], |r| r.get(0))
@@ -2173,7 +2194,7 @@ mod tests {
         db::set_setting(&conn, PREVIEWS_SETTING, "0").unwrap();
         assert!(!keep_previews(&conn));
         mark_rewards(&conn, &[rid], SdMode::Move, true).unwrap();
-        let sum = transport(&conn, &thumbs, None, &|_, _, _| {}).unwrap();
+        let sum = transport(&conn, &thumbs, None, false, &|_, _, _| {}).unwrap();
         assert_eq!((sum.moved, sum.failed), (1, 0), "{:?}", sum.errors);
 
         let cover: String = conn
@@ -2368,6 +2389,61 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
+    /// a full disk says so before the first reward, both ways
+    #[test]
+    fn a_full_disk_takes_nothing() {
+        let _job = job_lock();
+        let base = tmp("full");
+        let conn = db::open(&base.join("t.db")).unwrap();
+        let pid = seed_period(&conn);
+        let a = base.join("local").join("Nora").join("A");
+        let b = base.join("local").join("Nora").join("B");
+        let ra = seed_reward(&conn, pid, &a, &[("01.jpg", &[1; 3000])]);
+        let rb = seed_reward(&conn, pid, &b, &[("01.jpg", &[2; 2000])]);
+        let sd_root = base.join("sd");
+        setup(&conn, &sd_root.to_string_lossy(), "TestDisk").unwrap();
+        let little = crate::space::KEEP_LITTLE;
+        let disk = |dir: &Path, n: u64| crate::space::FAKE.with(|f| *f.borrow_mut() = Some((dir.to_path_buf(), n)));
+        let full = |r: Result<SdSummary, String>| r.err().is_some_and(|e| e.starts_with("Not enough space on "));
+        let copies = |root: &Path| {
+            walkdir::WalkDir::new(root).into_iter().flatten().filter(|e| e.file_name() == "01.jpg").count()
+        };
+
+        // a move and a backup right after it: both have to fit, or none starts
+        mark_rewards(&conn, &[ra], SdMode::Move, true).unwrap();
+        mark_rewards(&conn, &[rb], SdMode::Backup, true).unwrap();
+        disk(&sd_root, little + 4999);
+        assert!(full(transport(&conn, &base.join("thumbs"), None, true, &|_, _, _| {})));
+        assert_eq!(copies(&sd_root), 0);
+        assert!(a.join("01.jpg").exists());
+        assert_eq!(cols(&conn, ra).1, SdMode::Move.value(), "still queued");
+        disk(&sd_root, little + 1999);
+        assert!(full(backup(&conn, &|_, _, _| {})));
+        assert_eq!(copies(&sd_root), 0);
+
+        // enough room: it runs
+        disk(&sd_root, little + 5000);
+        let sum = transport(&conn, &base.join("thumbs"), None, true, &|_, _, _| {}).unwrap();
+        assert_eq!((sum.moved, sum.failed), (1, 0), "{:?}", sum.errors);
+        disk(&sd_root, little + 2000);
+        assert_eq!(backup(&conn, &|_, _, _| {}).unwrap().moved, 1);
+        // a backup that's up to date runs on a full disk
+        mark_rewards(&conn, &[rb], SdMode::Backup, true).unwrap();
+        disk(&sd_root, 0);
+        let sum = backup(&conn, &|_, _, _| {}).unwrap();
+        assert_eq!((sum.moved, sum.failed), (1, 0), "{:?}", sum.errors);
+
+        // and back: the PC's drive
+        let local = base.join("local");
+        disk(&local, crate::space::KEEP_FREE + 2999);
+        assert!(full(bring_back(&conn, None, &|_, _, _| {})));
+        assert!(!a.join("01.jpg").exists());
+        disk(&local, crate::space::KEEP_FREE + 3000);
+        assert_eq!(bring_back(&conn, None, &|_, _, _| {}).unwrap().moved, 1);
+        assert!(a.join("01.jpg").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     /// stopping only happens BETWEEN rewards: the current one finishes, the rest stays
     /// queued
     #[test]
@@ -2461,7 +2537,7 @@ mod tests {
         assert!(Path::new(&bkp).exists());
 
         mark_rewards(&conn, &[rid], SdMode::Move, true).unwrap();
-        let sum = transport(&conn, &base.join("thumbs"), None, &|_, _, _| {}).unwrap();
+        let sum = transport(&conn, &base.join("thumbs"), None, false, &|_, _, _| {}).unwrap();
         assert_eq!((sum.moved, sum.failed), (1, 0), "{:?}", sum.errors);
 
         let (vol, marked, bk, bkp2) = cols(&conn, rid);
@@ -2494,7 +2570,7 @@ mod tests {
 
         // child moves to the disk, then the parent gets backed up
         mark_rewards(&conn, &[cr], SdMode::Move, true).unwrap();
-        transport(&conn, &base.join("thumbs"), None, &|_, _, _| {}).unwrap();
+        transport(&conn, &base.join("thumbs"), None, false, &|_, _, _| {}).unwrap();
         let child_sd: String = conn
             .query_row("SELECT folder_path FROM rewards WHERE id=?1", params![cr], |r| r.get(0))
             .unwrap();

@@ -20,6 +20,7 @@ import {
   PlayCircle,
   Wand2,
   Lock,
+  LockKeyhole,
   ArrowDownUp,
   HelpCircle,
   ArrowLeftRight,
@@ -61,6 +62,7 @@ import { setWallpaper as setAppWallpaper } from "@/lib/wallpaper";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { queuePrefsSync } from "@/lib/prefs";
 import {
+  setLockPicture,
   setWallpaper,
   setWallpaperSlideshow,
   setImageWallpaperFav,
@@ -1733,6 +1735,15 @@ export function ImageViewer({
       label: t("Lock screen"),
       icon: <Lock className="h-4 w-4" />,
       onClick: () => void setSetting("lock_bg", path),
+    });
+    // Windows' lock screen (Win+L)
+    children.push({
+      label: t("Windows lock screen"),
+      icon: <LockKeyhole className="h-4 w-4" />,
+      onClick: () =>
+        void setLockPicture(path)
+          .then(() => showToast({ tone: "success", title: t("Lock screen set") }))
+          .catch((e) => showToast({ tone: "error", title: t("Couldn’t change the lock screen"), detail: `${e}` })),
     });
     // the OS desktop background, with a selection it becomes a slideshow
     const selStills = selectedStillSrcs();

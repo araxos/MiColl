@@ -861,6 +861,8 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (e) {
       console.error("stage files failed", e);
+      showToast({ tone: "error", title: t("Couldn’t add files"), detail: `${e}` });
+      return;
     }
     if (!source) return;
     await beginImport({
@@ -1029,6 +1031,15 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
     opts: { styles: api.StyleChoice[]; keepArchive?: boolean },
   ) => {
     setBusy(true);
+    // a collection drive that's too full says so before anything is written, the review
+    // stays open to try again
+    try {
+      await api.importRoom(rewards);
+    } catch (e) {
+      showToast({ tone: "error", title: t("Import not started"), detail: `${e}` });
+      setBusy(false);
+      return;
+    }
     // the steps for the loading bar under the review (encrypting only when it's on)
     const encrypting = await api
       .encryptionState()

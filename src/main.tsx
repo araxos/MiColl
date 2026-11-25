@@ -26,8 +26,12 @@ function splashPainted(): Promise<void> {
   });
 }
 
+// a screen saver window has its own small entry, without the app and the splash
+const entry = () =>
+  new URLSearchParams(window.location.search).has("saver") ? import("./saver") : import("./boot");
+
 void splashPainted()
-  .then(() => import("./boot"))
+  .then(entry)
   .catch((e) => {
     // app failed to load, don't leave the logo on a blank page
     console.error("MiColl failed to start:", e);

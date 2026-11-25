@@ -111,7 +111,8 @@ impl Copied {
 /// Copy the src tree into dst. Never overwrites: a file that's already at the destination
 /// only counts when it's byte for byte the same. On any problem (unreadable folder, failed
 /// or short copy, a different file in the way) what this call made is removed again and
-/// the error says why. skip leaves paths out (and everything under them).
+/// the error says why. skip leaves paths out (and everything under them). A drive that's
+/// too full is refused before the first file.
 pub fn copy_tree_checked(src: &Path, dst: &Path, skip: &dyn Fn(&Path) -> bool) -> Result<Copied, String> {
     copy_tree_with(src, dst, skip, &mut |_| true)
 }
@@ -124,6 +125,7 @@ pub fn copy_tree_with(
     skip: &dyn Fn(&Path) -> bool,
     tick: &mut dyn FnMut(u64) -> bool,
 ) -> Result<Copied, String> {
+    crate::space::room(src, dst, skip, crate::space::KEEP_LITTLE)?;
     let mut out = Copied { arrived: Arrived::new(), files: Vec::new(), dirs: Vec::new() };
     let res = (|| -> Result<(), String> {
         for entry in WalkDir::new(src).into_iter().filter_entry(|e| !skip(e.path())) {
@@ -245,6 +247,21 @@ mod tests {
         // the existing file is untouched and a.png (made by the copy) is gone again
         assert_eq!(std::fs::read(b.join("dst/z.png")).unwrap(), b"old one");
         assert!(!b.join("dst/a.png").exists());
+        let _ = std::fs::remove_dir_all(&b);
+    }
+
+    #[test]
+    fn a_full_drive_is_refused_before_anything_is_written() {
+        let b = base("full");
+        put(&b.join("src/a.png"), &[1; 2000]);
+        std::fs::create_dir_all(b.join("disk")).unwrap();
+        let free = |n: u64| crate::space::FAKE.with(|f| *f.borrow_mut() = Some((b.join("disk"), n)));
+        free(crate::space::KEEP_LITTLE + 1999);
+        let err = copy_tree_checked(&b.join("src"), &b.join("disk/dst"), &|_| false).err().unwrap();
+        assert!(err.starts_with("Not enough space on "), "{err}");
+        assert!(!b.join("disk/dst").exists());
+        free(crate::space::KEEP_LITTLE + 2000);
+        assert!(copy_tree_checked(&b.join("src"), &b.join("disk/dst"), &|_| false).is_ok());
         let _ = std::fs::remove_dir_all(&b);
     }
 

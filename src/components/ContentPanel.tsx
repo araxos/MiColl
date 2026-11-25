@@ -134,7 +134,7 @@ export function ContentPanel() {
           <div>
             <div className="text-sm font-medium text-zinc-100">{t("Double-click Home to switch")}</div>
             <div className="mt-0.5 text-xs text-zinc-500">
-              {t("Double-click the Home icon (top-left) to flip modes fast.")}
+              {t("Double-click “Dashboard” (top left) to flip modes fast.")}
             </div>
           </div>
           <Switch

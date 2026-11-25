@@ -8,6 +8,9 @@ import { setSetting } from "@/api/library";
 /** NeedsReviewBanner "don't ask again" key (the X alone only hides it for this session). */
 export const NEEDS_REVIEW_DISMISSED = "micoll.needsReviewDismissed";
 
+/** Wallpaper Hub: the hint about keeping MiColl running ("off" = dismissed). */
+export const KEEP_RUNNING_HINT = "hub_keep_running_hint";
+
 /** localStorage keys that hide a warning. Removed on reset. */
 const WARNING_LS_KEYS = [
   "micoll.quickImportWarned", // ImportReview: quick-import warning
@@ -21,6 +24,7 @@ const WARNING_LS_KEYS = [
 const WARNING_SETTINGS: Record<string, string> = {
   managed_move_ask: "true", // actions.tsx: managed-library move notice ("false" hides it)
   merge_keep_folder: "ask", // RewardGrid: merge keep-folder vs. files ("true"/"false" remembers it)
+  [KEEP_RUNNING_HINT]: "on", // HubExtra: lock screen / screen saver only run while MiColl does
   delete_ask: "true", // actions.tsx: delete confirm dialog ("false" hides it)
   delete_mode: "micoll", // …and its remembered answer — back to MiColl-only, never "disk"
 };

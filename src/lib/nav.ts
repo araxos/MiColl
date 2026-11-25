@@ -44,3 +44,24 @@ export function useUpNavigate() {
     [navigate],
   );
 }
+
+/**
+ * From the Wallpaper Hub back to where the dashboard side was left (grid, creator, month,
+ * wishlist...). Goes back to that entry, so its scroll and its own back button still work.
+ * Settings doesn't count, the page before it does.
+ */
+export function useReturnToDashboard() {
+  const navigate = useNavigate();
+  return useCallback(() => {
+    const idx = currentIdx() ?? 0;
+    for (let i = idx - 1; i >= 0; i--) {
+      const path = pathByIdx.get(i);
+      // not known (the window was reloaded)
+      if (path == null) break;
+      if (path.startsWith("/wallpapers") || path.startsWith("/settings")) continue;
+      navigate(i - idx);
+      return;
+    }
+    navigate("/");
+  }, [navigate]);
+}

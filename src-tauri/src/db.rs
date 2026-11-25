@@ -764,7 +764,6 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let _ = conn.execute("ALTER TABLE periods ADD COLUMN access TEXT", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN access TEXT", []);
     let _ = conn.execute("ALTER TABLE artists ADD COLUMN updated_at TEXT", []);
-    let _ = conn.execute("ALTER TABLE images ADD COLUMN phash INTEGER", []);
     // the file's size on disk (as stored: an encrypted one with its overhead), so the
     // import check needn't open library files. Filled when indexing, else on first need
     let _ = conn.execute("ALTER TABLE images ADD COLUMN size INTEGER", []);
@@ -789,6 +788,8 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     // (saved, because the local folder can move later), sd_backup_at = date.
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN sd_backup TEXT", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN sd_backup_path TEXT", []);
+    // Wallpaper Hub: the places a slideshow isn't shown for ("desktop,lock,saver")
+    let _ = conn.execute("ALTER TABLE wall_sets ADD COLUMN hidden_in TEXT NOT NULL DEFAULT ''", []);
     // Wallpaper Hub: when a slideshow last got pictures (the right-click menu's "recent")
     let _ = conn.execute("ALTER TABLE wall_sets ADD COLUMN last_added TEXT", []);
     let _ = conn.execute("ALTER TABLE rewards ADD COLUMN sd_backup_at TEXT", []);

@@ -12,11 +12,14 @@ mod edit;
 mod indexer;
 mod organize;
 mod portable_update;
+mod prints;
 mod props;
 mod diffusion;
+mod screensaver;
 mod sd;
 mod signing;
 mod single_instance;
+mod space;
 mod template;
 mod thumbs;
 mod transfer;
@@ -29,6 +32,7 @@ mod wm_shared;
 mod wm_single;
 mod history;
 mod inbox;
+mod lockscreen;
 mod siteicon;
 mod winstate;
 mod wshare;
@@ -2500,12 +2504,25 @@ async fn fill_reward(
     };
     let (added, skipped, failed, arrived, cancelled) = tauri::async_runtime::spawn_blocking(
         move || -> Result<(u32, u32, u32, transfer::Arrived, bool), String> {
+            let (items, unreadable) = collect_fill_items(&paths, &keep_folders.unwrap_or_default());
+            // the drive has room for it (a replaced file is there twice until it's whole)
+            let mut plan = space::Plan::default();
+            plan.write(
+                &target2,
+                items
+                    .iter()
+                    .filter(|(_, rel)| resolutions.get(&rel_key(rel)).map(String::as_str) != Some("skip"))
+                    .map(|(src, _)| std::fs::metadata(src).map(|m| m.len()).unwrap_or(0)),
+            );
+            if key.is_some() {
+                plan.encrypted();
+            }
+            plan.fits(space::KEEP_FREE)?;
             // the folder may be new (a missing reward): a cancel removes it again if empty
             let made_target = !target2.exists();
             std::fs::create_dir_all(&target2).map_err(map_err)?;
             let mut added = 0u32;
             let mut skipped = 0u32;
-            let (items, unreadable) = collect_fill_items(&paths, &keep_folders.unwrap_or_default());
             let mut failed = unreadable;
             // every source file that was copied and checked at the destination
             let mut arrived = transfer::Arrived::new();
@@ -4898,6 +4915,9 @@ async fn stage_files_for_import(
         let dir = std::env::temp_dir()
             .join(format!("micoll-import-{stamp}"))
             .join(&reward);
+        let mut plan = space::Plan::default();
+        plan.write(&dir, files.iter().map(|f| std::fs::metadata(f).map(|m| m.len()).unwrap_or(0)));
+        plan.fits(space::KEEP_FREE)?;
         std::fs::create_dir_all(&dir).map_err(map_err)?;
         for f in &files {
             if let Some(fname) = f.file_name() {
@@ -5250,6 +5270,24 @@ struct StyleChoice {
     platform: Option<String>,
 }
 
+/// Before an import is committed: what it brings into the managed collection fits on that
+/// drive (Organize moves it there right after). Err says what's missing.
+#[tauri::command]
+async fn import_room(db: State<'_, Db>, dek: State<'_, DekState>, folders: Vec<String>) -> Result<(), String> {
+    let mut plan = {
+        let conn = db.conn();
+        if !managed_collection(&conn) {
+            return Ok(());
+        }
+        let root = db::get_setting(&conn, "collection_root").map_err(map_err)?.unwrap_or_default();
+        organize::plan(&conn, &root, &folders)?
+    };
+    if session_key(&dek).is_some() {
+        plan.encrypted();
+    }
+    plan.fits(space::KEEP_FREE)
+}
+
 /// Commit an import: write the rewards and remember the source.
 #[tauri::command]
 fn commit_import(
@@ -5563,6 +5601,7 @@ fn move_tree_with(
     let (mut files, mut bytes) = (0u64, 0u64);
     let mut last = std::time::Instant::now();
     report("copy", 0, total_files, 0, total_bytes);
+    space::room(src, dst, &|_| false, space::KEEP_FREE)?;
     let copied = transfer::copy_tree_with(src, dst, &|_| false, &mut |n| {
         files += 1;
         bytes += n;
@@ -6971,6 +7010,10 @@ fn extract_archive_blocking(
             cache.join("extracted").join(nanos.to_string()).join(sanitize_name(stem))
         }
     };
+    // (an archive that can't be listed says why when it's unpacked)
+    let mut plan = space::Plan::default();
+    plan.write(&dest, unpacked_sizes(p).into_iter());
+    plan.fits(space::KEEP_FREE)?;
     if let Err(e) = std::fs::create_dir_all(&dest) {
         if beside.is_some() {
             return extract_archive_blocking(cache, path, None);
@@ -6999,6 +7042,26 @@ fn extract_archive_blocking(
         remember_staged(&dest, Staged::Unpacked);
     }
     Ok(descend_single(&dest).to_string_lossy().to_string())
+}
+
+/// The sizes of the files in an archive, empty when it can't be listed.
+fn unpacked_sizes(path: &std::path::Path) -> Vec<u64> {
+    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let list = || -> Option<Vec<u64>> {
+        Some(match ext.as_str() {
+            "zip" => {
+                let mut zip = zip::ZipArchive::new(std::fs::File::open(path).ok()?).ok()?;
+                (0..zip.len()).filter_map(|i| zip.by_index_raw(i).ok().map(|e| e.size())).collect()
+            }
+            "rar" => {
+                let list = unrar::Archive::new(path).open_for_listing().ok()?;
+                list.flatten().filter(|e| e.is_file()).map(|e| e.unpacked_size).collect()
+            }
+            "7z" => sevenz_rust::Archive::open(path).ok()?.files.iter().map(|f| f.size()).collect(),
+            _ => return None,
+        })
+    };
+    list().unwrap_or_default()
 }
 
 fn extract_zip(path: &std::path::Path, dest: &std::path::Path) -> Result<(), String> {
@@ -7681,8 +7744,12 @@ fn list_wall_sets(db: State<Db>) -> Result<Vec<wallsets::WallSet>, String> {
     let conn = db.conn();
     let mut sets = wallsets::list(&conn).map_err(map_err)?;
     let active = active_wall_set(&conn);
+    let lock = lockscreen::running(&conn);
+    let saver = screensaver::options(&conn).set;
     for s in &mut sets {
+        s.saver = Some(s.id) == saver;
         s.active = Some(s.id) == active;
+        s.lock = Some(s.id) == lock;
     }
     Ok(sets)
 }
@@ -7718,6 +7785,7 @@ fn refresh_if_active(conn: &rusqlite::Connection, id: i64) -> Result<(), String>
 
 #[tauri::command]
 fn update_wall_set(
+    app: AppHandle,
     db: State<Db>,
     id: i64,
     name: Option<String>,
@@ -7730,7 +7798,22 @@ fn update_wall_set(
     if minutes.is_some() || fit.is_some() || shuffle.is_some() {
         refresh_if_active(&conn, id)?;
     }
+    // on the lock screen only the fit shows right away, the rest with the next picture
+    if fit.is_some() && lockscreen::running(&conn) == Some(id) {
+        std::thread::spawn(move || {
+            if let Err(e) = lockscreen::change(&app, lockscreen::Step::Same) {
+                crate::elog!("micoll: lock screen: {e}");
+            }
+        });
+    }
     Ok(())
+}
+
+/// Where the hub shows a slideshow (wallsets::show_in).
+#[tauri::command]
+fn show_wall_set_in(db: State<Db>, id: i64, place: String, how: String) -> Result<(), String> {
+    let conn = db.conn();
+    wallsets::show_in(&conn, id, &place, &how)
 }
 
 /// Delete a slideshow (no file is touched). Running, the desktop keeps showing it.
@@ -7739,6 +7822,13 @@ fn delete_wall_set(db: State<Db>, id: i64) -> Result<(), String> {
     let conn = db.conn();
     if db::get_setting(&conn, wallsets::ACTIVE_KEY).ok().flatten().as_deref() == Some(id.to_string().as_str()) {
         let _ = db::set_setting(&conn, wallsets::ACTIVE_KEY, "");
+    }
+    if db::get_setting(&conn, lockscreen::ACTIVE_KEY).ok().flatten().as_deref() == Some(id.to_string().as_str()) {
+        let _ = lockscreen::stop(&conn);
+    }
+    let saver = screensaver::options(&conn);
+    if saver.set == Some(id) {
+        let _ = screensaver::save(&conn, screensaver::Options { set: None, ..saver });
     }
     wallsets::delete(&conn, id).map_err(map_err)
 }
@@ -7876,6 +7966,86 @@ fn wall_set_stop(db: State<Db>) -> Result<(), String> {
     }
     let conn = db.conn();
     db::set_setting(&conn, wallsets::ACTIVE_KEY, "").map_err(map_err)
+}
+
+/// Run a hub slideshow on Windows' lock screen (MiColl changes the picture, lockscreen.rs).
+#[tauri::command]
+async fn lock_set_start(app: AppHandle, id: i64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || lockscreen::change(&app, lockscreen::Step::Start(id)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// One picture on Windows' lock screen (it ends a slideshow there).
+#[tauri::command]
+async fn set_lock_picture(app: AppHandle, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || lockscreen::picture(&app, &path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// The next picture on the lock screen.
+#[tauri::command]
+async fn lock_set_next(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || lockscreen::change(&app, lockscreen::Step::Next))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// End the lock screen's slideshow, the picture there stays.
+#[tauri::command]
+fn lock_set_stop(db: State<Db>) -> Result<(), String> {
+    let conn = db.conn();
+    lockscreen::stop(&conn)
+}
+
+/// The screen saver's options, and whether Windows has one of its own turned on.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SaverState {
+    #[serde(flatten)]
+    options: screensaver::Options,
+    windows_has_own: bool,
+}
+
+#[tauri::command]
+fn saver_state(db: State<Db>) -> Result<SaverState, String> {
+    let conn = db.conn();
+    Ok(SaverState { options: screensaver::options(&conn), windows_has_own: screensaver::has_own() })
+}
+
+#[tauri::command]
+fn set_saver(db: State<Db>, options: screensaver::Options) -> Result<(), String> {
+    let conn = db.conn();
+    screensaver::save(&conn, options)
+}
+
+/// Windows' own screen saver settings.
+#[tauri::command]
+fn open_windows_saver() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("control.exe").arg("desk.cpl,,@screensaver").spawn().map_err(map_err)?;
+    Ok(())
+}
+
+/// Show it now.
+#[tauri::command]
+async fn saver_preview(app: AppHandle, id: i64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || screensaver::start(&app, id, true))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// What this screen saver window shows (None: it's over already).
+#[tauri::command]
+fn saver_frames(window: tauri::WebviewWindow) -> Option<screensaver::Frames> {
+    screensaver::frames(window.label())
+}
+
+/// It has its first picture.
+#[tauri::command]
+fn saver_ready(window: tauri::WebviewWindow) {
+    screensaver::ready(window.label());
 }
 
 /// The files of a user collection (the hub takes them over into a slideshow).
@@ -9388,10 +9558,17 @@ struct TrayInfo {
     labels: Option<TrayLabels>,
     locked: bool,
     show_recent: bool,
+    /// SFW mode (safe mode is one too), None = the window hasn't said yet.
+    sfw: Option<bool>,
 }
 
 static TRAY_INFO: std::sync::Mutex<TrayInfo> =
-    std::sync::Mutex::new(TrayInfo { labels: None, locked: true, show_recent: false });
+    std::sync::Mutex::new(TrayInfo { labels: None, locked: true, show_recent: false, sfw: None });
+
+/// Creators tagged nsfw aren't shown right now. None = not known yet.
+fn hides_nsfw() -> Option<bool> {
+    TRAY_INFO.lock().ok()?.sfw
+}
 /// Setting with the recently opened creators (ids, newest first).
 const RECENT_CREATORS_KEY: &str = "tray_recent_creators";
 const RECENT_CREATORS: usize = 5;
@@ -9474,11 +9651,12 @@ fn refresh_tray(app: &AppHandle) {
 
 /// The window's language and lock state, for the tray menu (TraySync.tsx).
 #[tauri::command]
-fn sync_tray(app: AppHandle, labels: TrayLabels, locked: bool, show_recent: bool) {
+fn sync_tray(app: AppHandle, labels: TrayLabels, locked: bool, show_recent: bool, sfw: bool) {
     if let Ok(mut info) = TRAY_INFO.lock() {
         info.labels = Some(labels);
         info.locked = locked;
         info.show_recent = show_recent;
+        info.sfw = Some(sfw);
     }
     refresh_tray(&app);
 }
@@ -9965,6 +10143,9 @@ async fn enable_encryption(
     };
     // load the DEK so reads decrypt during the sweep
     *dek_state.lock().map_err(map_err)? = Some(crypto::Dek::from_bytes(dek_raw));
+    if let Ok(cache) = app_cache(&app) {
+        prints::forget(&cache);
+    }
     run_sweep(&app, dek_raw, files, true).await?;
     Ok(recovery)
 }
@@ -12372,12 +12553,14 @@ async fn sd_transport(
     app: AppHandle,
     db: State<'_, Db>,
     dek: State<'_, DekState>,
+    // the backup queue runs right after: both have to fit on the disk
+    then_backup: Option<bool>,
 ) -> Result<sd::SdSummary, String> {
     let _work = busy::hold("MiSD transport");
     let thumbs_dir = app_cache(&app)?.join("thumbs");
     let key = session_key(&dek);
     let conn = db.conn();
-    sd::transport(&conn, &thumbs_dir, key, &sd_progress(&app, "transport"))
+    sd::transport(&conn, &thumbs_dir, key, then_backup == Some(true), &sd_progress(&app, "transport"))
 }
 
 /// Bring rewards back from the disk (same check). reward_ids None = all.
@@ -12771,10 +12954,26 @@ fn cancel_duplicate_scan(scan_id: u64) {
     );
 }
 
+/// A picture's fingerprint and pixel size for the similar scan. None = it can't be read now
+/// (nothing is kept, the next scan tries again).
+fn look_at(thumb_dir: &std::path::Path, path: &str, key: Option<[u8; 32]>) -> Option<prints::Seen> {
+    // hash the cached thumbnail instead of the original (same result, much faster)
+    let print = match thumbs::thumb_jpeg(thumb_dir, path, 256, key).ok().and_then(|t| dup::fingerprint(&t)) {
+        Some(p) => Some(p),
+        None => dup::fingerprint_keyed(std::path::Path::new(path), key)?,
+    };
+    let (width, height) = match &print {
+        Some(_) => thumbs::dimensions(path, key).unwrap_or((0, 0)),
+        None => (0, 0),
+    };
+    Some(prints::Seen { print, width, height })
+}
+
 /// Find groups of duplicate images, optionally for one artist / platform / period.
 /// Biggest groups first.
 /// Without similar: identical bytes (only same-size files are hashed, fast).
-/// With similar: by appearance (finds resized copies, slower, can be wrong).
+/// With similar: by appearance (finds resized copies, can be wrong). What was worked out
+/// per picture is kept (prints.rs), a scan only looks at new and changed ones.
 /// scan_id: the window's id for this run, for the progress events and to stop it.
 #[tauri::command]
 async fn find_duplicates(
@@ -12802,9 +13001,11 @@ async fn find_duplicates(
     };
     // every image a reward has (also outside the scope): "12 of 14 have copies"
     let mut per_reward: HashMap<i64, u32> = HashMap::new();
+    let mut library: std::collections::HashSet<String> = Default::default();
     for r in &rows {
         if dup::is_image(&r.file_path) {
             *per_reward.entry(r.reward_id).or_default() += 1;
+            library.insert(r.file_path.clone());
         }
     }
     // images in the scope (by id)
@@ -12858,12 +13059,14 @@ async fn find_duplicates(
 
     // ---- similar mode: grouped by how they look ----
     if similar.unwrap_or(false) {
-        let thumb_dir = app_cache(&app)?.join("thumbs");
+        let cache = app_cache(&app)?;
+        let thumb_dir = cache.join("thumbs");
         let work: Vec<(i64, String)> =
             candidates.iter().map(|r| (r.id, r.file_path.clone())).collect();
         type SimMeta = (dup::Fingerprint, u64, u32, u32); // fingerprint, bytes, w, h
         let measured = tauri::async_runtime::spawn_blocking(move || {
             let total = work.len() as u64;
+            let mut store = prints::Store::open(&cache, key);
             let mut out: Vec<(i64, SimMeta)> = Vec::new();
             for (i, (id, p)) in work.into_iter().enumerate() {
                 if !prog.live() {
@@ -12873,20 +13076,28 @@ async fn find_duplicates(
                 // unreadable files are skipped (an unplugged MiSD file would be hashed from
                 // its small preview and marked for deletion)
                 let Ok(md) = std::fs::metadata(&p) else { continue };
-                // hash the cached thumbnail instead of the original (same result, much
-                // faster)
-                let thumb = thumbs::thumb_jpeg(&thumb_dir, &p, 256, key).ok();
-                let print = match thumb {
-                    Some(t) => dup::fingerprint(&t),
-                    None => dup::fingerprint_keyed(std::path::Path::new(&p), key),
+                let file = prints::File::new(&p, &md);
+                let seen = match store.as_mut().and_then(|s| s.known(&file)) {
+                    Some(seen) => seen,
+                    None => {
+                        let Some(seen) = look_at(&thumb_dir, &p, key) else { continue };
+                        // (a size that couldn't be read is asked again next time)
+                        if let Some(s) = store.as_mut().filter(|_| seen.print.is_none() || seen.width > 0) {
+                            s.keep(file, &seen);
+                        }
+                        seen
+                    }
                 };
-                let Some(print) = print else { continue };
+                let Some(print) = seen.print else { continue };
                 if dup::is_featureless(print.hash) {
                     continue;
                 }
-                let (w, h) = thumbs::dimensions(&p, key).unwrap_or((0, 0));
-                out.push((id, (print, md.len(), w, h)));
+                out.push((id, (print, md.len(), seen.width, seen.height)));
             }
+            if let Some(s) = store.as_mut() {
+                s.prune(&library);
+            }
+            drop(store);
             prog.tick("look", total, total);
 
             // union-find so a chain of near copies (A=B, B=C) becomes one group
@@ -13179,6 +13390,8 @@ pub fn run() {
             // land in it too
             applog::init(&dir, setting_is_true(&dir.join("micoll.db"), applog::SETTING_KEY));
             let _ = SLIDESHOW_STAGE.set(dir.join("wallpaper-slideshow"));
+            lockscreen::keep(app.handle().clone(), &dir);
+            screensaver::keep(app.handle().clone());
             if applog::enabled() {
                 applog::write(
                     "INFO",
@@ -13409,6 +13622,7 @@ pub fn run() {
             list_wall_sets,
             create_wall_set,
             update_wall_set,
+            show_wall_set_in,
             delete_wall_set,
             wall_set_items,
             wall_set_images,
@@ -13419,6 +13633,16 @@ pub fn run() {
             activate_wall_set,
             wall_set_next,
             wall_set_stop,
+            lock_set_start,
+            set_lock_picture,
+            lock_set_next,
+            lock_set_stop,
+            saver_state,
+            set_saver,
+            open_windows_saver,
+            saver_preview,
+            saver_frames,
+            saver_ready,
             collection_files,
             set_wallpaper_slideshow,
             set_artist_wallpaper_fav,
@@ -13440,6 +13664,7 @@ pub fn run() {
             analyze_import,
             import_clashes,
             import_known,
+            import_room,
             commit_import,
             organize_collection,
             clear_import_source,
@@ -13942,6 +14167,49 @@ mod tests {
         );
         assert_eq!(common_parent(&[a, elsewhere]), None, "two folders, no answer");
         assert_eq!(common_parent(&[]), None);
+    }
+
+    /// An archive's unpacked size is known before it's unpacked, and a drive that's too
+    /// full isn't filled half.
+    #[test]
+    fn an_archive_is_only_unpacked_where_it_fits() {
+        let base = std::env::temp_dir().join(format!("micoll_unpackroom_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("cache")).unwrap();
+        std::fs::create_dir_all(base.join("in/sub")).unwrap();
+        std::fs::write(base.join("in/a.bin"), vec![0u8; 50_000]).unwrap();
+        std::fs::write(base.join("in/sub/b.bin"), vec![1u8; 30_000]).unwrap();
+        let zip_at = base.join("pack.zip");
+        {
+            use std::io::Write;
+            let mut z = zip::ZipWriter::new(std::fs::File::create(&zip_at).unwrap());
+            let o = zip::write::SimpleFileOptions::default();
+            for (name, data) in [("a.bin", vec![0u8; 50_000]), ("sub/b.bin", vec![1u8; 30_000])] {
+                z.start_file(name, o).unwrap();
+                z.write_all(&data).unwrap();
+            }
+            z.finish().unwrap();
+        }
+        let seven_at = base.join("pack.7z");
+        sevenz_rust::compress_to_path(base.join("in"), &seven_at).unwrap();
+        for at in [&zip_at, &seven_at] {
+            // (packed they're tiny)
+            assert!(std::fs::metadata(at).unwrap().len() < 10_000);
+            assert_eq!(unpacked_sizes(at).iter().sum::<u64>(), 80_000, "{}", at.display());
+            let cache = base.join("cache");
+            let free = |n: u64| space::FAKE.with(|f| *f.borrow_mut() = Some((cache.clone(), n)));
+            free(space::KEEP_FREE + 79_999);
+            let err = extract_archive_blocking(&cache, &at.to_string_lossy(), None).unwrap_err();
+            assert!(err.starts_with("Not enough space on "), "{err}");
+            assert!(!cache.join("extracted").exists(), "nothing was started");
+            free(space::KEEP_FREE + 80_000);
+            let dir = extract_archive_blocking(&cache, &at.to_string_lossy(), None).unwrap();
+            assert!(std::path::Path::new(&dir).exists());
+            std::fs::remove_dir_all(cache.join("extracted")).unwrap();
+        }
+        // no archive at all: says nothing here
+        assert!(unpacked_sizes(&base.join("in/a.bin")).is_empty());
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// staging next to the source MOVES the files, and if one fails nothing changes

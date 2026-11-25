@@ -135,6 +135,7 @@ import { autoAppIcon, barred, listedAppIcons, setAppIconChoice, useAppIconChoice
 import { useConcise, setConcise } from "@/lib/concise";
 import { resetAllWarnings } from "@/lib/warnings";
 import { useUpNavigate } from "@/lib/nav";
+import { spaceText } from "@/lib/space";
 import { useLocation } from "react-router-dom";
 
 /**
@@ -943,6 +944,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
     setBusy(true);
     setStatus(null);
     try {
+      await api.importRoom(rewards);
       const s = await api.commitImport(rewards, source, opts.styles);
       if (managed && collectionRoot) {
         // managed mode: move the new content into the collection and remove the old folder
@@ -2387,7 +2389,7 @@ export function SettingsPage({ onLock }: { onLock: () => void }) {
               </Button>
             </div>
 
-            {status && <p className="mt-3 text-sm text-brand-300">{status}</p>}
+            {status && <p className="mt-3 text-sm text-brand-300">{spaceText(status, tf)}</p>}
 
             <div className={cn("mt-6 flex items-center justify-between gap-3", cardInner)}>
               <div className="min-w-0">

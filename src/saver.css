@@ -1,0 +1,244 @@
+/* The screen saver windows (saver.tsx). They don't load index.css, so everything they need
+   is here, with the fonts of the theme's big titles for the clock. */
+@import "@fontsource/exo-2/500.css";
+@import "@fontsource/exo-2/600.css";
+@import "@fontsource/orbitron/500.css";
+@import "@fontsource/orbitron/700.css";
+@import "@fontsource/zen-maru-gothic/latin-500.css";
+@import "@fontsource/kaisei-decol/latin-700.css";
+@import "@fontsource/sora/latin-500.css";
+@font-face {
+  font-family: "Pyre Display";
+  src: url("./assets/fonts/PyreDisplay.woff2?v=3") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Iri Unbounded";
+  src: url("./assets/fonts/iri/iri-unbounded-narrow-400.woff2?v=1") format("woff2");
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Iri Unbounded";
+  src: url("./assets/fonts/iri/iri-unbounded-narrow-300.woff2?v=1") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
+html,
+body {
+  margin: 0;
+  overflow: hidden;
+  /* the window is see-through (index.html paints it dark for the app) */
+  background: transparent !important;
+}
+/* everything fades in over the desktop, when Rust has shown the window */
+#root {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+}
+[data-shown] #root {
+  opacity: 1;
+  transition: opacity 1.8s ease-in-out;
+}
+* {
+  cursor: none !important;
+  user-select: none;
+}
+
+/* ---- pictures ---- */
+.saver-layer {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+  /* FADE_MS in saver.tsx */
+  animation: saver-in 1.6s ease-in-out both;
+}
+/* it comes with the window's own fade */
+.saver-layer[data-first] {
+  animation: none;
+}
+@keyframes saver-in {
+  from {
+    opacity: 0;
+  }
+}
+.saver-picture,
+.saver-back {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.saver-picture {
+  object-fit: cover;
+}
+.saver-picture[data-fit="fit"] {
+  object-fit: contain;
+}
+.saver-picture[data-fit="stretch"] {
+  object-fit: fill;
+}
+/* around a whole picture: itself, soft and dark (a small one, so the blur is cheap) */
+.saver-back {
+  object-fit: cover;
+  transform: scale(1.15);
+  filter: blur(28px) brightness(0.45);
+}
+/* grows or shrinks slowly, each towards another side */
+.saver-picture[data-zoom] {
+  animation: saver-zoom var(--zoom-time) ease-in-out infinite alternate both;
+  will-change: transform;
+}
+.saver-picture[data-zoom="1"] {
+  --from: scale(1);
+  --to: scale(1.09) translate(-1.2%, -0.8%);
+}
+.saver-picture[data-zoom="2"] {
+  --from: scale(1.09) translate(1.2%, 0.6%);
+  --to: scale(1);
+}
+.saver-picture[data-zoom="3"] {
+  --from: scale(1);
+  --to: scale(1.09) translate(1.1%, 0.9%);
+}
+.saver-picture[data-zoom="4"] {
+  --from: scale(1.09) translate(-1%, -0.9%);
+  --to: scale(1);
+}
+@keyframes saver-zoom {
+  from {
+    transform: var(--from);
+  }
+  to {
+    transform: var(--to);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .saver-picture[data-zoom] {
+    animation: none;
+  }
+}
+
+/* ---- clock ---- */
+.saver-shade {
+  position: fixed;
+  inset: auto 0 0;
+  height: 42vh;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.5));
+}
+.saver-clock {
+  position: fixed;
+  bottom: 6.5vh;
+  left: 4.5vw;
+  color: #fff;
+  font-family: "Exo 2", system-ui, sans-serif;
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.6),
+    0 2px 18px rgba(0, 0, 0, 0.65);
+  transition: transform 3s ease-in-out;
+}
+.saver-time {
+  font-size: clamp(56px, 10.5vh, 150px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.saver-line {
+  width: clamp(90px, 9vw, 190px);
+  height: 3px;
+  margin: 1.6vh 0 1.2vh;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #ff9f45, #ff4e7e 60%, transparent);
+}
+.saver-date {
+  font-size: clamp(17px, 2.5vh, 34px);
+  font-weight: 500;
+}
+[data-saver-theme="cyberpunk"] .saver-clock {
+  font-family: "Orbitron", "Exo 2", sans-serif;
+}
+[data-saver-theme="cyberpunk"] .saver-time {
+  font-weight: 700;
+  color: #fcee0a;
+  text-shadow:
+    2px 0 0 rgba(255, 43, 214, 0.65),
+    -2px 0 0 rgba(0, 229, 255, 0.65),
+    0 2px 18px rgba(0, 0, 0, 0.8);
+}
+[data-saver-theme="cyberpunk"] .saver-line {
+  height: 4px;
+  border-radius: 0;
+  background: linear-gradient(90deg, #fcee0a 70%, transparent 70% 76%, #00e5ff 76%);
+}
+[data-saver-theme="cyberpunk"] .saver-date {
+  font-size: clamp(14px, 2vh, 27px);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #cdf6ff;
+}
+[data-saver-theme="sakura"] .saver-clock {
+  font-family: "Zen Maru Gothic", "Exo 2", sans-serif;
+}
+[data-saver-theme="sakura"] .saver-time {
+  font-family: "Kaisei Decol", "Zen Maru Gothic", serif;
+  font-weight: 700;
+  color: #fff3f8;
+  text-shadow:
+    0 0 24px rgba(244, 114, 182, 0.75),
+    0 2px 16px rgba(0, 0, 0, 0.6);
+}
+[data-saver-theme="sakura"] .saver-line {
+  background: linear-gradient(90deg, #ffd0e3, #f472b6 55%, transparent);
+}
+[data-saver-theme="sakura"] .saver-date {
+  color: #ffe1ee;
+}
+[data-saver-theme="iridescent"] .saver-clock {
+  font-family: "Iri Unbounded", "Exo 2", sans-serif;
+  text-shadow: none;
+}
+[data-saver-theme="iridescent"] .saver-time {
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  background: linear-gradient(100deg, #d9ccff, #f8d6ff 35%, #c9f7e2 68%, #cfeeff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 12px rgba(0, 0, 0, 0.6));
+}
+[data-saver-theme="iridescent"] .saver-line {
+  border-radius: 0;
+  background: linear-gradient(90deg, #c4b5fd, #f5c2ff 35%, #a7f3d0 70%, #bae6fd);
+}
+[data-saver-theme="iridescent"] .saver-date {
+  font-size: clamp(15px, 2.1vh, 29px);
+  font-weight: 400;
+  filter: drop-shadow(0 1px 8px rgba(0, 0, 0, 0.75));
+}
+[data-saver-theme="corruptruby"] .saver-clock {
+  font-family: "Sora", "Exo 2", sans-serif;
+}
+[data-saver-theme="corruptruby"] .saver-time {
+  font-family: "Pyre Display", "Georgia", serif;
+  /* its digits are small */
+  font-size: clamp(64px, 12.5vh, 175px);
+  font-weight: 400;
+  letter-spacing: 0.03em;
+  text-shadow:
+    0 0 6px #ff7aa8,
+    0 0 26px #ff1464,
+    0 2px 16px rgba(0, 0, 0, 0.7);
+}
+[data-saver-theme="corruptruby"] .saver-line {
+  background: linear-gradient(90deg, #ffd6e4, #ff1464 45%, transparent);
+  box-shadow: 0 0 10px rgba(255, 20, 100, 0.8);
+}
+[data-saver-theme="corruptruby"] .saver-date {
+  font-size: clamp(15px, 2.2vh, 30px);
+  color: #ffd6e4;
+}

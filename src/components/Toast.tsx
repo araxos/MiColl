@@ -3,7 +3,8 @@ import { AnimatePresence, motion, useMotionValue, useTransform } from "framer-mo
 import { CheckCircle2, AlertTriangle, XCircle, X, Loader2 } from "lucide-react";
 import { useDialogTheme } from "@/lib/dialogTheme";
 import { cn } from "@/lib/utils";
-import { useT } from "@/lib/i18n";
+import { useT, useTf } from "@/lib/i18n";
+import { spaceText } from "@/lib/space";
 
 /** progress = a running job: no countdown, the bar shows how far it is. */
 export type ToastTone = "success" | "warn" | "error" | "progress";
@@ -50,6 +51,7 @@ export function Toaster({ toasts, onDismiss }: { toasts: ToastData[]; onDismiss:
 
 function ToastCard({ toast, onDismiss }: { toast: ToastData; onDismiss: (id: number) => void }) {
   const t = useT();
+  const tf = useTf();
   const duration = toast.duration ?? 8000;
   const s = toneStyles[toast.tone];
   // theme surface, the tone color stays in the icon, border and bar
@@ -131,7 +133,7 @@ function ToastCard({ toast, onDismiss }: { toast: ToastData; onDismiss: (id: num
         <div className="min-w-0 flex-1">
           <div className="break-words text-sm font-semibold text-zinc-100">{toast.title}</div>
           {toast.detail && (
-            <div className="mt-0.5 break-words text-xs text-zinc-400">{toast.detail}</div>
+            <div className="mt-0.5 break-words text-xs text-zinc-400">{spaceText(toast.detail, tf)}</div>
           )}
           {toast.problem && (
             <div className="mt-0.5 break-words text-xs text-amber-300">{toast.problem}</div>

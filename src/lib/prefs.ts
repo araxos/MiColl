@@ -42,6 +42,8 @@ const SYNCED = [
   "micoll.showHidden",
   "micoll.wishlistButton",
   "micoll.historyButton",
+  "micoll.sidebar",
+  "micoll.sidebarText",
   "micoll.cinemaButton",
   "micoll.graveyardButton",
   "micoll.topbarHintSeen",

@@ -52,8 +52,6 @@ const KEY_SETTING: &str = "phone_bridge_key";
 const WORKERS: usize = 6;
 /// Biggest file the phone may send.
 const MAX_UPLOAD: usize = 4 * 1024 * 1024 * 1024;
-/// Room the drive keeps after an upload.
-const KEEP_FREE: u64 = 256 * 1024 * 1024;
 /// A device that tries this many different wrong keys within MISS_WINDOW is shut
 /// out for BLOCK_FOR. A phone with an old key repeats the same one, that counts once.
 const MISS_LIMIT: usize = 10;
@@ -1726,19 +1724,6 @@ fn serve_file(req: tiny_http::Request, full: &Path, key: Option<[u8; 32]>) {
 
 /* ---- phone -> PC -------------------------------------------------------- */
 
-/// Free bytes on the drive of `dir` (None when Windows doesn't say).
-#[cfg(windows)]
-fn free_space(dir: &Path) -> Option<u64> {
-    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-    let mut free = 0u64;
-    unsafe { GetDiskFreeSpaceExW(&windows::core::HSTRING::from(dir.as_os_str()), Some(&mut free), None, None) }.ok()?;
-    Some(free)
-}
-#[cfg(not(windows))]
-fn free_space(_dir: &Path) -> Option<u64> {
-    None
-}
-
 /// The body of a PUT, checked and written to `temp`. Returns its SHA-256 (hex) or the
 /// answer to send. `encrypt`: the file gets encrypted after, that needs it once more.
 fn receive(req: &mut tiny_http::Request, temp: &Path, encrypt: bool) -> Result<String, (u16, String)> {
@@ -1750,8 +1735,8 @@ fn receive(req: &mut tiny_http::Request, temp: &Path, encrypt: bool) -> Result<S
         return Err((413, "file too big".into()));
     }
     // asked before, so a full drive doesn't end in half a file
-    let need = len as u64 * if encrypt { 2 } else { 1 } + KEEP_FREE;
-    if let Some(free) = temp.parent().and_then(free_space).filter(|f| *f < need) {
+    let need = len as u64 * if encrypt { 2 } else { 1 } + crate::space::KEEP_FREE;
+    if let Some(free) = temp.parent().and_then(crate::space::free_space).filter(|f| *f < need) {
         const MB: u64 = 1024 * 1024;
         return Err((507, format!("not enough space on the PC: {} MB free, {} MB needed", free / MB, need / MB)));
     }
@@ -3909,8 +3894,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn knows_the_free_space() {
-        assert!(free_space(&std::env::temp_dir()).is_some_and(|f| f > 0));
+    fn reads_the_real_network() {
         // the real adapters: at least loopback-free addresses, without panicking
         let _ = read_net_addrs();
     }

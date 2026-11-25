@@ -989,10 +989,18 @@ export interface WallSet {
   count: number;
   /** Up to four pictures for the card. */
   preview: string[];
-  /** Running on the desktop right now. */
+  /** Running right now, on the desktop (the Wallpaper Hub turns it into: on the place it
+      shows, `desktop` then still says it). */
   active: boolean;
+  desktop?: boolean;
+  /** Running on Windows' lock screen right now. */
+  lock: boolean;
+  /** It's MiColl's screen saver. */
+  saver: boolean;
   /** When it last got pictures (null = never), for the menu's recent ones. */
   lastAdded: string | null;
+  /** The places ("desktop", "lock", "saver") the hub doesn't show it for. */
+  hiddenIn: string[];
 }
 
 export async function listWallSets(): Promise<WallSet[]> {
@@ -1061,6 +1069,16 @@ export async function removeFromWallSet(id: string, paths: string[]): Promise<nu
   return invoke<number>("remove_from_wall_set", { id: Number(id), paths });
 }
 
+/** Where the hub shows a slideshow: "show" or "hide" it for a place, "only" for this one,
+    "all" for every one. It can't be hidden everywhere (throws). */
+export async function showWallSetIn(
+  id: string,
+  place: "desktop" | "lock" | "saver",
+  how: "show" | "hide" | "only" | "all",
+): Promise<void> {
+  await invoke("show_wall_set_in", { id: Number(id), place, how });
+}
+
 /** Run it as the desktop slideshow (Windows runs one at a time). */
 export async function activateWallSet(id: string): Promise<void> {
   await invoke("activate_wall_set", { id: Number(id) });
@@ -1074,6 +1092,61 @@ export async function wallSetNext(): Promise<void> {
 /** Stop the slideshow, the picture on screen stays. */
 export async function wallSetStop(): Promise<void> {
   await invoke("wall_set_stop");
+}
+
+/** Run it on Windows' lock screen (MiColl changes the picture while it's running). */
+export async function lockSetStart(id: string): Promise<void> {
+  await invoke("lock_set_start", { id: Number(id) });
+}
+
+/** One picture on Windows' lock screen (it ends a slideshow there). */
+export async function setLockPicture(path: string): Promise<void> {
+  await invoke("set_lock_picture", { path });
+}
+
+/** The next picture on the lock screen. */
+export async function lockSetNext(): Promise<void> {
+  await invoke("lock_set_next");
+}
+
+/** Stop it, the picture on the lock screen stays. */
+export async function lockSetStop(): Promise<void> {
+  await invoke("lock_set_stop");
+}
+
+/** The screen saver (screensaver.rs), set = null is off. */
+export interface SaverOptions {
+  set: number | null;
+  /** Minutes without input before it starts. */
+  after: number;
+  /** Seconds between pictures. */
+  every: number;
+  /** Lock the PC when it ends. */
+  lock: boolean;
+  /** The pictures slowly grow or shrink. */
+  zoom: boolean;
+  /** Time and date on it. */
+  clock: boolean;
+  /** Every screen shows the same picture. */
+  same: boolean;
+}
+
+export async function saverState(): Promise<SaverOptions & { windowsHasOwn: boolean }> {
+  return invoke("saver_state");
+}
+
+export async function setSaver(options: SaverOptions): Promise<void> {
+  await invoke("set_saver", { options });
+}
+
+/** Windows' own screen saver settings. */
+export async function openWindowsSaver(): Promise<void> {
+  await invoke("open_windows_saver");
+}
+
+/** Show the screen saver now, with this slideshow. */
+export async function saverPreview(id: string): Promise<void> {
+  await invoke("saver_preview", { id: Number(id) });
 }
 
 /** The files of a user collection, over every creator. */
@@ -1142,13 +1215,15 @@ export async function setCloseToTray(on: boolean): Promise<void> {
   await invoke("set_close_to_tray", { on });
 }
 
-/** The tray menu's labels and what it may show (TraySync.tsx). */
+/** The tray menu's labels and what it may show (TraySync.tsx). sfw (safe mode too): the
+    screen saver leaves creators tagged nsfw out. */
 export async function syncTray(
   labels: { open: string; add: string; lock: string; recent: string; quit: string },
   locked: boolean,
   showRecent: boolean,
+  sfw: boolean,
 ): Promise<void> {
-  await invoke("sync_tray", { labels, locked, showRecent });
+  await invoke("sync_tray", { labels, locked, showRecent, sfw });
 }
 /** A creator page was opened (the tray's "Recently opened"). */
 export async function noteRecentCreator(id: string): Promise<void> {
@@ -2401,6 +2476,11 @@ export async function importClashes(rewards: ResolvedReward[]): Promise<ImportCl
   return invoke<ImportClash[]>("import_clashes", { rewards });
 }
 
+/** Throws when the import doesn't fit on the collection's drive (nothing is written yet). */
+export async function importRoom(rewards: ResolvedReward[]): Promise<void> {
+  await invoke("import_room", { folders: rewards.map((r) => r.folder) });
+}
+
 export async function commitImport(
   rewards: ResolvedReward[],
   source: string,
@@ -2688,9 +2768,12 @@ export async function sdYearRules(artistId: number): Promise<SdYearRule[]> {
   return invoke<SdYearRule[]>("sd_year_rules", { artistId });
 }
 
-/** Move all marked rewards to the MiSD disk (SHA-256 checked, previews kept). */
-export async function sdTransport(): Promise<SdSummary> {
-  return invoke<SdSummary>("sd_transport");
+/**
+ * Move all marked rewards to the MiSD disk (SHA-256 checked, previews kept). thenBackup:
+ * sdBackupNow runs right after, so both have to fit on the disk or nothing starts.
+ */
+export async function sdTransport(thenBackup = false): Promise<SdSummary> {
+  return invoke<SdSummary>("sd_transport", { thenBackup });
 }
 
 /** Bring rewards back from the MiSD disk (undefined = everything). */

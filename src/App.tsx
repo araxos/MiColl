@@ -13,6 +13,7 @@ import { LaunchActions } from "@/components/LaunchActions";
 import { TopBar } from "@/components/Layout";
 import { AppWallpaper } from "@/components/AppWallpaper";
 import { DropZone } from "@/components/DropZone";
+import { SideBar } from "@/components/SideBar";
 import { CommandPalette } from "@/components/CommandPalette";
 import { DuplicatesPanel } from "@/components/DuplicatesPanel";
 import { WatermarkHost } from "@/components/WatermarkDialog";
@@ -377,8 +378,11 @@ export default function App() {
               )}
             </AnimatePresence>
 
-            {/* the top bar is mounted once here, the pages only fill it (see Layout) */}
-            <div className="app-content relative z-10 flex h-full flex-col">
+            {/* the left bar and the top bar are mounted once here, the pages only fill the
+                top bar (see Layout) */}
+            <div className="app-content relative z-10 flex h-full">
+              <SideBar />
+              <div className="relative flex min-w-0 flex-1 flex-col">
               <TopBar onLock={lockNow} />
             <Routes>
               <Route path="/" element={<StartPage onLock={lockNow} />} />
@@ -397,6 +401,7 @@ export default function App() {
                 element={safe ? <Navigate replace to="/" /> : <SettingsPage onLock={lockNow} />}
               />
             </Routes>
+              </div>
             </div>
           </div>
         </div>

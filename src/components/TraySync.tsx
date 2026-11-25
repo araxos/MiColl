@@ -28,7 +28,7 @@ export function TraySync({ locked, safe, onLock }: { locked: boolean; safe: bool
       recent: t("Recently opened"),
       quit: t("Quit MiColl"),
     };
-    void api.syncTray(labels, locked, !locked && !safe && !sfw).catch(() => {});
+    void api.syncTray(labels, locked, !locked && !safe && !sfw, sfw || safe).catch(() => {});
   }, [lang, locked, safe, sfw]);
 
   // a creator page (also its months and rewards) counts as opening that creator

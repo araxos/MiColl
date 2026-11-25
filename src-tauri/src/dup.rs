@@ -80,6 +80,19 @@ pub struct Fingerprint {
     cells: [u8; SIG * SIG],
 }
 
+impl Fingerprint {
+    /// For keeping it (see prints.rs, whose VERSION goes up when this or `fingerprint`
+    /// changes).
+    pub fn to_bytes(&self) -> Vec<u8> {
+        [&self.hash.to_le_bytes()[..], &self.cells[..]].concat()
+    }
+
+    pub fn from_bytes(b: &[u8]) -> Option<Fingerprint> {
+        let (hash, cells) = b.split_first_chunk::<8>()?;
+        Some(Fingerprint { hash: u64::from_le_bytes(*hash), cells: cells.try_into().ok()? })
+    }
+}
+
 /// how many bits two hashes differ in
 pub fn hamming(a: u64, b: u64) -> u32 {
     (a ^ b).count_ones()
@@ -165,15 +178,16 @@ pub fn scores(a: &Fingerprint, b: &Fingerprint) -> (u32, u32) {
     (total / (SIG * SIG) as u32, worst)
 }
 
-/// Read (decrypting if needed) + fingerprint.
-pub fn fingerprint_keyed(path: &Path, key: Option<[u8; 32]>) -> Option<Fingerprint> {
+/// Read (decrypting if needed) + fingerprint. None when it can't be read, Some(None) when
+/// it could but isn't a picture we can decode (that won't change).
+pub fn fingerprint_keyed(path: &Path, key: Option<[u8; 32]>) -> Option<Option<Fingerprint>> {
     let raw = std::fs::read(path).ok()?;
     let plain = if crate::crypto::is_encrypted(&raw) {
         crate::crypto::Dek::from_bytes(key?).decrypt_bytes(&raw).ok()?
     } else {
         raw
     };
-    fingerprint(&plain)
+    Some(fingerprint(&plain))
 }
 
 #[cfg(test)]
@@ -313,6 +327,15 @@ mod tests {
             .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
             .unwrap();
         assert!(is_featureless(fingerprint(&bytes).unwrap().hash));
+    }
+
+    #[test]
+    fn a_kept_fingerprint_is_the_same() {
+        let a = fp(Scene::default());
+        let b = Fingerprint::from_bytes(&a.to_bytes()).unwrap();
+        assert_eq!((b.hash, scores(&a, &b)), (a.hash, (0, 0)));
+        assert!(Fingerprint::from_bytes(&a.to_bytes()[1..]).is_none());
+        assert!(Fingerprint::from_bytes(&[]).is_none());
     }
 
     #[test]
