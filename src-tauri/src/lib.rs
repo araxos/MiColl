@@ -28,11 +28,13 @@ mod wallsets;
 mod watermark;
 mod wm_layer;
 mod wm_motif;
+mod wm_phone;
 mod wm_shared;
 mod wm_single;
 mod history;
 mod inbox;
 mod lockscreen;
+mod shape;
 mod siteicon;
 mod winstate;
 mod wshare;
@@ -8048,6 +8050,20 @@ fn saver_ready(window: tauri::WebviewWindow) {
     screensaver::ready(window.label());
 }
 
+/// Which pictures are landscape, in the same order (None = can't be told).
+#[tauri::command]
+async fn landscape_pictures(
+    app: AppHandle,
+    dek: State<'_, DekState>,
+    paths: Vec<String>,
+) -> Result<Vec<Option<bool>>, String> {
+    let thumbs = app_cache(&app)?.join("thumbs");
+    let key = session_key(&dek);
+    tauri::async_runtime::spawn_blocking(move || shape::landscapes(&paths, &thumbs, key))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// The files of a user collection (the hub takes them over into a slideshow).
 #[tauri::command]
 fn collection_files(db: State<Db>, id: i64) -> Result<Vec<String>, String> {
@@ -8833,13 +8849,18 @@ struct WmScan {
     missed: Vec<String>,
 }
 
+/// (image id, original, the file that's looked at and cleaned, its active version)
+type WmSource = (i64, String, String, Option<i64>);
+
 /// The pictures of a reward a watermark can come off: (image id, original, what it shows
 /// now = its active version or itself, that version's id), and how many files were
-/// left out (videos, GIFs, other files).
+/// left out (videos, GIFs, other files). from_original: the original instead of what it
+/// shows now.
 fn wm_pictures_of(
     conn: &rusqlite::Connection,
     reward_id: i64,
-) -> Result<(Vec<(i64, String, String, Option<i64>)>, u32), String> {
+    from_original: bool,
+) -> Result<(Vec<WmSource>, u32), String> {
     let mut stmt = conn
         .prepare("SELECT id, file_path FROM images WHERE reward_id = ?1 ORDER BY sort, id")
         .map_err(map_err)?;
@@ -8854,6 +8875,10 @@ fn wm_pictures_of(
         let gif = path.to_ascii_lowercase().ends_with(".gif");
         if !dup::is_image(&path) || gif {
             skipped += 1;
+            continue;
+        }
+        if from_original {
+            pics.push((id, path.clone(), path, None));
             continue;
         }
         let (versions, active) = db::list_image_versions(conn, &path).map_err(map_err)?;
@@ -8876,7 +8901,7 @@ struct WmPic {
 /// Mode B: the reward's pictures, to pick the one the mark is framed on.
 #[tauri::command]
 fn wm_pictures(db: State<Db>, reward_id: i64) -> Result<Vec<WmPic>, String> {
-    let (pics, _) = wm_pictures_of(&db.conn(), reward_id)?;
+    let (pics, _) = wm_pictures_of(&db.conn(), reward_id, false)?;
     Ok(pics.into_iter().map(|(id, _, shown, _)| WmPic { id: id.to_string(), path: shown }).collect())
 }
 
@@ -8927,147 +8952,11 @@ async fn wm_scan(
         return Err("Pick a corner to search.".into());
     }
     // the reward's files, and what each shows now
-    let (pics, skipped) = wm_pictures_of(&db.conn(), reward_id)?;
+    let (pics, skipped) = wm_pictures_of(&db.conn(), reward_id, false)?;
     WM_STOP.store(false, std::sync::atomic::Ordering::Relaxed);
     let app2 = app.clone();
     let (images, template_from) = tauri::async_runtime::spawn_blocking(move || {
-        let total = pics.len();
-        // 1. every picture on its own
-        let mut sizes: Vec<(u32, u32)> = Vec::new();
-        let mut finds: Vec<Vec<Option<watermark::Hit>>> = Vec::new();
-        let mut bands: Vec<Vec<wm_shared::Band>> = Vec::new();
-        let mut learn: Vec<Vec<wm_shared::Band>> = Vec::new();
-        let edges: Vec<bool> =
-            [false, true].into_iter().filter(|top| corners.iter().any(|c| wm_shared::is_top(*c) == *top)).collect();
-        for (i, (_, _, shown, _)) in pics.iter().enumerate() {
-            if wm_stopped() {
-                return Err(ai::STOPPED.to_string());
-            }
-            wm_progress(&app2, job, "scan", i, total);
-            match wm_load(shown, key) {
-                Ok((img, _)) => {
-                    sizes.push(img.dimensions());
-                    finds.push(corners.iter().map(|c| watermark::find_text(&img, *c, 0.6)).collect());
-                    bands.push(edges.iter().filter_map(|top| wm_shared::band(&img, *top)).collect());
-                    // learned from the original: a version may have it off (half) already
-                    let orig = &pics[i].1;
-                    let from = if orig == shown { None } else { wm_load(orig, key).ok().map(|x| x.0) };
-                    if let Some(o) = from.filter(|o| o.dimensions() == img.dimensions()) {
-                        learn.push(edges.iter().filter_map(|top| wm_shared::band(&o, *top)).collect());
-                    } else {
-                        learn.push(Vec::new());
-                    }
-                }
-                Err(_) => {
-                    sizes.push((0, 0));
-                    finds.push(corners.iter().map(|_| None).collect());
-                    bands.push(Vec::new());
-                    learn.push(Vec::new());
-                }
-            }
-        }
-        wm_progress(&app2, job, "scan", total, total);
-        // the text all pictures of a size have in common there (however faint it is)
-        let all_bands: Vec<&wm_shared::Band> =
-            bands.iter().zip(&learn).flat_map(|(b, l)| if l.is_empty() { b } else { l }).collect();
-        let common: Vec<Option<wm_shared::Corners>> =
-            corners.iter().map(|c| wm_shared::Corners::of(&all_bands, *c)).collect();
-        // 2. per corner the templates: per picture size the clearest find of the whole line
-        let templates: Vec<Vec<(usize, watermark::Template)>> = corners
-            .iter()
-            .enumerate()
-            .map(|(ci, corner)| {
-                if common[ci].is_some() {
-                    return Vec::new();
-                }
-                let list: Vec<((u32, u32), Option<&watermark::Hit>)> =
-                    finds.iter().enumerate().map(|(pi, f)| (sizes[pi], f[ci].as_ref())).collect();
-                // their edges are taken from those pictures, so they're loaded again
-                watermark::template_sources(&list)
-                    .into_iter()
-                    .filter_map(|pi| {
-                        let (img, _) = wm_load(&pics[pi].2, key).ok()?;
-                        let mut t = watermark::Template::from_hit(finds[pi][ci].as_ref()?, &img, *corner);
-                        // letters its picture missed, from the others of its size
-                        let others: Vec<&watermark::Hit> = (0..pics.len())
-                            .filter(|k| *k != pi && sizes[*k] == sizes[pi])
-                            .filter_map(|k| finds[k][ci].as_ref())
-                            .collect();
-                        t.fill_in(&img, &others);
-                        Some((pi, t))
-                    })
-                    .collect()
-            })
-            .collect();
-        // 3. every picture: the template where it fits (only the text, the same on all),
-        // or where it fits nearly all of its size; its own find where none does
-        let mut images: Vec<WmImage> = pics
-            .iter()
-            .map(|(id, orig, shown, before)| WmImage {
-                id: *id,
-                shown: shown.clone(),
-                orig: orig.clone(),
-                own: Vec::new(),
-                stroke: None,
-                spot: None,
-                layer: None,
-                guessed: false,
-                unsure: false,
-                before: *before,
-                made: None,
-            })
-            .collect();
-        let any_template = templates.iter().any(|t| !t.is_empty()) || common.iter().any(|c| c.is_some());
-        let mut from: Vec<usize> = Vec::new();
-        for (pi, _) in templates.iter().flatten() {
-            if !from.contains(pi) {
-                from.push(*pi);
-            }
-        }
-        let names: Vec<String> = from
-            .iter()
-            .filter_map(|pi| std::path::Path::new(&pics[*pi].1).file_name().map(|n| n.to_string_lossy().into_owned()))
-            .collect();
-        let template_from = (!names.is_empty()).then(|| names.join(", "));
-        let templates: Vec<Vec<watermark::Template>> =
-            templates.into_iter().map(|ts| ts.into_iter().map(|(_, t)| t).collect()).collect();
-        let mut tried: Vec<Vec<watermark::Tried>> = corners.iter().map(|_| Vec::new()).collect();
-        for (pi, (_, _, shown, _)) in pics.iter().enumerate() {
-            if wm_stopped() {
-                return Err(ai::STOPPED.to_string());
-            }
-            wm_progress(&app2, job, "check", pi, total);
-            let img = if any_template && sizes[pi].0 > 0 { wm_load(shown, key).ok().map(|x| x.0) } else { None };
-            for (ci, list) in tried.iter_mut().enumerate() {
-                list.push(match &img {
-                    Some(img) => match &common[ci] {
-                        Some(c) => {
-                            let top = wm_shared::is_top(corners[ci]);
-                            c.try_on(img, bands[pi].iter().find(|b| b.is_top() == top))
-                        }
-                        None => watermark::try_templates(img, &templates[ci]),
-                    },
-                    None => watermark::Tried { fit: None, reserve: None },
-                });
-            }
-        }
-        for (ci, list) in tried.into_iter().enumerate() {
-            let own: Vec<Option<&watermark::Hit>> = finds.iter().map(|f| f[ci].as_ref()).collect();
-            // the text all of a size share, and this picture shows it: nothing guessed there
-            let sure: Vec<bool> = list
-                .iter()
-                .enumerate()
-                .map(|(pi, t)| t.fit.is_some() && common[ci].as_ref().is_some_and(|c| c.knows(sizes[pi])))
-                .collect();
-            for (pi, got) in watermark::choose(&sizes, &own, list).into_iter().enumerate() {
-                if let Some((hit, guessed)) = got {
-                    images[pi].guessed |= guessed && !sure[pi];
-                    images[pi].own.push(hit);
-                }
-            }
-        }
-        wm_progress(&app2, job, "check", total, total);
-        Ok((images, template_from))
+        wm_find_text(&pics, &corners, key, &wm_stopped, &|phase, done, total| wm_progress(&app2, job, phase, done, total))
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -9077,6 +8966,156 @@ async fn wm_scan(
     let kept: Vec<WmImage> = images.into_iter().filter(|im| !im.own.is_empty()).collect();
     wm_jobs().lock().map_err(map_err)?.insert(job, WmJob { images: kept });
     Ok(WmScan { items, pictures, skipped, shared: template_from.is_some(), template_from, missed: Vec::new() })
+}
+
+/// Mode A's search: the text in these corners of each picture, the finds compared. What
+/// comes off each (in the list's order), and the file names of the pictures the templates
+/// are from. progress: ("scan" or "check", done, of). Used by the window (wm_scan) and the
+/// phone (wm_phone.rs).
+fn wm_find_text(
+    pics: &[WmSource],
+    corners: &[watermark::Corner],
+    key: Option<[u8; 32]>,
+    stop: &dyn Fn() -> bool,
+    progress: &dyn Fn(&str, usize, usize),
+) -> Result<(Vec<WmImage>, Option<String>), String> {
+    let total = pics.len();
+    // 1. every picture on its own
+    let mut sizes: Vec<(u32, u32)> = Vec::new();
+    let mut finds: Vec<Vec<Option<watermark::Hit>>> = Vec::new();
+    let mut bands: Vec<Vec<wm_shared::Band>> = Vec::new();
+    let mut learn: Vec<Vec<wm_shared::Band>> = Vec::new();
+    let edges: Vec<bool> =
+        [false, true].into_iter().filter(|top| corners.iter().any(|c| wm_shared::is_top(*c) == *top)).collect();
+    for (i, (_, _, shown, _)) in pics.iter().enumerate() {
+        if stop() {
+            return Err(ai::STOPPED.to_string());
+        }
+        progress("scan", i, total);
+        match wm_load(shown, key) {
+            Ok((img, _)) => {
+                sizes.push(img.dimensions());
+                finds.push(corners.iter().map(|c| watermark::find_text(&img, *c, 0.6)).collect());
+                bands.push(edges.iter().filter_map(|top| wm_shared::band(&img, *top)).collect());
+                // learned from the original: a version may have it off (half) already
+                let orig = &pics[i].1;
+                let from = if orig == shown { None } else { wm_load(orig, key).ok().map(|x| x.0) };
+                if let Some(o) = from.filter(|o| o.dimensions() == img.dimensions()) {
+                    learn.push(edges.iter().filter_map(|top| wm_shared::band(&o, *top)).collect());
+                } else {
+                    learn.push(Vec::new());
+                }
+            }
+            Err(_) => {
+                sizes.push((0, 0));
+                finds.push(corners.iter().map(|_| None).collect());
+                bands.push(Vec::new());
+                learn.push(Vec::new());
+            }
+        }
+    }
+    progress("scan", total, total);
+    // the text all pictures of a size have in common there (however faint it is)
+    let all_bands: Vec<&wm_shared::Band> =
+        bands.iter().zip(&learn).flat_map(|(b, l)| if l.is_empty() { b } else { l }).collect();
+    let common: Vec<Option<wm_shared::Corners>> =
+        corners.iter().map(|c| wm_shared::Corners::of(&all_bands, *c)).collect();
+    // 2. per corner the templates: per picture size the clearest find of the whole line
+    let templates: Vec<Vec<(usize, watermark::Template)>> = corners
+        .iter()
+        .enumerate()
+        .map(|(ci, corner)| {
+            if common[ci].is_some() {
+                return Vec::new();
+            }
+            let list: Vec<((u32, u32), Option<&watermark::Hit>)> =
+                finds.iter().enumerate().map(|(pi, f)| (sizes[pi], f[ci].as_ref())).collect();
+            // their edges are taken from those pictures, so they're loaded again
+            watermark::template_sources(&list)
+                .into_iter()
+                .filter_map(|pi| {
+                    let (img, _) = wm_load(&pics[pi].2, key).ok()?;
+                    let mut t = watermark::Template::from_hit(finds[pi][ci].as_ref()?, &img, *corner);
+                    // letters its picture missed, from the others of its size
+                    let others: Vec<&watermark::Hit> = (0..pics.len())
+                        .filter(|k| *k != pi && sizes[*k] == sizes[pi])
+                        .filter_map(|k| finds[k][ci].as_ref())
+                        .collect();
+                    t.fill_in(&img, &others);
+                    Some((pi, t))
+                })
+                .collect()
+        })
+        .collect();
+    // 3. every picture: the template where it fits (only the text, the same on all),
+    // or where it fits nearly all of its size; its own find where none does
+    let mut images: Vec<WmImage> = pics
+        .iter()
+        .map(|(id, orig, shown, before)| WmImage {
+            id: *id,
+            shown: shown.clone(),
+            orig: orig.clone(),
+            own: Vec::new(),
+            stroke: None,
+            spot: None,
+            layer: None,
+            guessed: false,
+            unsure: false,
+            before: *before,
+            made: None,
+        })
+        .collect();
+    let any_template = templates.iter().any(|t| !t.is_empty()) || common.iter().any(|c| c.is_some());
+    let mut from: Vec<usize> = Vec::new();
+    for (pi, _) in templates.iter().flatten() {
+        if !from.contains(pi) {
+            from.push(*pi);
+        }
+    }
+    let names: Vec<String> = from
+        .iter()
+        .filter_map(|pi| std::path::Path::new(&pics[*pi].1).file_name().map(|n| n.to_string_lossy().into_owned()))
+        .collect();
+    let template_from = (!names.is_empty()).then(|| names.join(", "));
+    let templates: Vec<Vec<watermark::Template>> =
+        templates.into_iter().map(|ts| ts.into_iter().map(|(_, t)| t).collect()).collect();
+    let mut tried: Vec<Vec<watermark::Tried>> = corners.iter().map(|_| Vec::new()).collect();
+    for (pi, (_, _, shown, _)) in pics.iter().enumerate() {
+        if stop() {
+            return Err(ai::STOPPED.to_string());
+        }
+        progress("check", pi, total);
+        let img = if any_template && sizes[pi].0 > 0 { wm_load(shown, key).ok().map(|x| x.0) } else { None };
+        for (ci, list) in tried.iter_mut().enumerate() {
+            list.push(match &img {
+                Some(img) => match &common[ci] {
+                    Some(c) => {
+                        let top = wm_shared::is_top(corners[ci]);
+                        c.try_on(img, bands[pi].iter().find(|b| b.is_top() == top))
+                    }
+                    None => watermark::try_templates(img, &templates[ci]),
+                },
+                None => watermark::Tried { fit: None, reserve: None },
+            });
+        }
+    }
+    for (ci, list) in tried.into_iter().enumerate() {
+        let own: Vec<Option<&watermark::Hit>> = finds.iter().map(|f| f[ci].as_ref()).collect();
+        // the text all of a size share, and this picture shows it: nothing guessed there
+        let sure: Vec<bool> = list
+            .iter()
+            .enumerate()
+            .map(|(pi, t)| t.fit.is_some() && common[ci].as_ref().is_some_and(|c| c.knows(sizes[pi])))
+            .collect();
+        for (pi, got) in watermark::choose(&sizes, &own, list).into_iter().enumerate() {
+            if let Some((hit, guessed)) = got {
+                images[pi].guessed |= guessed && !sure[pi];
+                images[pi].own.push(hit);
+            }
+        }
+    }
+    progress("check", total, total);
+    Ok((images, template_from))
 }
 
 /// The pictures something comes off, for the window.
@@ -9114,7 +9153,7 @@ async fn wm_scan_mark(
         p[0] = if p[0] > 127 { 255 } else { 0 };
     }
     let stroke = if stroke > 0.0 { stroke } else { wm_motif::stroke_width(&mask) };
-    let (pics, skipped) = wm_pictures_of(&db.conn(), reward_id)?;
+    let (pics, skipped) = wm_pictures_of(&db.conn(), reward_id, false)?;
     WM_STOP.store(false, std::sync::atomic::Ordering::Relaxed);
     let app2 = app.clone();
     let (images, missed) = tauri::async_runtime::spawn_blocking(move || -> Result<(Vec<WmImage>, Vec<String>), String> {
@@ -9207,6 +9246,7 @@ fn wm_clean(
     data: &std::path::Path,
     im: &WmImage,
     key: Option<[u8; 32]>,
+    stop: &dyn Fn() -> bool,
 ) -> Result<(image::RgbaImage, image::RgbaImage, image::GrayImage, bool), String> {
     let (img, jpeg) = wm_load(&im.shown, key)?;
     let (w, h) = img.dimensions();
@@ -9216,10 +9256,21 @@ fn wm_clean(
         layer.lift(&mut out, spot);
     }
     match im.stroke {
-        Some(st) => wm_motif::remove_motif(data, &mut out, &mask, st, &wm_stopped)?,
-        None => watermark::remove_in_pieces(data, &mut out, &mask, &wm_stopped)?,
+        Some(st) => wm_motif::remove_motif(data, &mut out, &mask, st, stop)?,
+        None => watermark::remove_in_pieces(data, &mut out, &mask, stop)?,
     }
     Ok((img, out, mask, jpeg))
+}
+
+/// wm_clean as a file's bytes, like its version would be saved ("jpg" or "png").
+fn wm_clean_file(
+    data: &std::path::Path,
+    im: &WmImage,
+    key: Option<[u8; 32]>,
+    stop: &dyn Fn() -> bool,
+) -> Result<(Vec<u8>, &'static str), String> {
+    let (_, clean, _, jpeg) = wm_clean(data, im, key, stop)?;
+    encode_version(clean, jpeg)
 }
 
 #[derive(serde::Serialize)]
@@ -9242,7 +9293,7 @@ async fn wm_preview(app: AppHandle, dek: State<'_, DekState>, job: u64, image_id
     let id: i64 = image_id.parse().map_err(map_err)?;
     let im = wm_take(job, id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let (before, after, mask, _) = wm_clean(&data, &im, key)?;
+        let (before, after, mask, _) = wm_clean(&data, &im, key, &wm_stopped)?;
         let (w, h) = before.dimensions();
         let (x0, y0, x1, y1) = edit::mask_bbox(&mask).ok_or("Nothing to remove here.")?;
         // the spot with room around it, at most 760 px wide
@@ -9322,8 +9373,7 @@ async fn wm_apply(
             .unwrap_or_default();
         let data2 = data.clone();
         let cleaned = tauri::async_runtime::spawn_blocking(move || -> Result<(Vec<u8>, &'static str), String> {
-            let (_, clean, _, jpeg) = wm_clean(&data2, &im, key)?;
-            encode_version(clean, jpeg)
+            wm_clean_file(&data2, &im, key, &wm_stopped)
         })
         .await
         .map_err(|e| e.to_string())?;
@@ -10286,6 +10336,7 @@ fn unlock_recovery(db: State<Db>, dek_state: State<DekState>, code: String) -> R
 #[tauri::command]
 fn lock(app: AppHandle, dek_state: State<DekState>) -> Result<(), String> {
     *dek_state.lock().map_err(map_err)? = None;
+    bridge::forget_watermarks(&app);
     for (label, w) in app.webview_windows() {
         if label.starts_with("popout-pip-") {
             let _ = w.close();
@@ -13633,6 +13684,7 @@ pub fn run() {
             activate_wall_set,
             wall_set_next,
             wall_set_stop,
+            landscape_pictures,
             lock_set_start,
             set_lock_picture,
             lock_set_next,
@@ -13847,6 +13899,7 @@ pub fn run() {
             // never end in the middle of a command (closing the window during an import):
             // wait for it off the window's thread, then end the way it was asked to
             if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+                bridge::forget_watermarks(app);
                 match COMMAND_RUNNING.try_lock() {
                     // nothing running: keep it locked so no command starts while ending
                     Ok(idle) => std::mem::forget(idle),

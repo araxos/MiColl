@@ -25,6 +25,9 @@
 //! picture, /api/versions lists one picture's, /api/version-file sends one.
 //! The gallery also carries each reward's tier and each creator's tier list.
 //!
+//! A download can have its corner watermark taken off here (/api/wm/..., wm_phone.rs):
+//! always from the original, in memory, nothing of it is saved.
+//!
 //! What came from the phone goes into the history (action "phone"), one row for the
 //! files and one for the versions of each batch, and can be undone from there.
 //!
@@ -32,7 +35,7 @@
 //! connected (SdView), the phone never sees the disk. Nothing from the phone goes into
 //! such a reward, neither onto the disk nor at its old place.
 
-use crate::{app_cache, crypto, db, db::DbLock, history, indexer, map_err, media_mime, parse_range, read_window, sd, session_key, Db, DekState, RANGE_CHUNK};
+use crate::{ai, app_cache, crypto, db, db::DbLock, history, indexer, map_err, media_mime, parse_range, read_window, sd, session_key, wm_phone, Db, DekState, WmImage, RANGE_CHUNK};
 use std::cell::OnceCell;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -894,6 +897,14 @@ trait Source: Send + Sync {
     fn arrived(&self, creators: &[String], files: &[FileArrival], versions: &[VersionArrival]);
     /// A device was just shut out for too many wrong keys: tell the window.
     fn shut_out(&self, _ip: IpAddr) {}
+    /// Is the model that takes watermarks off there?
+    fn wm_ready(&self) -> bool {
+        false
+    }
+    /// A picture without its watermark, as a file's bytes ("jpg" or "png").
+    fn wm_clean(&self, _im: &WmImage, _key: Option<[u8; 32]>, _stop: &dyn Fn() -> bool) -> Result<(Vec<u8>, &'static str), String> {
+        Err("not here".into())
+    }
 }
 
 struct AppSource(AppHandle);
@@ -1145,6 +1156,12 @@ impl Source for AppSource {
     fn shut_out(&self, ip: IpAddr) {
         let _ = self.0.emit("phone-bridge-blocked", serde_json::json!({ "ip": ip.to_string(), "minutes": BLOCK_FOR.as_secs() / 60 }));
     }
+    fn wm_ready(&self) -> bool {
+        crate::app_data(&self.0).is_ok_and(|d| ai::model_ready(&d, ai::Model::Lama))
+    }
+    fn wm_clean(&self, im: &WmImage, key: Option<[u8; 32]>, stop: &dyn Fn() -> bool) -> Result<(Vec<u8>, &'static str), String> {
+        crate::wm_clean_file(&crate::app_data(&self.0)?, im, key, stop)
+    }
 }
 
 /// Re-read one creator's folder, like F5 on the creator page. Their name in the
@@ -1190,6 +1207,8 @@ struct Shared {
     misses: Mutex<HashMap<IpAddr, Misses>>,
     /// public networks the user allowed (TRUSTED_SETTING)
     trusted: RwLock<HashSet<String>>,
+    /// the watermark jobs
+    wm: Arc<wm_phone::Jobs>,
 }
 
 impl Shared {
@@ -1200,6 +1219,7 @@ impl Shared {
             pending: Mutex::new(Pending::default()),
             misses: Mutex::new(HashMap::new()),
             trusted: RwLock::new(trusted),
+            wm: Arc::default(),
         }
     }
 
@@ -1378,7 +1398,7 @@ fn json(req: tiny_http::Request, code: u16, body: &serde_json::Value) {
 /// asks by itself while it's only connected (ping, gallery, thumbnails): that would never
 /// let the PC sleep.
 fn moves_files(route: &str) -> bool {
-    matches!(route, "/api/file" | "/api/version-file" | "/api/versions" | "/api/upload" | "/api/version" | "/api/check")
+    matches!(route, "/api/file" | "/api/version-file" | "/api/versions" | "/api/upload" | "/api/version" | "/api/check" | "/api/wm/file")
 }
 
 fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
@@ -1653,7 +1673,169 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
                 None => fail(req, 404, "no such version"),
             }
         }
+        "/api/wm" => json(req, 200, &serde_json::json!({ "ready": sh.src.wm_ready() })),
+        "/api/wm/scan" => wm_scan(req, sh, &root, &moved),
+        "/api/wm/job" => match query_param(&url, "id").and_then(|id| sh.wm.get(&id)) {
+            Some(job) => json(req, 200, &job.report()),
+            None => fail(req, 410, "this search is gone"),
+        },
+        "/api/wm/file" => wm_file(req, sh, &url),
+        "/api/wm/close" => {
+            if *req.method() != tiny_http::Method::Post {
+                return fail(req, 405, "use POST");
+            }
+            if let Some(id) = query_param(&url, "id") {
+                sh.wm.close(&id);
+            }
+            json(req, 200, &serde_json::json!({ "ok": true }))
+        }
         _ => fail(req, 404, "not found"),
+    }
+}
+
+/* ---- watermarks off for a download -------------------------------------- */
+
+#[derive(serde::Deserialize)]
+struct WmAsk {
+    #[serde(default)]
+    files: Vec<String>,
+    #[serde(default)]
+    corners: Vec<String>,
+}
+
+/// POST /api/wm/scan: look for a line of text in these corners of these pictures (their
+/// originals). Answers with the job at once, the search runs on its own thread.
+fn wm_scan(mut req: tiny_http::Request, sh: &Arc<Shared>, root: &Path, moved: &LazySd) {
+    if *req.method() != tiny_http::Method::Post {
+        return fail(req, 405, "use POST");
+    }
+    const MAX_BODY: u64 = 8 * 1024 * 1024;
+    let mut body = Vec::new();
+    if req.as_reader().take(MAX_BODY + 1).read_to_end(&mut body).is_err() || body.len() as u64 > MAX_BODY {
+        return fail(req, 400, "too much at once");
+    }
+    let ask: WmAsk = match serde_json::from_slice(&body) {
+        Ok(a) => a,
+        Err(e) => return fail(req, 400, &e.to_string()),
+    };
+    let Some(corners) = wm_phone::corners_of(&ask.corners) else {
+        return fail(req, 400, "no corner, or an unknown one");
+    };
+    if ask.files.len() > wm_phone::MAX_FILES {
+        return fail(req, 400, "too many files");
+    }
+    if !sh.src.wm_ready() {
+        return fail(req, 503, "The AI model isn't downloaded yet");
+    }
+    if let Err(e) = encrypt_key(sh) {
+        return fail(req, 503, &e);
+    }
+
+    // the rewards they belong to (what MiColl doesn't know, videos and GIFs left out)
+    let mut asked = wm_phone::Asked::new();
+    let mut firsts: Vec<PathBuf> = Vec::new();
+    let mut seen = HashSet::new();
+    for file in ask.files.iter().filter(|f| seen.insert(f.as_str())) {
+        if !crate::dup::is_image(file) || file.to_ascii_lowercase().ends_with(".gif") {
+            continue;
+        }
+        let Some(full) = readable_path(root, file, moved).filter(|f| f.is_file()) else { continue };
+        let row: Option<(i64, i64)> = sh
+            .src
+            .db()
+            .conn()
+            .query_row(
+                "SELECT id, reward_id FROM images WHERE file_path = ?1 COLLATE NOCASE AND reward_id IS NOT NULL",
+                [full.to_string_lossy()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok();
+        let Some((id, reward)) = row else { continue };
+        let list = asked.entry(reward).or_default();
+        if list.is_empty() {
+            firsts.push(full);
+        }
+        list.push((file.clone(), id));
+    }
+    if asked.len() > wm_phone::MAX_REWARDS {
+        return fail(req, 400, "too many rewards");
+    }
+    if sh.src.data_key().is_none() && firsts.iter().any(|f| crypto::file_is_encrypted(f)) {
+        return fail(req, 503, "MiColl is locked");
+    }
+
+    let Some(job) = sh.wm.open(req.remote_addr().map(|a| a.ip())) else {
+        return fail(req, 503, "the bridge is off");
+    };
+    let id = job.id.clone();
+    let sh2 = sh.clone();
+    sh.wm.start(job, move |stop, progress| {
+        // locked meanwhile
+        let key = encrypt_key(&sh2).map(|_| sh2.src.data_key()).map_err(|_| ai::STOPPED.to_string())?;
+        let stop = || stop() || wm_locked(&sh2, key);
+        let mut rewards = Vec::new();
+        for (reward, list) in asked {
+            let (pics, _) = crate::wm_pictures_of(&sh2.src.db().conn(), reward, true)?;
+            let ids: HashSet<i64> = list.iter().map(|(_, id)| *id).collect();
+            rewards.push((wm_phone::to_look_at(pics, &ids), list));
+        }
+        wm_phone::look(rewards, &corners, key, &stop, progress)
+    });
+    json(req, 200, &serde_json::json!({ "job": id }));
+}
+
+/// MiColl was locked after the work got its key.
+fn wm_locked(sh: &Shared, key: Option<[u8; 32]>) -> bool {
+    key.is_some() && sh.src.data_key().is_none()
+}
+
+/// GET /api/wm/file: a picture of a finished search without its watermark. Made on this
+/// server thread, one at a time (429 for another): the others stay free.
+fn wm_file(req: tiny_http::Request, sh: &Arc<Shared>, url: &str) {
+    let Some(job) = query_param(url, "id").and_then(|id| sh.wm.get(&id)) else {
+        return fail(req, 410, "this search is gone");
+    };
+    let Some(im) = query_param(url, "p").and_then(|p| job.found(&p)) else {
+        return fail(req, 404, "nothing comes off this picture");
+    };
+    let Some(slot) = sh.wm.clean_slot() else {
+        return fail(req, 429, "another picture is being cleaned");
+    };
+    let working = job.work();
+    let key = sh.src.data_key();
+    let stop = || job.stopped() || wm_locked(sh, key);
+    let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sh.src.wm_clean(&im, key, &stop)));
+    let stopped = stop();
+    // free before it's sent: the phone asks for the next one right after
+    drop(working);
+    drop(slot);
+    if stopped {
+        return fail(req, 409, "stopped");
+    }
+    match made.unwrap_or_else(|_| Err("the picture couldn't be cleaned".into())) {
+        Ok((bytes, ext)) => {
+            let _ = req.respond(
+                tiny_http::Response::from_data(bytes)
+                    // a Content-Length, not chunks
+                    .with_chunked_threshold(usize::MAX)
+                    .with_header(header("Content-Type", if ext == "jpg" { "image/jpeg" } else { "image/png" }))
+                    .with_header(header("Cache-Control", "no-store"))
+                    .with_header(cors()),
+            );
+        }
+        Err(e) if e == ai::STOPPED => fail(req, 409, "stopped"),
+        // (the phone never sees where files are on the PC)
+        Err(e) if e.contains(['\\', '/']) => fail(req, 500, "the picture can't be read"),
+        Err(e) => fail(req, 500, &e),
+    }
+}
+
+/// MiColl is locked or ends: the phone's watermark jobs stop and are forgotten.
+pub fn forget_watermarks(app: &AppHandle) {
+    let Some(state) = app.try_state::<BridgeState>() else { return };
+    let shared = state.lock().ok().and_then(|b| b.shared.clone());
+    if let Some(sh) = shared {
+        sh.wm.close_all();
     }
 }
 
@@ -2693,7 +2875,9 @@ pub fn phone_bridge_stop(state: State<BridgeState>) -> Result<(), String> {
             server.unblock();
         }
     }
-    inner.shared = None;
+    if let Some(sh) = inner.shared.take() {
+        sh.wm.shut();
+    }
     Ok(())
 }
 
@@ -2709,6 +2893,8 @@ pub fn phone_bridge_new_key(db: State<Db>, state: State<BridgeState>) -> Result<
     let inner = state.lock().map_err(map_err)?;
     if let Some(sh) = &inner.shared {
         *sh.key.write().map_err(map_err)? = key.clone();
+        // nobody can ask about them any more
+        sh.wm.close_all();
         // re-pairing: whoever was shut out gets another go
         if let Ok(mut m) = sh.misses.lock() {
             m.clear();
@@ -2851,7 +3037,7 @@ mod tests {
              CREATE TABLE periods (id INTEGER PRIMARY KEY, folder_path TEXT, preview_image TEXT, number INTEGER, tier TEXT);
              CREATE TABLE rewards (folder_path TEXT, period_id INTEGER, tier TEXT, cover_image TEXT, cover_custom INTEGER NOT NULL DEFAULT 0,
                                    notes TEXT, is_extra INTEGER NOT NULL DEFAULT 0, sd_volume TEXT, sd_origin TEXT);
-             CREATE TABLE images (file_path TEXT);
+             CREATE TABLE images (id INTEGER PRIMARY KEY, file_path TEXT, reward_id INTEGER, sort INTEGER NOT NULL DEFAULT 0);
              CREATE TABLE image_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, orig_path TEXT,
                                           file_path TEXT, label TEXT, created_at TEXT);
              CREATE TABLE image_active_version (orig_path TEXT PRIMARY KEY, version_id INTEGER);
@@ -3478,7 +3664,7 @@ mod tests {
 
             let arrivals: Arc<Mutex<Vec<(Vec<String>, usize, usize)>>> = Arc::default();
             let db = test_db(&base, encrypted);
-            db.lock().unwrap().execute("INSERT INTO images VALUES (?1)", [orig.to_string_lossy()]).unwrap();
+            db.lock().unwrap().execute("INSERT INTO images (file_path) VALUES (?1)", [orig.to_string_lossy()]).unwrap();
             let src = TestSource {
                 db,
                 cache: base.join("cache"),
@@ -3729,6 +3915,489 @@ mod tests {
         }
     }
 
+    /// A library with a cleaner that needs no model: it works until `slow` is over (asking
+    /// stop as LaMa does between its pieces), then paints what comes off white.
+    struct WmTest {
+        base: TestSource,
+        key: Arc<Mutex<Option<[u8; 32]>>>,
+        ready: Arc<std::sync::atomic::AtomicBool>,
+        slow: Arc<std::sync::atomic::AtomicU64>,
+        /// (running now, most at a time, stopped in the middle)
+        seen: Arc<Mutex<(u32, u32, u32)>>,
+        /// the real thing, with the model in this folder
+        lama: Option<PathBuf>,
+    }
+    impl Source for WmTest {
+        fn db(&self) -> &Db {
+            &self.base.db
+        }
+        fn data_key(&self) -> Option<[u8; 32]> {
+            *self.key.lock().unwrap()
+        }
+        fn cache(&self) -> Result<PathBuf, String> {
+            self.base.cache()
+        }
+        fn versions_dir(&self) -> Result<PathBuf, String> {
+            self.base.versions_dir()
+        }
+        fn arrived(&self, creators: &[String], files: &[FileArrival], versions: &[VersionArrival]) {
+            self.base.arrived(creators, files, versions)
+        }
+        fn wm_ready(&self) -> bool {
+            self.ready.load(std::sync::atomic::Ordering::Relaxed)
+        }
+        fn wm_clean(&self, im: &WmImage, key: Option<[u8; 32]>, stop: &dyn Fn() -> bool) -> Result<(Vec<u8>, &'static str), String> {
+            if let Some(data) = &self.lama {
+                return crate::wm_clean_file(data, im, key, stop);
+            }
+            let count = |now: i32, stopped: u32| {
+                let mut s = self.seen.lock().unwrap();
+                s.0 = s.0.wrapping_add_signed(now);
+                s.1 = s.1.max(s.0);
+                s.2 += stopped;
+            };
+            count(1, 0);
+            let start = Instant::now();
+            while start.elapsed() < Duration::from_millis(self.slow.load(std::sync::atomic::Ordering::Relaxed)) {
+                if stop() {
+                    count(-1, 1);
+                    return Err(ai::STOPPED.into());
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            count(-1, 0);
+            let (mut img, jpeg) = crate::wm_load(&im.shown, key)?;
+            let mask = crate::wm_mask(im, img.width(), img.height());
+            for (x, y, p) in mask.enumerate_pixels() {
+                if p[0] > 0 {
+                    img.put_pixel(x, y, image::Rgba([255, 255, 255, 255]));
+                }
+            }
+            crate::encode_version(img, jpeg)
+        }
+    }
+
+    /// A gentle picture with a line of "letters" at the bottom right.
+    fn wm_picture(w: u32, h: u32, seed: u32, text: bool) -> image::RgbImage {
+        let mut img = image::RgbImage::from_fn(w, h, |x, y| {
+            let v = 70 + (seed % 5) as u8 * 12 + (x * 60 / w) as u8 + (y * 40 / h) as u8;
+            image::Rgb([v, v.saturating_sub(10), v.saturating_add(5)])
+        });
+        if text {
+            let ch = (h / 50).max(20);
+            let (x0, y0) = (w - ch * 14, h - ch * 2);
+            let st = (ch / 10).max(2);
+            for i in 0..16u32 {
+                let lx = x0 + i * (ch * 7 / 10);
+                for yy in y0..y0 + ch {
+                    for dx in 0..st {
+                        img.put_pixel(lx + dx, yy, image::Rgb([225, 225, 225]));
+                        if i % 3 != 1 || yy < y0 + ch / 2 {
+                            img.put_pixel(lx + ch / 2 + dx, yy, image::Rgb([225, 225, 225]));
+                        }
+                    }
+                }
+                for xx in lx..lx + ch / 2 + st {
+                    for dy in 0..st {
+                        img.put_pixel(xx, if i % 2 == 0 { y0 + dy } else { y0 + ch / 2 + dy }, image::Rgb([225, 225, 225]));
+                    }
+                }
+            }
+        }
+        img
+    }
+
+    fn wm_bytes(w: u32, h: u32, seed: u32, text: bool, jpeg: bool) -> Vec<u8> {
+        let mut out = std::io::Cursor::new(Vec::new());
+        let img = image::DynamicImage::ImageRgb8(wm_picture(w, h, seed, text));
+        if jpeg {
+            img.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 95)).unwrap();
+        } else {
+            img.write_to(&mut out, image::ImageFormat::Png).unwrap();
+        }
+        out.into_inner()
+    }
+
+    /// Asked until the search is over: its last answer.
+    fn wm_wait(k: &str, job: &str) -> serde_json::Value {
+        for _ in 0..1200 {
+            let (code, body) = get(&format!("{k}/api/wm/job?id={job}"), None);
+            assert_eq!(code, 200, "{}", String::from_utf8_lossy(&body));
+            let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            if v["state"] != "scan" {
+                return v;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        panic!("the search doesn't end");
+    }
+
+    struct WmBridge {
+        base: PathBuf,
+        shared: Arc<Shared>,
+        _server: Arc<tiny_http::Server>,
+        /// http://…/k/<key>
+        k: String,
+        key: Arc<Mutex<Option<[u8; 32]>>>,
+        ready: Arc<std::sync::atomic::AtomicBool>,
+        slow: Arc<std::sync::atomic::AtomicU64>,
+        seen: Arc<Mutex<(u32, u32, u32)>>,
+    }
+
+    /// files = (path as the phone names it, bytes, reward)
+    fn wm_bridge(name: &str, files: &[(&str, Vec<u8>, i64)], key: Option<[u8; 32]>, lama: Option<PathBuf>) -> WmBridge {
+        let base = std::env::temp_dir().join(format!("micoll_bridge_wm_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("MiColl");
+        std::fs::create_dir_all(base.join("versions")).unwrap();
+        let db = test_db(&base, key.is_some());
+        for (i, (p, bytes, reward)) in files.iter().enumerate() {
+            let full = p.split('/').fold(root.clone(), |d, part| d.join(part));
+            std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+            std::fs::write(&full, bytes).unwrap();
+            db.lock()
+                .unwrap()
+                .execute(
+                    "INSERT INTO images (file_path, reward_id, sort) VALUES (?1, ?2, ?3)",
+                    rusqlite::params![full.to_string_lossy(), reward, i as i64],
+                )
+                .unwrap();
+        }
+        let key = Arc::new(Mutex::new(key));
+        let (ready, slow) = (Arc::new(std::sync::atomic::AtomicBool::new(true)), Arc::default());
+        let seen: Arc<Mutex<(u32, u32, u32)>> = Arc::default();
+        let src = WmTest {
+            base: TestSource { db, cache: base.join("cache"), versions: base.join("versions"), key: None, arrivals: Arc::default() },
+            key: key.clone(),
+            ready: ready.clone(),
+            slow: Arc::clone(&slow),
+            seen: seen.clone(),
+            lama,
+        };
+        let shared = Arc::new(Shared::new(Box::new(src), "testkey1234".into(), HashSet::new()));
+        let server = serve(0, shared.clone()).unwrap();
+        let k = format!("http://127.0.0.1:{}/k/testkey1234", server.server_addr().to_ip().unwrap().port());
+        WmBridge { base, shared, _server: server, k, key, ready, slow, seen }
+    }
+
+    impl WmBridge {
+        fn scan(&self, files: &[&str], corners: &[&str]) -> (u16, serde_json::Value) {
+            post(&format!("{}/api/wm/scan", self.k), &serde_json::json!({ "files": files, "corners": corners }))
+        }
+        fn job(&self, files: &[&str]) -> String {
+            let (code, body) = self.scan(files, &["br"]);
+            assert_eq!(code, 200, "{body}");
+            body["job"].as_str().unwrap().to_string()
+        }
+        fn file_url(&self, job: &str, p: &str) -> String {
+            format!("{}/api/wm/file?id={job}&p={}", self.k, urlencoding::encode(p))
+        }
+        fn close(&self, job: &str) {
+            assert_eq!(post(&format!("{}/api/wm/close?id={job}", self.k), &serde_json::json!({})).0, 200);
+        }
+        fn gone(&self, job: &str) -> bool {
+            get(&format!("{}/api/wm/job?id={job}", self.k), None).0 == 410
+        }
+        fn rows(&self, table: &str) -> i64 {
+            self.shared.src.db().conn().query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0)).unwrap()
+        }
+        fn wait_until_working(&self) {
+            let t = Instant::now();
+            while self.seen.lock().unwrap().0 == 0 {
+                assert!(t.elapsed() < Duration::from_secs(10));
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+    }
+
+    const WM_SET: &str = "Nora/Patreon/2026/03/Set";
+
+    /// The phone gets a picture without its watermark, and nothing of it is kept here.
+    #[test]
+    fn a_watermark_comes_off_for_the_phone_and_nothing_is_saved() {
+        let at = |n: &str| format!("{WM_SET}/{n}");
+        let names = ["1.jpg", "2.png", "3.jpg", "4.jpg"].map(at);
+        let mut files: Vec<(&str, Vec<u8>, i64)> =
+            names.iter().enumerate().map(|(i, n)| (n.as_str(), wm_bytes(900, 700, i as u32, true, n.ends_with("jpg")), 1)).collect();
+        let (plain, gif, video) = (at("5.jpg"), at("6.gif"), at("7.mp4"));
+        files.push((&plain, wm_bytes(640, 900, 3, false, true), 1));
+        files.push((&gif, b"GIF89a".to_vec(), 1));
+        files.push((&video, b"video".to_vec(), 1));
+        let grave = format!("{}/Bea/Patreon/2026/01/Set/g.jpg", indexer::GRAVEYARD_DIR);
+        let grave = grave.as_str();
+        files.push((grave, wm_bytes(900, 700, 1, true, true), 2));
+        let b = wm_bridge("off", &files, None, None);
+        // the first one shows an edited version with nothing on it: the original counts
+        let root = b.base.join("MiColl");
+        let first = names[0].split('/').fold(root.clone(), |d, p| d.join(p));
+        {
+            let version = b.base.join("versions").join("1.jpg");
+            std::fs::write(&version, wm_bytes(900, 700, 0, false, true)).unwrap();
+            let c = b.shared.src.db().conn();
+            db::add_image_version(&c, &first.to_string_lossy(), &version.to_string_lossy(), Some("x")).unwrap();
+            db::set_active_version(&c, &first.to_string_lossy(), Some(1)).unwrap();
+        }
+        let all_files = || -> Vec<(PathBuf, Vec<u8>)> {
+            let mut out = Vec::new();
+            let mut todo = vec![b.base.clone()];
+            while let Some(d) = todo.pop() {
+                for e in std::fs::read_dir(d).unwrap().flatten() {
+                    if e.path().is_dir() {
+                        todo.push(e.path());
+                    } else {
+                        out.push((e.path(), std::fs::read(e.path()).unwrap()));
+                    }
+                }
+            }
+            out.sort();
+            out
+        };
+        let before = (all_files(), b.rows("image_versions"), b.rows("image_active_version"), b.rows("images"), b.rows("settings"));
+
+        // no key, no answer
+        let bare = b.k.replace("testkey1234", "wrongkey1234");
+        for route in ["/api/wm", "/api/wm/job?id=x", "/api/wm/file?id=x&p=y"] {
+            assert_eq!(get(&format!("{bare}{route}"), None).0, 401, "{route}");
+        }
+        assert_eq!(post(&format!("{bare}/api/wm/scan"), &serde_json::json!({})).0, 401);
+        assert_eq!(post(&format!("{bare}/api/wm/close?id=x"), &serde_json::json!({})).0, 401);
+
+        // the model
+        assert_eq!(get(&format!("{}/api/wm", b.k), None), (200, br#"{"ready":true}"#.to_vec()));
+        b.ready.store(false, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(get(&format!("{}/api/wm", b.k), None), (200, br#"{"ready":false}"#.to_vec()));
+        assert_eq!(b.scan(&[&names[0]], &["br"]), (503, serde_json::json!("The AI model isn't downloaded yet")));
+        b.ready.store(true, std::sync::atomic::Ordering::Relaxed);
+
+        // asked the wrong way
+        assert_eq!(b.scan(&[&names[0]], &[]).0, 400);
+        assert_eq!(b.scan(&[&names[0]], &["br", "middle"]).0, 400);
+        assert_eq!(b.scan(&vec!["x.jpg"; 2001], &["br"]).0, 400);
+        assert_eq!(post(&format!("{}/api/wm/scan", b.k), &serde_json::json!("no")).0, 400);
+        assert_eq!(get(&format!("{}/api/wm/scan", b.k), None).0, 405);
+        assert_eq!(get(&format!("{}/api/wm/close?id=x", b.k), None).0, 405);
+        assert!(b.gone("x") && b.gone(""));
+        assert_eq!(get(&format!("{}/api/wm/job", b.k), None).0, 410);
+        assert_eq!(get(&b.file_url("x", &names[0]), None).0, 410);
+        b.close("unknown");
+
+        // unknown ones, videos, GIFs and bad paths are left out, the phone's own spelling
+        let odd = names[1].to_uppercase().replace("NORA", "Nora");
+        let unknown = at("not there.jpg");
+        let files = [names[0].as_str(), &odd, &names[2], &names[0], &plain, &gif, &video, &unknown, "../x.jpg", "C:/x.jpg", grave];
+        let job = b.job(&files);
+        assert!(job.len() == 32 && job.bytes().all(|c| c.is_ascii_hexdigit()));
+        let got = wm_wait(&b.k, &job);
+        assert_eq!(got["state"], "ready", "{got}");
+        assert_eq!((got["done"].as_u64(), got["total"].as_u64()), (Some(6), Some(6)));
+        let mut want = vec![names[0].as_str(), &odd, &names[2], grave];
+        want.sort();
+        assert_eq!(got["found"], serde_json::json!(want));
+
+        // the pictures: as their original, the watermark gone
+        let white = |p: &image::Rgb<u8>| p.0.iter().filter(|v| **v > 245).count() == 3;
+        for (p, kind) in [(names[0].as_str(), "image/jpeg"), (&odd, "image/png"), (grave, "image/jpeg")] {
+            let resp = ureq::get(&b.file_url(&job, p)).call().unwrap();
+            assert_eq!(resp.status(), 200);
+            assert_eq!(resp.header("Content-Type"), Some(kind));
+            assert_eq!(resp.header("Cache-Control"), Some("no-store"));
+            assert!(resp.header("Transfer-Encoding").is_none() && resp.header("Accept-Ranges").is_none());
+            let len: usize = resp.header("Content-Length").unwrap().parse().unwrap();
+            let mut body = Vec::new();
+            resp.into_reader().read_to_end(&mut body).unwrap();
+            assert_eq!(body.len(), len);
+            let img = image::load_from_memory(&body).unwrap().to_rgb8();
+            assert_eq!(img.dimensions(), (900, 700));
+            let painted = img.pixels().filter(|p| white(p)).count();
+            assert!(painted > 300, "{p}: {painted}");
+        }
+        // a Range changes nothing
+        assert_eq!(get(&b.file_url(&job, &names[0]), Some("bytes=0-9")).0, 200);
+        // nothing comes off that one, or it wasn't asked for
+        for p in [plain.as_str(), &gif, &unknown, &names[3], &names[1], "../x.jpg"] {
+            assert_eq!(get(&b.file_url(&job, p), None).0, 404, "{p}");
+        }
+
+        // a new search ends the old one of the same device; nothing known: nothing found
+        let second = b.job(&[&unknown, &gif]);
+        assert!(b.gone(&job));
+        assert_eq!(wm_wait(&b.k, &second)["found"], serde_json::json!([]));
+        // one of many: the others help, only the asked one is found
+        let third = b.job(&[&names[3]]);
+        let got = wm_wait(&b.k, &third);
+        assert_eq!((got["found"].clone(), got["total"].as_u64()), (serde_json::json!([names[3]]), Some(5)));
+        b.close(&third);
+        b.close(&third);
+        assert!(b.gone(&third));
+        assert_eq!(get(&b.file_url(&third, &names[3]), None).0, 410);
+
+        // nothing was written: no version, no row, no file, the originals as they were
+        let after = (all_files(), b.rows("image_versions"), b.rows("image_active_version"), b.rows("images"), b.rows("settings"));
+        assert!(before == after);
+        assert!(b.shared.pending.lock().unwrap().versions.is_empty());
+
+        // a picture that's gone meanwhile: an error without the PC's folders
+        let job = b.job(&[&names[2]]);
+        wm_wait(&b.k, &job);
+        std::fs::remove_file(names[2].split('/').fold(root, |d, p| d.join(p))).unwrap();
+        assert_eq!(get(&b.file_url(&job, &names[2]), None), (500, b"the picture can't be read".to_vec()));
+        let _ = std::fs::remove_dir_all(&b.base);
+    }
+
+    /// Close stops a picture in the middle; one at a time; the bridge going off, MiColl
+    /// getting locked and a new key end everything.
+    #[test]
+    fn watermark_jobs_stop_when_they_should() {
+        let names = ["1.jpg", "2.jpg"].map(|n| format!("{WM_SET}/{n}"));
+        let key = [9u8; 32];
+        let enc = |b: Vec<u8>| crypto::Dek::from_bytes(key).encrypt_bytes(&b);
+        let mut files: Vec<(&str, Vec<u8>, i64)> =
+            names.iter().enumerate().map(|(i, n)| (n.as_str(), enc(wm_bytes(900, 700, i as u32, true, true)), 1)).collect();
+        // more rewards than one search takes
+        let many: Vec<String> = (0..6).map(|i| format!("Nora/Patreon/2026/04/Set {i}/a.jpg")).collect();
+        files.extend(many.iter().enumerate().map(|(i, n)| (n.as_str(), enc(wm_bytes(300, 200, 0, false, true)), 10 + i as i64)));
+        let b = wm_bridge("stop", &files, Some(key), None);
+        let slow = |ms: u64| b.slow.store(ms, std::sync::atomic::Ordering::Relaxed);
+        let asked: Vec<&str> = many.iter().map(String::as_str).collect();
+        assert_eq!(b.scan(&asked, &["br"]).0, 400);
+        assert_eq!(b.scan(&asked[..5], &["br"]).0, 200);
+
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let job = b.job(&names);
+        assert_eq!(wm_wait(&b.k, &job)["found"], serde_json::json!(names));
+        // encrypted ones come decrypted
+        let (code, body) = get(&b.file_url(&job, names[0]), None);
+        assert_eq!(code, 200);
+        assert!(body.starts_with(&[0xFF, 0xD8, 0xFF]));
+
+        // closed in the middle of a picture
+        slow(20_000);
+        let fetch = |p: &str| {
+            let url = b.file_url(&job, p);
+            std::thread::spawn(move || get(&url, None))
+        };
+        let t = Instant::now();
+        let running = fetch(names[0]);
+        b.wait_until_working();
+        // another one isn't taken, the rest of the bridge answers
+        assert_eq!(get(&b.file_url(&job, names[1]), None).0, 429);
+        assert_eq!(get(&format!("{}/api/ping", b.k), None).0, 200);
+        assert_eq!(wm_wait(&b.k, &job)["state"], "ready");
+        // (the window's own stop has nothing to do with it)
+        crate::wm_stop();
+        std::thread::sleep(Duration::from_millis(150));
+        assert_eq!(b.seen.lock().unwrap().0, 1);
+        crate::WM_STOP.store(false, std::sync::atomic::Ordering::Relaxed);
+        b.close(&job);
+        assert_eq!(running.join().unwrap().0, 409);
+        assert!(t.elapsed() < Duration::from_secs(5) && b.gone(&job));
+        // and closing here doesn't stop the window's work
+        assert!(!crate::wm_stopped());
+
+        // locked in the middle: stopped, and nothing new until it's unlocked
+        let job = b.job(&names);
+        wm_wait(&b.k, &job);
+        let url = b.file_url(&job, names[0]);
+        let running = std::thread::spawn(move || get(&url, None));
+        b.wait_until_working();
+        *b.key.lock().unwrap() = None;
+        assert_eq!(running.join().unwrap().0, 409);
+        assert_eq!(b.scan(&names, &["br"]), (503, serde_json::json!("MiColl is locked")));
+        // (what `lock` does)
+        b.shared.wm.close_all();
+        *b.key.lock().unwrap() = Some(key);
+        assert!(b.gone(&job));
+        // encryption is off, but this file is still encrypted
+        b.shared.src.db().conn().execute("UPDATE settings SET value = 'false' WHERE key = 'enc_enabled'", []).unwrap();
+        *b.key.lock().unwrap() = None;
+        assert_eq!(b.scan(&names, &["br"]).0, 503);
+        *b.key.lock().unwrap() = Some(key);
+
+        // the bridge goes off
+        let job = b.job(&names);
+        wm_wait(&b.k, &job);
+        let url = b.file_url(&job, names[0]);
+        let running = std::thread::spawn(move || get(&url, None));
+        b.wait_until_working();
+        b.shared.wm.shut();
+        assert_eq!(running.join().unwrap().0, 409);
+        assert!(b.gone(&job));
+        assert_eq!(b.scan(&names, &["br"]).0, 503);
+        let seen = *b.seen.lock().unwrap();
+        assert_eq!(seen, (0, 1, 3));
+        assert_eq!(b.rows("image_versions"), 0);
+        assert_eq!(std::fs::read_dir(b.base.join("versions")).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(&b.base);
+    }
+
+    /// A reward MiSD moved is asked for by its old place.
+    #[test]
+    fn watermarks_come_off_moved_rewards_too() {
+        let file = format!("{WM_SET}/m.jpg");
+        let b = wm_bridge("sd", &[(&file, wm_bytes(900, 700, 1, true, true), 1)], None, None);
+        let old = WM_SET.split('/').fold(b.base.join("MiColl"), |d, p| d.join(p));
+        let disk = b.base.join("Disk");
+        let moved = WM_SET.split('/').fold(disk.clone(), |d, p| d.join(p));
+        std::fs::create_dir_all(moved.parent().unwrap()).unwrap();
+        std::fs::rename(&old, &moved).unwrap();
+        std::fs::write(disk.join(sd::MARKER), br#"{"id":"disk-1","label":"Disk","created":"now"}"#).unwrap();
+        {
+            let c = b.shared.src.db().conn();
+            db::set_setting(&c, "sd_root", &disk.to_string_lossy()).unwrap();
+            db::set_setting(&c, "sd_id", "disk-1").unwrap();
+            c.execute(
+                "INSERT INTO rewards (folder_path, sd_volume, sd_origin) VALUES (?1, 'Disk', ?2)",
+                [moved.to_string_lossy(), old.to_string_lossy()],
+            )
+            .unwrap();
+            c.execute("UPDATE images SET file_path = ?1", [moved.join("m.jpg").to_string_lossy().replace("Disk", "DISK")]).unwrap();
+        }
+        let job = b.job(&[&file]);
+        assert_eq!(wm_wait(&b.k, &job)["found"], serde_json::json!([file]));
+        assert_eq!(get(&b.file_url(&job, &file), None).0, 200);
+        b.close(&job);
+        let _ = std::fs::remove_dir_all(&b.base);
+    }
+
+    /// The real model over real pictures (WM_MODELS = a folder with models/, WM_PICS = a
+    /// folder of pictures, WM_OUT = where the results go), with the times. Not part of the
+    /// normal run.
+    #[test]
+    #[ignore]
+    fn watermarks_off_with_the_real_model() {
+        let dir = |v: &str| std::env::var(v).map(PathBuf::from).unwrap_or_else(|_| panic!("{v}"));
+        let mut pics: Vec<PathBuf> = std::fs::read_dir(dir("WM_PICS")).unwrap().flatten().map(|e| e.path()).collect();
+        pics.retain(|p| crate::dup::is_image(&p.to_string_lossy()));
+        pics.sort();
+        let names: Vec<String> = pics.iter().map(|p| format!("{WM_SET}/{}", name_of(p))).collect();
+        let files: Vec<(&str, Vec<u8>, i64)> =
+            names.iter().zip(&pics).map(|(n, p)| (n.as_str(), std::fs::read(p).unwrap(), 1)).collect();
+        let b = wm_bridge("real", &files, None, Some(dir("WM_MODELS")));
+        let asked: Vec<&str> = names.iter().map(String::as_str).collect();
+        let t = Instant::now();
+        let job = b.job(&asked);
+        let got = wm_wait(&b.k, &job);
+        let found: Vec<String> = serde_json::from_value(got["found"].clone()).unwrap();
+        println!("search: {:.1} s, {} of {} found", t.elapsed().as_secs_f32(), found.len(), names.len());
+        for p in &found {
+            let t = Instant::now();
+            let (code, body) = get(&b.file_url(&job, p), None);
+            println!("{p}: {code}, {:.1} s, {} KB", t.elapsed().as_secs_f32(), body.len() / 1024);
+            std::fs::write(dir("WM_OUT").join(p.rsplit('/').next().unwrap()), body).unwrap();
+        }
+        // closed in the middle of one
+        if let Some(p) = found.first() {
+            let url = b.file_url(&job, p);
+            let running = std::thread::spawn(move || get(&url, None));
+            std::thread::sleep(Duration::from_millis(700));
+            let t = Instant::now();
+            b.close(&job);
+            println!("closed: {} after {:.1} s", running.join().unwrap().0, t.elapsed().as_secs_f32());
+        }
+        assert_eq!(b.rows("image_versions"), 0);
+        let _ = std::fs::remove_dir_all(&b.base);
+    }
+
     /// The check answers what an upload would do, without anything sent or written.
     #[test]
     fn check_says_what_is_there() {
@@ -3750,7 +4419,7 @@ mod tests {
             store(&reward.join("b.jpg"), b"first b");
 
             let db = test_db(&base, encrypted);
-            db.lock().unwrap().execute("INSERT INTO images VALUES (?1)", [orig.to_string_lossy()]).unwrap();
+            db.lock().unwrap().execute("INSERT INTO images (file_path) VALUES (?1)", [orig.to_string_lossy()]).unwrap();
             let src = TestSource { db, cache: base.join("cache"), versions: base.join("versions"), key: Some(dek.raw()), arrivals: Arc::default() };
             let server = serve(0, Arc::new(Shared::new(Box::new(src), "testkey1234".into(), HashSet::new()))).unwrap();
             let k = format!("http://127.0.0.1:{}/k/testkey1234", server.server_addr().to_ip().unwrap().port());

@@ -17,7 +17,7 @@ pub const ACTIVE_KEY: &str = "wallset_lock";
 const STATE_KEY: &str = "wallset_lock_state";
 /// How often the keeper looks whether the next picture is due.
 const LOOK: std::time::Duration = std::time::Duration::from_secs(20);
-/// Pictures tried in a row when one can't be shown.
+/// Pictures read when one after the other turns out not to be one.
 const TRIES: usize = 10;
 
 /// One change at a time.
@@ -120,6 +120,37 @@ fn advance(files: &[String], shuffle: bool, st: &mut State) -> Option<String> {
     st.pos = i;
     st.last = list[i].clone();
     Some(st.last.clone())
+}
+
+/// The next picture that can be shown, finished. Only looks at files until it has one.
+fn next_picture(
+    files: &[String],
+    shuffle: bool,
+    st: &mut State,
+    usable: &dyn Fn(&str) -> bool,
+    make: &dyn Fn(&str) -> Result<Vec<u8>, String>,
+) -> Result<Vec<u8>, String> {
+    let mut why = "None of its pictures can be a wallpaper right now (missing, encrypted or not a picture).".to_string();
+    let mut seen = std::collections::HashSet::new();
+    let mut failed = 0;
+    // (a shuffled round that starts over can bring one again that was seen already)
+    for _ in 0..files.len() * 2 {
+        let Some(next) = advance(files, shuffle, st) else { break };
+        if !seen.insert(next.clone()) || !usable(&next) {
+            continue;
+        }
+        match make(&next) {
+            Ok(j) => return Ok(j),
+            Err(e) => {
+                why = e;
+                failed += 1;
+                if failed == TRIES {
+                    break;
+                }
+            }
+        }
+    }
+    Err(why)
 }
 
 /// The picture as the lock screen shows it: exactly the screen's size. fit: "fill" (cut to
@@ -268,7 +299,8 @@ pub fn change(app: &AppHandle, step: Step) -> Result<(), String> {
         };
         let (_, fit, shuffle) =
             wallsets::get(&conn, id).map_err(|e| e.to_string())?.ok_or("That slideshow is gone.")?;
-        let files = wallsets::shown_files(&conn, id).map_err(|e| e.to_string())?;
+        // only the names: the files are looked at one by one, without the database
+        let files = wallsets::listed(&conn, id, false).map_err(|e| e.to_string())?;
         let st = match step {
             Step::Start(_) => State { seed: rand::random(), ..Default::default() },
             _ => state(&conn),
@@ -277,22 +309,13 @@ pub fn change(app: &AppHandle, step: Step) -> Result<(), String> {
     };
     let dir = folder()?;
     let size = screen_size();
-    let mut why = "None of its pictures can be a wallpaper right now (missing, encrypted or not a picture).".to_string();
-    let mut jpeg = None;
-    if matches!(step, Step::Same) && files.contains(&st.last) {
-        jpeg = finished(&st.last, &fit, size).ok();
-    }
-    for _ in 0..files.len().min(TRIES) {
-        if jpeg.is_some() {
-            break;
-        }
-        let Some(next) = advance(&files, shuffle, &mut st) else { break };
-        match finished(&next, &fit, size) {
-            Ok(j) => jpeg = Some(j),
-            Err(e) => why = e,
-        }
-    }
-    let name = place(dir, &jpeg.ok_or(why)?)?;
+    let make = |p: &str| finished(p, &fit, size);
+    let same = matches!(step, Step::Same) && files.contains(&st.last) && wallsets::usable(&st.last);
+    let jpeg = match same.then(|| make(&st.last).ok()).flatten() {
+        Some(j) => j,
+        None => next_picture(&files, shuffle, &mut st, &wallsets::usable, &make)?,
+    };
+    let name = place(dir, &jpeg)?;
     st.at = now();
     st.seen = on_screen().is_some_and(|f| f.eq_ignore_ascii_case(&name));
     st.file = name;
@@ -391,6 +414,40 @@ mod tests {
         assert_eq!(advance(&one, true, &mut st).unwrap(), one[0]);
         assert_eq!(advance(&one, true, &mut st).unwrap(), one[0]);
         assert!(advance(&[], true, &mut st).is_none());
+    }
+
+    #[test]
+    fn only_files_up_to_the_next_good_one_are_looked_at() {
+        let f = files(100);
+        let looked = std::cell::RefCell::new(Vec::new());
+        let get = |st: &mut State, good: &dyn Fn(&str) -> bool| {
+            looked.borrow_mut().clear();
+            let usable = |p: &str| {
+                looked.borrow_mut().push(p.to_string());
+                good(p)
+            };
+            next_picture(&f, false, st, &usable, &|p| Ok(p.as_bytes().to_vec())).map(|b| String::from_utf8(b).unwrap())
+        };
+        let mut st = State::default();
+        assert_eq!(get(&mut st, &|_| true).unwrap(), f[0]);
+        assert_eq!(get(&mut st, &|_| true).unwrap(), f[1]);
+        assert_eq!(*looked.borrow(), [f[1].clone()], "one file, not the whole slideshow");
+        // more missing ones in a row than it would read
+        assert_eq!(get(&mut st, &|p| p == f[40]).unwrap(), f[40]);
+        assert_eq!(looked.borrow().len(), 39);
+        // it goes round, also back to the same one
+        assert_eq!(get(&mut st, &|p| p == f[3]).unwrap(), f[3]);
+        assert_eq!(get(&mut st, &|p| p == f[3]).unwrap(), f[3]);
+        assert!(get(&mut st, &|_| false).unwrap_err().starts_with("None of its pictures"));
+        // broken pictures: not all of them are read
+        let read = std::cell::Cell::new(0);
+        let broken = |_: &str| {
+            read.set(read.get() + 1);
+            Err("broken".to_string())
+        };
+        assert_eq!(next_picture(&f, true, &mut State::default(), &|_| true, &broken).unwrap_err(), "broken");
+        assert_eq!(read.get(), TRIES);
+        assert!(next_picture(&[], true, &mut State::default(), &|_| true, &broken).is_err());
     }
 
     #[test]

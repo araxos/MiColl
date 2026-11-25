@@ -1149,6 +1149,11 @@ export async function saverPreview(id: string): Promise<void> {
   await invoke("saver_preview", { id: Number(id) });
 }
 
+/** Which pictures are landscape, in the same order (null = can't be told). */
+export async function landscapePictures(paths: string[]): Promise<(boolean | null)[]> {
+  return invoke<(boolean | null)[]>("landscape_pictures", { paths });
+}
+
 /** The files of a user collection, over every creator. */
 export async function collectionFiles(id: string): Promise<string[]> {
   return (await invoke<string[]>("collection_files", { id: Number(id) })) ?? [];

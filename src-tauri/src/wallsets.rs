@@ -241,12 +241,19 @@ pub fn get(conn: &Connection, id: i64) -> rusqlite::Result<Option<(i64, String, 
 /// The files Windows gets: each picture as it's shown in MiColl (its active edit
 /// version, else the original), only ones that exist and Windows can show.
 pub fn shown_files(conn: &Connection, id: i64) -> rusqlite::Result<Vec<String>> {
-    showable(conn, id, false)
+    Ok(listed(conn, id, false)?.into_iter().filter(|p| usable(p)).collect())
 }
 
-/// The same, with `no_nsfw` without the pictures of creators tagged nsfw (the screen saver
-/// in SFW mode: it comes by itself).
-pub fn showable(conn: &Connection, id: i64, no_nsfw: bool) -> rusqlite::Result<Vec<String>> {
+/// A picture that's there and not encrypted (opens the file).
+pub fn usable(path: &str) -> bool {
+    let path = std::path::Path::new(path);
+    path.is_file() && !crate::crypto::file_is_encrypted(path)
+}
+
+/// The same files as shown_files, only from the database: no file is touched, so ask
+/// `usable` before showing one (outside the database's lock). With `no_nsfw` without the
+/// pictures of creators tagged nsfw (the screen saver in SFW mode: it comes by itself).
+pub fn listed(conn: &Connection, id: i64, no_nsfw: bool) -> rusqlite::Result<Vec<String>> {
     let mut stmt = conn.prepare(
         "SELECT COALESCE(v.file_path, i.file_path)
          FROM wall_set_items i
@@ -265,13 +272,10 @@ pub fn showable(conn: &Connection, id: i64, no_nsfw: bool) -> rusqlite::Result<V
     Ok(all
         .into_iter()
         .filter(|p| {
-            let path = std::path::Path::new(p);
-            let ext_ok = path
+            std::path::Path::new(p)
                 .extension()
                 .and_then(|e| e.to_str())
-                .map(|e| WALL_EXTS.contains(&e.to_ascii_lowercase().as_str()))
-                .unwrap_or(false);
-            ext_ok && path.is_file() && !crate::crypto::file_is_encrypted(path)
+                .is_some_and(|e| WALL_EXTS.contains(&e.to_ascii_lowercase().as_str()))
         })
         .collect())
 }
@@ -356,10 +360,13 @@ mod tests {
              INSERT INTO rewards(id, period_id, title, folder_path, image_count) VALUES(1, 1, 'R', 'f', 1);")
             .unwrap();
         c.execute("INSERT INTO images(reward_id, file_path) VALUES(1, ?1)", params![p(&pic)]).unwrap();
-        assert!(showable(&c, id, true).unwrap().is_empty());
-        assert_eq!(showable(&c, id, false).unwrap(), vec![p(&pic)]);
+        // (the missing one is listed too, no file is looked at)
+        let gone = p(&dir.join("gone.png"));
+        assert_eq!(listed(&c, id, true).unwrap(), vec![gone.clone()]);
+        assert_eq!(listed(&c, id, false).unwrap(), vec![p(&pic), gone.clone()]);
+        assert!(usable(&p(&pic)) && !usable(&gone));
         c.execute("UPDATE artists SET tags = '[\"sfw\"]'", []).unwrap();
-        assert_eq!(showable(&c, id, true).unwrap(), vec![p(&pic)]);
+        assert_eq!(listed(&c, id, true).unwrap().len(), 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

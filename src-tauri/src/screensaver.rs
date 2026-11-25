@@ -319,9 +319,11 @@ pub fn start(app: &AppHandle, set: i64, preview: bool) -> Result<(), String> {
         let (_, fit, shuffle) =
             wallsets::get(&conn, set).map_err(|e| e.to_string())?.ok_or("That slideshow is gone.")?;
         let hide = crate::hides_nsfw().unwrap_or(true);
-        let pictures = wallsets::showable(&conn, set, hide).map_err(|e| e.to_string())?;
+        let pictures = wallsets::listed(&conn, set, hide).map_err(|e| e.to_string())?;
         (pictures, fit, shuffle, options(&conn))
     };
+    // (the windows skip one that's missing, but an encrypted one they could show)
+    pictures.retain(|p| wallsets::usable(p));
     if pictures.is_empty() {
         return Err("None of its pictures can be shown right now (missing, encrypted or not a picture).".into());
     }

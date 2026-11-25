@@ -16,12 +16,14 @@ import {
   Pencil,
   Play,
   Plus,
+  RectangleHorizontal,
   Search,
   Shuffle,
   SlidersHorizontal,
   Square,
   Trash2,
   X,
+  ZoomIn,
 } from "lucide-react";
 import { Layout } from "@/components/Layout";
 import { Button } from "@/components/ui/Button";
@@ -32,6 +34,7 @@ import { CasualOverview } from "@/components/hub/CasualHub";
 import { CyberOverview } from "@/components/hub/CyberHub";
 import { HiddenSets } from "@/components/hub/HiddenSets";
 import { HubExtra } from "@/components/hub/HubExtra";
+import { PickPreview } from "@/components/hub/PickPreview";
 import { IRI_BAR, IriOverview } from "@/components/hub/IriHub";
 import { PyreOverview } from "@/components/hub/PyreHub";
 import { SakuraOverview } from "@/components/hub/SakuraHub";
@@ -66,6 +69,7 @@ import {
   createWallSet,
   deleteWallSet,
   favoriteImages,
+  landscapePictures,
   listCollections,
   listWallSets,
   lockSetNext,
@@ -99,6 +103,11 @@ import type { Artist, Collection } from "@/types";
 /** "Change picture every" choices, in minutes. */
 const EVERY = [1, 5, 10, 15, 30, 60, 180, 360, 720, 1440];
 const FITS: SlideshowFit[] = ["fill", "fit", "stretch"];
+
+/** The picture picker: only landscape ones (only on this PC). */
+const LANDSCAPE_KEY = "micoll.hubPickLandscape";
+/** Pictures looked at in one go, for the filter. */
+const LOOK_AT = 200;
 
 /** The last place the hub showed (only on this PC). */
 const TARGET_KEY = "micoll.hubTarget";
@@ -821,6 +830,23 @@ function PicturePicker({
   const [groups, setGroups] = useState<PickGroup[] | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [q, setQ] = useState("");
+  // what each picture shows: its active version (an expanded one is landscape, its original
+  // may not be). null = not known yet
+  const [versions, setVersions] = useState<Record<string, string> | null>(null);
+  const [landscape, setLandscape] = useState(() => {
+    try {
+      return localStorage.getItem(LANDSCAPE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  // file -> landscape or not, null = can't be told (then it's offered)
+  const shapes = useRef(new Map<string, boolean | null>());
+  const [looked, setLooked] = useState<{ done: number; total: number } | null>(null);
+  /** The picture that's shown in big. */
+  const [big, setBig] = useState<string | null>(null);
+  const bigRef = useRef(big);
+  bigRef.current = big;
   const loadSeq = useRef(0);
   // t is a new function every render: read it through a ref, or the load below re-runs forever
   const tRef = useRef(t);
@@ -833,7 +859,8 @@ function PicturePicker({
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      // (the big picture has its own keys)
+      if (e.key === "Escape" && !bigRef.current) {
         e.stopPropagation();
         onClose();
       }
@@ -886,6 +913,75 @@ function PicturePicker({
         .catch(() => done([]));
     }
   }, [source]);
+
+  // their active versions
+  useEffect(() => {
+    setVersions(null);
+    if (!groups) return;
+    let alive = true;
+    const all = [...new Set(groups.flatMap((g) => g.paths))];
+    void imageVersionsFor(all)
+      .catch(() => ({}) as Awaited<ReturnType<typeof imageVersionsFor>>)
+      .then((vers) => {
+        if (!alive) return;
+        const map: Record<string, string> = {};
+        for (const [orig, v] of Object.entries(vers ?? {})) {
+          const act = v.activeId != null ? v.versions.find((x) => x.id === v.activeId) : undefined;
+          if (act) map[orig] = act.filePath;
+        }
+        setVersions(map);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [groups]);
+  const file = (p: string) => versions?.[p] ?? p;
+
+  // with the filter on: look at the ones that aren't known yet, a few hundred at a time
+  useEffect(() => {
+    setLooked(null);
+    if (!landscape || !groups || !versions) return;
+    let alive = true;
+    const all = [...new Set(groups.flatMap((g) => g.paths.map((p) => versions[p] ?? p)))];
+    const open = all.filter((p) => !shapes.current.has(p));
+    void (async () => {
+      for (let i = 0; i < open.length; i += LOOK_AT) {
+        setLooked({ done: all.length - open.length + i, total: all.length });
+        const part = open.slice(i, i + LOOK_AT);
+        const res = await landscapePictures(part).catch(() => part.map(() => null));
+        if (!alive) return;
+        part.forEach((p, k) => shapes.current.set(p, res[k] ?? null));
+      }
+      if (alive) setLooked({ done: all.length, total: all.length });
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [landscape, groups, versions]);
+  const looking = landscape && !!groups && (!looked || looked.done < looked.total);
+
+  // what's offered (looked is here because it says that shapes got more)
+  const offered = useMemo(() => {
+    if (!groups || !landscape) return groups;
+    const ok = (p: string) => {
+      const v = versions ? shapes.current.get(versions[p] ?? p) : undefined;
+      return v === true || v === null;
+    };
+    return groups.map((g) => ({ ...g, paths: g.paths.filter(ok) })).filter((g) => g.paths.length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, landscape, versions, looked]);
+  const flat = useMemo(() => [...new Set((offered ?? []).flatMap((g) => g.paths))], [offered]);
+  const flatFree = flat.filter((p) => !have.has(p));
+  const allPicked = flatFree.length > 0 && flatFree.every((p) => picked.has(p));
+
+  const switchLandscape = () => {
+    setLandscape(!landscape);
+    try {
+      localStorage.setItem(LANDSCAPE_KEY, landscape ? "false" : "true");
+    } catch {
+      /* just not remembered */
+    }
+  };
 
   const toggle = (paths: string[], on: boolean) =>
     setPicked((cur) => {
@@ -966,6 +1062,33 @@ function PicturePicker({
           </div>
 
           {/* the source's pictures */}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {source && groups && groups.length > 0 && (
+              <div className={cn("flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2", dlg.divider)}>
+                <span className="min-w-0 flex-1 text-xs text-zinc-400">
+                  {looking
+                    ? tf("Checking {n} of {total}…", { n: looked?.done ?? 0, total: looked?.total ?? "…" })
+                    : tp("{n} pictures", flat.length)}
+                </span>
+                <button
+                  onClick={switchLandscape}
+                  aria-pressed={landscape}
+                  title={t("Show only landscape pictures, expanded ones count too")}
+                  className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 text-xs", landscape ? dlg.controlOn : dlg.control)}
+                >
+                  {looking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RectangleHorizontal className="h-3.5 w-3.5" />}
+                  {t("Landscape only")}
+                </button>
+                {flatFree.length > 0 && (
+                  <button
+                    onClick={() => toggle(flatFree, !allPicked)}
+                    className={cn("px-2.5 py-1 text-xs", allPicked ? dlg.controlOn : dlg.control)}
+                  >
+                    {allPicked ? t("Select none") : t("Select all")}
+                  </button>
+                )}
+              </div>
+            )}
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             {!source ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-zinc-500">
@@ -978,8 +1101,12 @@ function PicturePicker({
               </div>
             ) : groups.length === 0 ? (
               <div className="flex h-full items-center justify-center text-sm text-zinc-500">{t("No pictures here.")}</div>
+            ) : !offered || offered.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-zinc-500">
+                {looking ? <Loader2 className={cn("h-6 w-6 animate-spin", dlg.accentText)} /> : t("No landscape pictures here.")}
+              </div>
             ) : (
-              groups.map((g) => {
+              offered.map((g) => {
                 const free = g.paths.filter((p) => !have.has(p));
                 const all = free.length > 0 && free.every((p) => picked.has(p));
                 return (
@@ -998,24 +1125,33 @@ function PicturePicker({
                         const inSet = have.has(p);
                         const on = picked.has(p);
                         return (
-                          <button
-                            key={p}
-                            disabled={inSet}
-                            onClick={() => toggle([p], !on)}
-                            title={inSet ? t("Already in this slideshow") : fileName(p)}
-                            className={cn(
-                              "relative aspect-square overflow-hidden rounded-md bg-black/30 ring-2 ring-inset transition",
-                              on ? "ring-brand-400" : "ring-transparent",
-                              inSet && "opacity-40",
-                            )}
-                          >
-                            <Thumb path={p} />
-                            {(on || inSet) && (
-                              <span className={cn("absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full text-white", dlg.accent)}>
-                                <Check className="h-3 w-3" />
-                              </span>
-                            )}
-                          </button>
+                          <div key={p} className="group relative aspect-square">
+                            <button
+                              disabled={inSet}
+                              onClick={() => toggle([p], !on)}
+                              title={inSet ? t("Already in this slideshow") : fileName(p)}
+                              className={cn(
+                                "absolute inset-0 overflow-hidden rounded-md bg-black/30 ring-2 ring-inset transition",
+                                on ? "ring-brand-400" : "ring-transparent",
+                                inSet && "opacity-40",
+                              )}
+                            >
+                              <Thumb path={file(p)} />
+                              {(on || inSet) && (
+                                <span className={cn("absolute left-1 top-1 flex h-5 w-5 items-center justify-center rounded-full text-white", dlg.accent)}>
+                                  <Check className="h-3 w-3" />
+                                </span>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => setBig(p)}
+                              title={t("Show it large")}
+                              aria-label={t("Show it large")}
+                              className="hub-run absolute right-1 top-1 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                            >
+                              <ZoomIn className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -1023,6 +1159,7 @@ function PicturePicker({
                 );
               })
             )}
+          </div>
           </div>
         </div>
 
@@ -1043,6 +1180,24 @@ function PicturePicker({
           </Button>
         </div>
       </motion.div>
+      {big && (
+        // (a portal of its own, but its clicks would come up here as React events)
+        <div onClick={(e) => e.stopPropagation()}>
+          <PickPreview
+            path={file(big)}
+            name={fileName(big)}
+            picked={picked.has(big)}
+            locked={have.has(big)}
+            place={`${flat.indexOf(big) + 1} / ${flat.length}`}
+            onStep={(by) => {
+              const i = flat.indexOf(big);
+              setBig(flat[(i + by + flat.length) % flat.length] ?? big);
+            }}
+            onToggle={() => toggle([big], !picked.has(big))}
+            onClose={() => setBig(null)}
+          />
+        </div>
+      )}
     </motion.div>,
     document.body,
   );
