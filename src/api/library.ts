@@ -2422,8 +2422,12 @@ export async function pruneMissing(): Promise<number> {
  * Put loose dropped files into a temp reward folder for the import.
  * Returns the folder, or null if nothing needed that (folder/archive dropped).
  */
-export async function stageFilesForImport(paths: string[]): Promise<string | null> {
-  return invoke<string | null>("stage_files_for_import", { paths });
+/**
+ * A big copy sends "fill-progress" (phase "copy") tagged with job, cancelFill(job) stops it
+ * (rejects with "cancelled").
+ */
+export async function stageFilesForImport(paths: string[], job?: number): Promise<string | null> {
+  return invoke<string | null>("stage_files_for_import", { paths, job });
 }
 
 /**

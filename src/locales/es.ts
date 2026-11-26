@@ -1306,6 +1306,7 @@ export const dict: Dict = {
   "Downloaded and installed successfully.": "Descargada e instalada correctamente.",
   "The originals stay where they are.": "Los originales se quedan donde están.",
   "Still in place: {names}": "Siguen en su sitio: {names}",
+  "Loading files…": "Cargando archivos…",
   "Adding files…": "Añadiendo archivos…",
   "Indexing…": "Indexando…",
   "Still adding files here": "Aún se están añadiendo archivos aquí",

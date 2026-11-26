@@ -2451,6 +2451,29 @@ fn fill_cancelled(job: Option<u64>) -> bool {
     job.is_some_and(|j| FILL_CANCELS.lock().map(|c| c.contains(&j)).unwrap_or(false))
 }
 
+/// The files a cancelled fill made (deepest folders after them), and its folder when the
+/// fill made that too.
+fn take_back_fill(created: &[std::path::PathBuf], target: &std::path::Path, made_target: bool) {
+    for f in created.iter().rev() {
+        let _ = std::fs::remove_file(f);
+    }
+    // folders this run made, deepest first; remove_dir keeps any with a file
+    let mut dirs: Vec<std::path::PathBuf> = created.iter().filter_map(|f| f.parent().map(|p| p.to_path_buf())).collect();
+    dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+    dirs.dedup();
+    for d in dirs {
+        if d != target && d.starts_with(target) {
+            let _ = std::fs::remove_dir(&d);
+        }
+    }
+    if made_target {
+        let _ = std::fs::remove_dir(target);
+    }
+}
+
+/// How often a copy says how far it is.
+const COPY_TICK: std::time::Duration = std::time::Duration::from_millis(120);
+
 /// Stop a running fill_reward (the X on its progress toast). What it copied so far is
 /// taken back, the sources aren't touched.
 #[tauri::command]
@@ -2541,27 +2564,20 @@ async fn fill_reward(
             let mut created: Vec<std::path::PathBuf> = Vec::new();
             for ((src, rel), size) in items.into_iter().zip(sizes) {
                 if fill_cancelled(job) {
-                    for f in created.iter().rev() {
-                        let _ = std::fs::remove_file(f);
-                    }
-                    // folders this run made, deepest first; remove_dir keeps any with a file
-                    let mut dirs: Vec<std::path::PathBuf> = created
-                        .iter()
-                        .filter_map(|f| f.parent().map(|p| p.to_path_buf()))
-                        .collect();
-                    dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
-                    dirs.dedup();
-                    for d in dirs {
-                        if d != target2 && d.starts_with(&target2) {
-                            let _ = std::fs::remove_dir(&d);
-                        }
-                    }
-                    if made_target {
-                        let _ = std::fs::remove_dir(&target2);
-                    }
+                    take_back_fill(&created, &target2, made_target);
                     return Ok((0, 0, 0, transfer::Arrived::new(), true));
                 }
                 progress("copy", done, total);
+                // the bar moves inside a big file too; the X stops it in the middle
+                let base = done;
+                let mut said = std::time::Instant::now();
+                let mut tick = |n: u64| {
+                    if said.elapsed() >= COPY_TICK {
+                        said = std::time::Instant::now();
+                        progress("copy", base + n, total);
+                    }
+                    !fill_cancelled(job)
+                };
                 // counted when the file is through, whatever happened to it
                 done += size;
                 let dest = target2.join(&rel);
@@ -2581,12 +2597,12 @@ async fn fill_reward(
                         skipped += 1;
                         continue;
                     }
-                    "new" => transfer::copy_file_checked(&src, &dest).map(|n| (n, dest.clone())),
-                    "replace" => transfer::replace_file_checked(&src, &dest).map(|n| (n, dest.clone())),
+                    "new" => transfer::copy_file_checked_with(&src, &dest, &mut tick).map(|n| (n, dest.clone())),
+                    "replace" => transfer::replace_file_checked_with(&src, &dest, &mut tick).map(|n| (n, dest.clone())),
                     _ => {
                         let name = dest.file_name().unwrap_or(rel.as_os_str());
                         let uniq = unique_dest(&parent, name);
-                        transfer::copy_file_checked(&src, &uniq).map(|n| (n, uniq))
+                        transfer::copy_file_checked_with(&src, &uniq, &mut tick).map(|n| (n, uniq))
                     }
                 };
                 match res {
@@ -2598,6 +2614,10 @@ async fn fill_reward(
                             created.push(at.clone());
                         }
                         written.insert(at);
+                    }
+                    Err(e) if e == transfer::CANCELLED => {
+                        take_back_fill(&created, &target2, made_target);
+                        return Ok((0, 0, 0, transfer::Arrived::new(), true));
                     }
                     Err(_) => failed += 1,
                 }
@@ -4861,12 +4881,19 @@ fn seed_period(
     Ok(())
 }
 
+/// A drop this big (bytes) shows a bar while it's copied for the import.
+const STAGE_BAR_FROM: u64 = 64 * 1024 * 1024;
+
 /// Put loose dropped files (single image/video) into a temp reward folder for the import.
 /// Returns the folder, or None if nothing needed that (folder/archive dropped).
+/// A big copy says how far it is ("fill-progress", phase "copy", tagged with job) and
+/// cancel_fill(job) stops it: Err("cancelled"), nothing of it is left.
 #[tauri::command]
 async fn stage_files_for_import(
+    app: AppHandle,
     db: State<'_, Db>,
     paths: Vec<String>,
+    job: Option<u64>,
 ) -> Result<Option<String>, String> {
     let _work = busy::hold("import");
     // read the managed setting here, the frontend doesn't know it yet at this point
@@ -4921,10 +4948,41 @@ async fn stage_files_for_import(
         plan.write(&dir, files.iter().map(|f| std::fs::metadata(f).map(|m| m.len()).unwrap_or(0)));
         plan.fits(space::KEEP_FREE)?;
         std::fs::create_dir_all(&dir).map_err(map_err)?;
-        for f in &files {
+        let sizes: Vec<u64> = files.iter().map(|f| std::fs::metadata(f).map(|m| m.len()).unwrap_or(0)).collect();
+        let total: u64 = sizes.iter().sum();
+        // only a copy that takes a moment gets a bar
+        let show = total >= STAGE_BAR_FROM;
+        let say = |done: u64| {
+            if show {
+                busy::progress("fill-progress", done, total);
+                let _ = app.emit("fill-progress", serde_json::json!({ "job": job, "phase": "copy", "done": done, "total": total }));
+            }
+        };
+        let mut done = 0u64;
+        say(0);
+        for (f, size) in files.iter().zip(sizes) {
             if let Some(fname) = f.file_name() {
                 let dest = unique_dest(&dir, fname);
-                std::fs::copy(f, &dest).map_err(map_err)?;
+                let mut said = std::time::Instant::now();
+                let copied = transfer::copy_file_checked_with(f, &dest, &mut |n| {
+                    if said.elapsed() >= COPY_TICK {
+                        said = std::time::Instant::now();
+                        say(done + n);
+                    }
+                    !fill_cancelled(job)
+                });
+                if let Err(e) = copied {
+                    // the temp folder goes, with what's in it already
+                    if let Some(stage) = dir.parent() {
+                        let _ = std::fs::remove_dir_all(stage);
+                    }
+                    if let (Some(j), Ok(mut c)) = (job, FILL_CANCELS.lock()) {
+                        c.retain(|x| *x != j);
+                    }
+                    return Err(e);
+                }
+                done += size;
+                say(done);
             }
         }
         Ok(Some(dir.to_string_lossy().to_string()))

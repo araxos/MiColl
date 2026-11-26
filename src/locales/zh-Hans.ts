@@ -1291,6 +1291,7 @@ export const dict: Dict = {
   "Downloaded and installed successfully.": "已成功下载并安装。",
   "The originals stay where they are.": "原文件保留在原处。",
   "Still in place: {names}": "仍在原处:{names}",
+  "Loading files…": "正在载入文件…",
   "Adding files…": "正在添加文件…",
   "Indexing…": "正在建立索引…",
   "Still adding files here": "这里仍在添加文件",

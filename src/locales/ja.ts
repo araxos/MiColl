@@ -1291,6 +1291,7 @@ export const dict: Dict = {
   "Downloaded and installed successfully.": "ダウンロードとインストールが完了しました。",
   "The originals stay where they are.": "元のファイルはそのまま残ります。",
   "Still in place: {names}": "元の場所に残っています: {names}",
+  "Loading files…": "ファイルを読み込み中…",
   "Adding files…": "ファイルを追加中…",
   "Indexing…": "インデックス作成中…",
   "Still adding files here": "ここではまだファイルを追加中です",

@@ -54,15 +54,22 @@ pub fn same_bytes(a: &Path, b: &Path) -> bool {
 /// Copy a file to dest (which must not exist yet) and check it arrived whole. A failed or
 /// short copy is removed again. Returns the size.
 pub fn copy_file_checked(src: &Path, dest: &Path) -> Result<u64, String> {
+    copy_file_checked_with(src, dest, &mut |_| true)
+}
+
+/// copy_file_checked, and `tick` hears how many bytes of the file are through while it
+/// copies (a big video takes a while). false from it stops the copy: Err(CANCELLED),
+/// nothing of it is left.
+pub fn copy_file_checked_with(src: &Path, dest: &Path, tick: &mut dyn FnMut(u64) -> bool) -> Result<u64, String> {
     let want = file_len(src).ok_or_else(|| format!("{}: can't be read", src.display()))?;
     if dest.exists() {
         return Err(format!("{}: already exists", dest.display()));
     }
-    match std::fs::copy(src, dest) {
-        Ok(_) if file_len(dest) == Some(want) => Ok(want),
-        Ok(_) => {
+    match copy_ticking(src, dest, tick) {
+        Ok(false) if file_len(dest) == Some(want) => Ok(want),
+        Ok(stopped) => {
             let _ = std::fs::remove_file(dest);
-            Err(format!("{}: the copy came out incomplete", src.display()))
+            Err(if stopped { CANCELLED.to_string() } else { format!("{}: the copy came out incomplete", src.display()) })
         }
         Err(e) => {
             let _ = std::fs::remove_file(dest);
@@ -71,14 +78,87 @@ pub fn copy_file_checked(src: &Path, dest: &Path) -> Result<u64, String> {
     }
 }
 
+/// Windows' own copy (what std::fs::copy does too: dates and attributes come along), with
+/// its progress. Ok(true) = tick stopped it.
+#[cfg(windows)]
+fn copy_ticking(src: &Path, dest: &Path, tick: &mut dyn FnMut(u64) -> bool) -> std::io::Result<bool> {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{
+        CopyFileExW, COPYFILE_FLAGS, COPYPROGRESSROUTINE_PROGRESS, LPPROGRESS_ROUTINE_CALLBACK_REASON, PROGRESS_CANCEL,
+        PROGRESS_CONTINUE,
+    };
+    struct Ctx<'a> {
+        tick: &'a mut dyn FnMut(u64) -> bool,
+        stopped: bool,
+    }
+    unsafe extern "system" fn on_part(
+        _total: i64,
+        done: i64,
+        _stream: i64,
+        _stream_done: i64,
+        _n: u32,
+        _why: LPPROGRESS_ROUTINE_CALLBACK_REASON,
+        _from: HANDLE,
+        _to: HANDLE,
+        data: *const core::ffi::c_void,
+    ) -> COPYPROGRESSROUTINE_PROGRESS {
+        // SAFETY: data is the Ctx below, alive for the whole CopyFileExW call
+        let ctx = unsafe { &mut *(data as *mut Ctx) };
+        // nothing may unwind into Windows
+        let go = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (ctx.tick)(done.max(0) as u64))).unwrap_or(false);
+        if go {
+            PROGRESS_CONTINUE
+        } else {
+            ctx.stopped = true;
+            PROGRESS_CANCEL
+        }
+    }
+    // long paths need the \\?\ form
+    let wide = |p: &Path| {
+        let s = p.as_os_str().to_string_lossy();
+        if s.len() >= 240 && p.is_absolute() && !s.starts_with(r"\\") {
+            windows::core::HSTRING::from(format!(r"\\?\{}", s.replace('/', r"\")))
+        } else {
+            windows::core::HSTRING::from(p.as_os_str())
+        }
+    };
+    let mut ctx = Ctx { tick, stopped: false };
+    let done = unsafe {
+        CopyFileExW(
+            &wide(src),
+            &wide(dest),
+            Some(on_part),
+            Some(&mut ctx as *mut Ctx as *const core::ffi::c_void),
+            None,
+            COPYFILE_FLAGS(0),
+        )
+    };
+    if ctx.stopped {
+        return Ok(true);
+    }
+    done.map_err(|e| std::io::Error::other(e.message()))?;
+    Ok(false)
+}
+
+#[cfg(not(windows))]
+fn copy_ticking(src: &Path, dest: &Path, tick: &mut dyn FnMut(u64) -> bool) -> std::io::Result<bool> {
+    let n = std::fs::copy(src, dest)?;
+    Ok(!tick(n))
+}
+
 /// Replace dest with src: the copy goes to a temp name next to it first and only takes
 /// dest's place once it's complete, so a failed copy leaves the old file alone.
 pub fn replace_file_checked(src: &Path, dest: &Path) -> Result<u64, String> {
+    replace_file_checked_with(src, dest, &mut |_| true)
+}
+
+/// replace_file_checked with copy_file_checked_with's tick.
+pub fn replace_file_checked_with(src: &Path, dest: &Path, tick: &mut dyn FnMut(u64) -> bool) -> Result<u64, String> {
     let dir = dest.parent().ok_or_else(|| format!("{}: no folder", dest.display()))?;
     let name = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let tmp = dir.join(format!(".{name}.micoll-part"));
     let _ = std::fs::remove_file(&tmp); // a leftover of ours from a crash
-    let n = copy_file_checked(src, &tmp)?;
+    let n = copy_file_checked_with(src, &tmp, tick)?;
     std::fs::rename(&tmp, dest).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         format!("{}: {e}", dest.display())
@@ -193,6 +273,41 @@ pub fn all_arrived(src: &Path, arrived: &Arrived, skip: &dyn Fn(&Path) -> bool) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A big file says how far it is while it copies, and stops in the middle.
+    #[test]
+    fn a_big_copy_ticks_and_can_be_stopped() {
+        let b = std::env::temp_dir().join(format!("micoll_tickcopy_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&b);
+        std::fs::create_dir_all(&b).unwrap();
+        let src = b.join("big.mp4");
+        let data: Vec<u8> = (0..48u32 << 20).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8).collect();
+        std::fs::write(&src, &data).unwrap();
+        let mut seen = Vec::new();
+        let n = copy_file_checked_with(&src, &b.join("a.mp4"), &mut |n| {
+            seen.push(n);
+            true
+        })
+        .unwrap();
+        assert_eq!(n, data.len() as u64);
+        assert!(seen.len() > 3 && seen.windows(2).all(|w| w[0] <= w[1]), "{seen:?}");
+        assert_eq!(seen.last(), Some(&n));
+        assert!(same_bytes(&src, &b.join("a.mp4")));
+        // stopped after the first part: nothing of it is left
+        let mut calls = 0;
+        let got = copy_file_checked_with(&src, &b.join("b.mp4"), &mut |n| {
+            calls += 1;
+            n == 0
+        });
+        assert_eq!(got, Err(CANCELLED.to_string()));
+        assert!(!b.join("b.mp4").exists() && calls >= 2);
+        // the same when it replaces a file: the old one stays
+        std::fs::write(b.join("c.mp4"), b"old").unwrap();
+        assert!(replace_file_checked_with(&src, &b.join("c.mp4"), &mut |n| n == 0).is_err());
+        assert_eq!(std::fs::read(b.join("c.mp4")).unwrap(), b"old");
+        assert_eq!(std::fs::read_dir(&b).unwrap().count(), 3);
+        let _ = std::fs::remove_dir_all(&b);
+    }
 
     #[test]
     fn a_stopped_copy_takes_back_what_it_made() {

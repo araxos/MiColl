@@ -853,16 +853,48 @@ export function ActionsProvider({ children }: { children: React.ReactNode }) {
     // single loose files are put into a temp reward folder first
     let source: string | null = paths[0] ?? null;
     looseDropped.current = [];
+    // a big file (a long video) takes a while to copy: a bar in the bottom right, only
+    // when the backend says it's big
+    const job = ++fillJob.current;
+    let toastId: number | null = null;
+    const off = await listen<api.FillProgress>("fill-progress", (e) => {
+      const p = e.payload;
+      if (p.job !== job || p.phase !== "copy") return;
+      const show = {
+        title: t("Loading files…"),
+        detail: `${fmtBytes(p.done)} / ${fmtBytes(p.total)}`,
+        progress: p.total > 0 ? p.done / p.total : null,
+      };
+      if (toastId === null) {
+        toastId = showToast({
+          tone: "progress",
+          ...show,
+          onCancel: () => {
+            void api.cancelFill(job).catch(() => {});
+            if (toastId !== null) updateToast(toastId, { title: t("Cancelling…"), onCancel: undefined });
+          },
+        });
+      } else {
+        updateToast(toastId, show);
+      }
+    }).catch(() => null);
     try {
-      const staged = await api.stageFilesForImport(paths);
+      const staged = await api.stageFilesForImport(paths, job);
       if (staged) {
         source = staged;
         looseDropped.current = paths;
       }
     } catch (e) {
+      if (`${e}` === "cancelled") {
+        showToast({ tone: "warn", title: t("Copy cancelled"), detail: t("Nothing was changed.") });
+        return;
+      }
       console.error("stage files failed", e);
       showToast({ tone: "error", title: t("Couldn’t add files"), detail: `${e}` });
       return;
+    } finally {
+      off?.();
+      if (toastId !== null) dismissToast(toastId);
     }
     if (!source) return;
     await beginImport({
