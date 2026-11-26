@@ -107,6 +107,7 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
   const passwordSet = usePasswordSet();
   const onDashboard = location.pathname === "/";
   const onWallpapers = location.pathname.startsWith("/wallpapers");
+  const onNotes = location.pathname.startsWith("/notes");
   const irid = accent === "iridescent";
   // no OS title bar (decorations off), the header is the drag region
   const customChrome = true;
@@ -166,7 +167,7 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
         {/* the page's name is the home button: the dashboard, or the top of the page when
             already there. Only the text dims on hover */}
         <button
-          onClick={onWallpapers ? scrollPageToTop : goHome}
+          onClick={onWallpapers || onNotes ? scrollPageToTop : goHome}
           onDoubleClick={() => {
             if (getHomeDblToggle()) toggleSfwMode();
           }}
@@ -178,7 +179,7 @@ export function TopBar({ onLock }: { onLock?: () => void }) {
             accent === "corruptruby" ? "ruby-title" : "text-base font-semibold text-zinc-100",
           )}
         >
-          {onWallpapers ? t("Wallpaper Hub") : t("Dashboard")}
+          {onWallpapers ? t("Wallpaper Hub") : onNotes ? t("Notes") : t("Dashboard")}
         </button>
 
         {titleSlot && (

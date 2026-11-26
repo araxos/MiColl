@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { LayoutDashboard, Settings, Wallpaper } from "lucide-react";
+import { LayoutDashboard, NotebookPen, Settings, Wallpaper } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AppLogo } from "@/components/AppLogo";
 import { useT } from "@/lib/i18n";
@@ -173,11 +173,15 @@ function PageList({ onPick }: { onPick?: () => void }) {
   const returnToDashboard = useReturnToDashboard();
   const { pathname } = useLocation();
   const onWallpapers = pathname.startsWith("/wallpapers");
+  const onNotes = pathname.startsWith("/notes");
+  // the pages next to the dashboard; Dashboard from one of them goes back to where it was
+  const aside = onWallpapers || onNotes;
 
   // creators, wishlist, settings… all hang under the dashboard
   const pages = [
-    { path: "/", Icon: LayoutDashboard, title: t("Dashboard"), here: !onWallpapers },
+    { path: "/", Icon: LayoutDashboard, title: t("Dashboard"), here: !aside },
     { path: "/wallpapers", Icon: Wallpaper, title: t("Wallpaper Hub"), here: onWallpapers },
+    { path: "/notes", Icon: NotebookPen, title: t("Notes"), here: onNotes },
   ];
 
   return (
@@ -194,7 +198,7 @@ function PageList({ onPick }: { onPick?: () => void }) {
           onClick={() => {
             onPick?.();
             if (pathname === path) scrollPageToTop();
-            else if (onWallpapers) returnToDashboard();
+            else if (path === "/" && aside) returnToDashboard();
             else navigate(path);
           }}
           className="side-item relative flex h-9 w-full shrink-0 items-center gap-3 overflow-hidden whitespace-nowrap rounded-lg px-2 text-left text-sm font-medium"

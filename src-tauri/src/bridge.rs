@@ -25,6 +25,10 @@
 //! picture, /api/versions lists one picture's, /api/version-file sends one.
 //! The gallery also carries each reward's tier and each creator's tier list.
 //!
+//! The user's own notes (notes.rs) come with GET /api/notes: the normal ones readable,
+//! the ones behind the notes password still sealed, with what the phone needs to open
+//! them with that password. The password itself never comes here.
+//!
 //! A download can have its corner watermark taken off here (/api/wm/..., wm_phone.rs):
 //! always from the original, in memory, nothing of it is saved.
 //!
@@ -905,6 +909,10 @@ trait Source: Send + Sync {
     fn wm_clean(&self, _im: &WmImage, _key: Option<[u8; 32]>, _stop: &dyn Fn() -> bool) -> Result<(Vec<u8>, &'static str), String> {
         Err("not here".into())
     }
+    /// The user's notes for the phone (notes.rs).
+    fn notes(&self) -> Result<crate::notes::PhoneNotes, String> {
+        Err("not here".into())
+    }
 }
 
 struct AppSource(AppHandle);
@@ -1161,6 +1169,10 @@ impl Source for AppSource {
     }
     fn wm_clean(&self, im: &WmImage, key: Option<[u8; 32]>, stop: &dyn Fn() -> bool) -> Result<(Vec<u8>, &'static str), String> {
         crate::wm_clean_file(&crate::app_data(&self.0)?, im, key, stop)
+    }
+    fn notes(&self) -> Result<crate::notes::PhoneNotes, String> {
+        let state = self.0.state::<crate::notes::NotesState>();
+        crate::notes::phone_notes(self.db(), &state, self.data_key(), &crate::notes::WINDOWS)
     }
 }
 
@@ -1673,6 +1685,12 @@ fn handle(req: tiny_http::Request, sh: &Arc<Shared>) {
                 None => fail(req, 404, "no such version"),
             }
         }
+        // the user's own notes: the normal ones readable, the locked ones sealed (the phone
+        // opens them with the notes password itself, it never comes here)
+        "/api/notes" => match sh.src.notes() {
+            Ok(n) => json(req, 200, &serde_json::to_value(n).unwrap_or_default()),
+            Err(e) => fail(req, 500, &e),
+        },
         "/api/wm" => json(req, 200, &serde_json::json!({ "ready": sh.src.wm_ready() })),
         "/api/wm/scan" => wm_scan(req, sh, &root, &moved),
         "/api/wm/job" => match query_param(&url, "id").and_then(|id| sh.wm.get(&id)) {
@@ -3019,6 +3037,9 @@ mod tests {
         fn versions_dir(&self) -> Result<PathBuf, String> {
             Ok(self.versions.clone())
         }
+        fn notes(&self) -> Result<crate::notes::PhoneNotes, String> {
+            crate::notes::phone_notes(&self.db, &crate::notes::NotesState::default(), self.key, &crate::notes::TEST_KEEPER)
+        }
         fn arrived(&self, creators: &[String], files: &[FileArrival], versions: &[VersionArrival]) {
             let mut c = creators.to_vec();
             c.sort();
@@ -3038,6 +3059,7 @@ mod tests {
              CREATE TABLE rewards (folder_path TEXT, period_id INTEGER, tier TEXT, cover_image TEXT, cover_custom INTEGER NOT NULL DEFAULT 0,
                                    notes TEXT, is_extra INTEGER NOT NULL DEFAULT 0, sd_volume TEXT, sd_origin TEXT);
              CREATE TABLE images (id INTEGER PRIMARY KEY, file_path TEXT, reward_id INTEGER, sort INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE notes (id INTEGER PRIMARY KEY, locked INTEGER NOT NULL DEFAULT 0, data BLOB NOT NULL, deleted_at INTEGER);
              CREATE TABLE image_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, orig_path TEXT,
                                           file_path TEXT, label TEXT, created_at TEXT);
              CREATE TABLE image_active_version (orig_path TEXT PRIMARY KEY, version_id INTEGER);
@@ -4396,6 +4418,32 @@ mod tests {
         }
         assert_eq!(b.rows("image_versions"), 0);
         let _ = std::fs::remove_dir_all(&b.base);
+    }
+
+    /// GET /api/notes: behind the pairing key; the notes as notes.rs gives them.
+    #[test]
+    fn notes_come_to_the_phone() {
+        let base = std::env::temp_dir().join(format!("micoll_bridge_notes_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("MiColl/Nora")).unwrap();
+        let src = TestSource { db: test_db(&base, false), cache: base.join("cache"), versions: base.join("versions"), key: None, arrivals: Arc::default() };
+        {
+            let c = src.db.lock().unwrap();
+            let st = crate::notes::NotesState::default();
+            let n = crate::notes::Notes { conn: &c, state: &st, dek: None, keeper: &crate::notes::TEST_KEEPER };
+            n.save_full(None, "Hello", "from the PC", None, false, false, false).unwrap();
+        }
+        let shared = Arc::new(Shared::new(Box::new(src), "testkey1234".into(), HashSet::new()));
+        let server = serve(0, shared).unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        assert_eq!(get(&format!("http://127.0.0.1:{port}/k/wrongkey123/api/notes"), None).0, 401);
+        let (code, body) = get(&format!("http://127.0.0.1:{port}/k/testkey1234/api/notes"), None);
+        assert_eq!(code, 200);
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["notes"][0]["title"], "Hello");
+        assert_eq!(v["notes"][0]["text"], "from the PC");
+        assert!(v["locked"].as_array().unwrap().is_empty() && v["vault"].is_null() && v["normalClosed"] == false);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// The check answers what an upload would do, without anything sent or written.

@@ -58,7 +58,7 @@ export function useReturnToDashboard() {
       const path = pathByIdx.get(i);
       // not known (the window was reloaded)
       if (path == null) break;
-      if (path.startsWith("/wallpapers") || path.startsWith("/settings")) continue;
+      if (path.startsWith("/wallpapers") || path.startsWith("/notes") || path.startsWith("/settings")) continue;
       navigate(i - idx);
       return;
     }

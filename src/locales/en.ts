@@ -92,4 +92,10 @@ export const dict: Dict = {
   "{n} pictures added#other": "{n} pictures added",
   "{n} pictures selected#one": "{n} picture selected",
   "{n} pictures selected#other": "{n} pictures selected",
+  "{n} words#one": "{n} word",
+  "{n} words#other": "{n} words",
+  "{n} min#one": "{n} min",
+  "{n} min#other": "{n} min",
+  "after {n} minutes#one": "after {n} minute",
+  "after {n} minutes#other": "after {n} minutes",
 };

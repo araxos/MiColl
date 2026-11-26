@@ -34,6 +34,7 @@ mod wm_single;
 mod history;
 mod inbox;
 mod lockscreen;
+mod notes;
 mod shape;
 mod siteicon;
 mod winstate;
@@ -10395,6 +10396,7 @@ fn unlock_recovery(db: State<Db>, dek_state: State<DekState>, code: String) -> R
 fn lock(app: AppHandle, dek_state: State<DekState>) -> Result<(), String> {
     *dek_state.lock().map_err(map_err)? = None;
     bridge::forget_watermarks(&app);
+    notes::lock_now(&app);
     for (label, w) in app.webview_windows() {
         if label.starts_with("popout-pip-") {
             let _ = w.close();
@@ -13597,6 +13599,7 @@ pub fn run() {
             app.manage(std::sync::Mutex::new(None::<crypto::Dek>));
             app.manage(ShareState::default());
             app.manage(bridge::BridgeState::default());
+            app.manage(notes::NotesState::default());
             // the upkeep runs on its own thread, setup blocks the main thread and the page
             // (even the splash) can't load until it returns. The thread takes the DB lock
             // first, so the first library read still sees the result.
@@ -13897,6 +13900,20 @@ pub fn run() {
             share_folder_to_phone,
             stop_sharing,
             bridge::phone_bridge_start,
+            notes::notes_status,
+            notes::notes_list,
+            notes::notes_get,
+            notes::notes_save,
+            notes::notes_trash,
+            notes::notes_purge,
+            notes::notes_vault_create,
+            notes::notes_unlock,
+            notes::notes_change_password,
+            notes::notes_set_recovery,
+            notes::notes_remove_vault,
+            notes::notes_lock,
+            notes::notes_set_autolock,
+            notes::notes_copy,
             bridge::phone_bridge_stop,
             bridge::phone_bridge_new_key,
             bridge::phone_bridge_trust_network,
@@ -13958,6 +13975,8 @@ pub fn run() {
             // wait for it off the window's thread, then end the way it was asked to
             if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
                 bridge::forget_watermarks(app);
+                notes::lock_now(app);
+                notes::clear_copied();
                 match COMMAND_RUNNING.try_lock() {
                     // nothing running: keep it locked so no command starts while ending
                     Ok(idle) => std::mem::forget(idle),

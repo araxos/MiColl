@@ -148,6 +148,7 @@ fn copy_ticking(src: &Path, dest: &Path, tick: &mut dyn FnMut(u64) -> bool) -> s
 
 /// Replace dest with src: the copy goes to a temp name next to it first and only takes
 /// dest's place once it's complete, so a failed copy leaves the old file alone.
+#[cfg(test)]
 pub fn replace_file_checked(src: &Path, dest: &Path) -> Result<u64, String> {
     replace_file_checked_with(src, dest, &mut |_| true)
 }

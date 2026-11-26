@@ -122,10 +122,11 @@ mod win {
     use super::*;
     use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, POINT};
     use windows::Win32::System::DataExchange::{
-        CloseClipboard, EmptyClipboard, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
+        CloseClipboard, EmptyClipboard, GetClipboardSequenceNumber, OpenClipboard, RegisterClipboardFormatW,
+        SetClipboardData,
     };
     use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
-    use windows::Win32::System::Ole::{CF_DIB, CF_HDROP};
+    use windows::Win32::System::Ole::{CF_DIB, CF_HDROP, CF_UNICODETEXT};
     use windows::Win32::UI::Shell::DROPFILES;
     use windows::core::w;
 
@@ -308,10 +309,50 @@ mod win {
             put(CF_DIB.0 as u32, h_dib)
         }
     }
+
+    /// Text that shouldn't stay around (a note's copy field): Windows leaves it out of the
+    /// clipboard history (Win+V), the cloud clipboard and clipboard watchers. Returns the
+    /// clipboard's number after it (clear_secret).
+    pub fn copy_secret(text: &str) -> Result<u32, String> {
+        let mut bytes: Vec<u8> = text.encode_utf16().chain(Some(0)).flat_map(u16::to_le_bytes).collect();
+        let done = (|| -> Result<(), String> {
+            let _c = Clip::open()?;
+            unsafe {
+                EmptyClipboard().map_err(map_err)?;
+                put(u32::from(CF_UNICODETEXT.0), global_block(&bytes)?)?;
+                for name in [w!("CanIncludeInClipboardHistory"), w!("CanUploadToCloudClipboard")] {
+                    let f = RegisterClipboardFormatW(name);
+                    if f != 0 {
+                        put(f, global_block(&0u32.to_le_bytes())?)?;
+                    }
+                }
+                let f = RegisterClipboardFormatW(w!("ExcludeClipboardContentFromMonitorProcessing"));
+                if f != 0 {
+                    put(f, global_block(&[0u8])?)?;
+                }
+            }
+            Ok(())
+        })();
+        bytes.iter_mut().for_each(|b| *b = 0);
+        done?;
+        Ok(unsafe { GetClipboardSequenceNumber() })
+    }
+
+    /// Empties the clipboard, unless something else was copied since `seq`.
+    pub fn clear_secret(seq: u32) {
+        if unsafe { GetClipboardSequenceNumber() } != seq {
+            return;
+        }
+        if let Ok(_c) = Clip::open() {
+            unsafe {
+                let _ = EmptyClipboard();
+            }
+        }
+    }
 }
 
 #[cfg(windows)]
-pub use win::{copy_files, copy_image};
+pub use win::{clear_secret, copy_files, copy_image, copy_secret};
 
 /* ---- the Windows Share sheet ----------------------------------------- */
 
@@ -493,6 +534,14 @@ pub fn drag_files(_paths: &[PathBuf]) -> Result<(), String> {
 pub fn copy_files(_paths: &[PathBuf]) -> Result<(), String> {
     Err("Copying files to the clipboard is only implemented on Windows.".into())
 }
+
+#[cfg(not(windows))]
+pub fn copy_secret(_text: &str) -> Result<u32, String> {
+    Err("Copying is only implemented on Windows.".into())
+}
+
+#[cfg(not(windows))]
+pub fn clear_secret(_seq: u32) {}
 
 #[cfg(not(windows))]
 pub fn copy_image(_png: &[u8], _img: &image::RgbaImage) -> Result<(), String> {

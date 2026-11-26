@@ -22,6 +22,7 @@ import { StartPage } from "@/pages/StartPage";
 import { WishlistPage } from "@/pages/WishlistPage";
 import { FavoritesPage } from "@/pages/FavoritesPage";
 import { WallpaperHubPage } from "@/pages/WallpaperHubPage";
+import { NotesPage } from "@/pages/NotesPage";
 import { ArtistPage } from "@/pages/ArtistPage";
 import { MonthDetailPage } from "@/pages/MonthDetailPage";
 import { SettingsPage } from "@/pages/SettingsPage";
@@ -389,6 +390,7 @@ export default function App() {
               <Route path="/wishlist" element={<WishlistPage onLock={lockNow} />} />
               <Route path="/favorites" element={<FavoritesPage onLock={lockNow} />} />
               <Route path="/wallpapers" element={<WallpaperHubPage onLock={lockNow} />} />
+              <Route path="/notes" element={<NotesPage onLock={lockNow} />} />
               <Route path="/artist/:artistId" element={<ArtistPage onLock={lockNow} />} />
               <Route
                 path="/artist/:artistId/month/:monthId"

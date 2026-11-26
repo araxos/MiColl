@@ -584,6 +584,14 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_collection_items_path ON collection_items(file_path);
 
+        -- The user's own notes, sealed (notes.rs).
+        CREATE TABLE IF NOT EXISTS notes (
+            id         INTEGER PRIMARY KEY,
+            locked     INTEGER NOT NULL DEFAULT 0,
+            data       BLOB NOT NULL,
+            deleted_at INTEGER
+        );
+
         -- Wallpaper Hub: desktop slideshows over pictures of any creator (wallsets.rs).
         -- Pictures by absolute path like collections, so they survive re-indexing.
         CREATE TABLE IF NOT EXISTS wall_sets (
